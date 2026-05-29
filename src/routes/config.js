@@ -2,19 +2,22 @@ const router = require('express').Router();
 const db     = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 
+// Helper: obtiene empleadorId del token o lo busca en la base
+async function getEmpleadorId(req) {
+  if (req.user.empleadorId) return req.user.empleadorId;
+  const { rows: [u] } = await db.query(
+    'SELECT empleador_id FROM public.usuarios WHERE id = $1', [req.user.id]
+  );
+  return u?.empleador_id || null;
+}
+
 // ════════════════════════════════════════════════════════════════
 // EMPLEADOR
 // ════════════════════════════════════════════════════════════════
 
 router.get('/empleador', auth, async (req, res) => {
   try {
-    let empleadorId = req.user.empleadorId;
-    if (!empleadorId) {
-      const { rows: [u] } = await db.query(
-        'SELECT empleador_id FROM public.usuarios WHERE id = $1', [req.user.id]
-      );
-      empleadorId = u?.empleador_id;
-    }
+    const empleadorId = await getEmpleadorId(req);
     const { rows: [emp] } = await db.query(
       'SELECT * FROM public.empleadores WHERE id = $1', [empleadorId]
     );
@@ -32,13 +35,7 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
   } = req.body;
 
   try {
-    let empleadorId = req.user.empleadorId;
-    if (!empleadorId) {
-      const { rows: [u] } = await db.query(
-        'SELECT empleador_id FROM public.usuarios WHERE id = $1', [req.user.id]
-      );
-      empleadorId = u?.empleador_id;
-    }
+    const empleadorId = await getEmpleadorId(req);
     if (!empleadorId) return res.status(400).json({ error: 'Sin empleador asignado' });
 
     const { rows: [emp] } = await db.query(`
@@ -86,6 +83,7 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
 
 router.get('/empleados', auth, soloAdmin, async (req, res) => {
   try {
+    const empleadorId = await getEmpleadorId(req);
     const { rows } = await db.query(`
       SELECT e.*, u.email, u.activo as usuario_activo,
         jc.modalidad, jc.hora_ingreso, jc.hora_egreso,
@@ -97,7 +95,7 @@ router.get('/empleados', auth, soloAdmin, async (req, res) => {
       JOIN public.empleadores emp ON emp.id = e.empleador_id
       WHERE e.empleador_id = $1
       ORDER BY e.apellido, e.nombre
-    `, [req.user.empleadorId]);
+    `, [empleadorId]);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
@@ -107,13 +105,14 @@ router.get('/empleados/:id', auth, async (req, res) => {
     return res.status(403).json({ error: 'Acceso denegado' });
 
   try {
+    const empleadorId = await getEmpleadorId(req);
     const { rows: [e] } = await db.query(`
       SELECT e.*, u.email, jc.*
       FROM public.empleados e
       JOIN public.usuarios u ON u.id = e.usuario_id
       LEFT JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
       WHERE e.id = $1 AND e.empleador_id = $2
-    `, [req.params.id, req.user.empleadorId]);
+    `, [req.params.id, empleadorId]);
     if (!e) return res.status(404).json({ error: 'No encontrado' });
     res.json(e);
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
@@ -132,6 +131,7 @@ router.patch('/empleados/:id', auth, async (req, res) => {
   } = req.body;
 
   try {
+    const empleadorId = await getEmpleadorId(req);
     let setClauses = ['actualizado_en = NOW()'];
     const params   = [];
 
@@ -165,7 +165,7 @@ router.patch('/empleados/:id', auth, async (req, res) => {
     addField('domicilio_lat', domicilio_lat);
     addField('domicilio_lng', domicilio_lng);
 
-    params.push(req.params.id, req.user.empleadorId);
+    params.push(req.params.id, empleadorId);
     const { rows: [e] } = await db.query(`
       UPDATE public.empleados SET ${setClauses.join(', ')}
       WHERE id = $${params.length - 1} AND empleador_id = $${params.length}
@@ -194,6 +194,7 @@ router.post('/jornada', auth, soloAdmin, async (req, res) => {
   } = req.body;
 
   try {
+    const empleadorId = await getEmpleadorId(req);
     const { rows: [jc] } = await db.query(`
       INSERT INTO public.jornadas_config (
         modalidad, hora_ingreso, hora_egreso, incluye_almuerzo,
@@ -214,7 +215,7 @@ router.post('/jornada', auth, soloAdmin, async (req, res) => {
     if (empleado_id) {
       await db.query(
         'UPDATE public.empleados SET jornada_config_id = $1 WHERE id = $2 AND empleador_id = $3',
-        [jc.id, empleado_id, req.user.empleadorId]
+        [jc.id, empleado_id, empleadorId]
       );
     }
 
@@ -231,6 +232,7 @@ router.post('/jornada', auth, soloAdmin, async (req, res) => {
 
 router.get('/categorias-salida', auth, async (req, res) => {
   try {
+    const empleadorId = await getEmpleadorId(req);
     let sectorFiltro = req.query.sector;
     if (req.user.rol === 'empleado' && !sectorFiltro) {
       const { rows: [emp] } = await db.query(
@@ -240,7 +242,7 @@ router.get('/categorias-salida', auth, async (req, res) => {
     }
 
     let where = 'WHERE empleador_id = $1 AND activo = TRUE';
-    const params = [req.user.empleadorId];
+    const params = [empleadorId];
     if (sectorFiltro) {
       params.push(sectorFiltro);
       where += ` AND (sector = $${params.length} OR sector = 'todos')`;
@@ -256,11 +258,12 @@ router.get('/categorias-salida', auth, async (req, res) => {
 router.post('/categorias-salida', auth, soloAdmin, async (req, res) => {
   const { sector, nombre, descripcion, requiere_destino, orden } = req.body;
   try {
+    const empleadorId = await getEmpleadorId(req);
     const { rows: [cat] } = await db.query(`
       INSERT INTO public.categorias_salida
         (empleador_id, sector, nombre, descripcion, requiere_destino, orden)
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
-    `, [req.user.empleadorId, sector || 'todos', nombre, descripcion || null,
+    `, [empleadorId, sector || 'todos', nombre, descripcion || null,
         requiere_destino || false, orden || 0]);
     res.json(cat);
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
@@ -272,24 +275,26 @@ router.post('/categorias-salida', auth, soloAdmin, async (req, res) => {
 
 router.get('/destinos', auth, async (req, res) => {
   try {
+    const empleadorId = await getEmpleadorId(req);
     const { rows } = await db.query(
       'SELECT * FROM public.destinos_externos WHERE empleador_id = $1 AND activo = TRUE ORDER BY nombre',
-      [req.user.empleadorId]
+      [empleadorId]
     );
     res.json(rows);
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
 
 router.post('/destinos', auth, soloAdmin, async (req, res) => {
-  const { nombre, tipo, domicilio, localidad, lat, lng, radio_m, contacto, telefono } = req.body;
+  const { nombre, tipo, domicilio, localidad, provincia, pais, lat, lng, radio_m, contacto, telefono } = req.body;
   if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
   try {
+    const empleadorId = await getEmpleadorId(req);
     const { rows: [d] } = await db.query(`
       INSERT INTO public.destinos_externos
         (empleador_id, nombre, tipo, domicilio, localidad, lat, lng, radio_m, contacto, telefono)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
-    `, [req.user.empleadorId, nombre, tipo || 'cliente', domicilio || null,
-        localidad || null, lat || null, lng || null, radio_m || 300,
+    `, [empleadorId, nombre, tipo || 'cliente', domicilio || null,
+        localidad || null, lat || null, lng || null, radio_m || 200,
         contacto || null, telefono || null]);
     res.json(d);
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
@@ -367,16 +372,17 @@ router.post('/convenios', auth, soloAdmin, async (req, res) => {
 
 router.get('/dashboard', auth, soloAdmin, async (req, res) => {
   try {
+    const empleadorId = await getEmpleadorId(req);
     const [estado, pendientesRemoto, pendientesSolicitudes, pendientesAusencias] =
       await Promise.all([
-        db.query('SELECT * FROM public.v_estado_empleados WHERE empleador_id = $1', [req.user.empleadorId]),
+        db.query('SELECT * FROM public.v_estado_empleados WHERE empleador_id = $1', [empleadorId]),
         db.query(`
           SELECT m.*, e.nombre, e.apellido FROM public.movimientos m
           JOIN public.empleados e ON e.id = m.empleado_id
           WHERE m.empleador_id = $1 AND m.es_remoto = TRUE AND m.validado = FALSE
             AND m.hora >= NOW() - INTERVAL '48 hours'
           ORDER BY m.hora DESC
-        `, [req.user.empleadorId]),
+        `, [empleadorId]),
         db.query(`
           SELECT s.*, e.nombre, e.apellido, cs.nombre as categoria_nombre
           FROM public.solicitudes_externas s
@@ -384,14 +390,14 @@ router.get('/dashboard', auth, soloAdmin, async (req, res) => {
           LEFT JOIN public.categorias_salida cs ON cs.id = s.categoria_salida_id
           WHERE s.empleador_id = $1 AND s.estado = 'pendiente'
           ORDER BY s.hora_solicitud DESC
-        `, [req.user.empleadorId]),
+        `, [empleadorId]),
         db.query(`
           SELECT a.*, e.nombre, e.apellido
           FROM public.ausencias a
           JOIN public.empleados e ON e.id = a.empleado_id
           WHERE a.empleador_id = $1 AND a.estado = 'pendiente'
           ORDER BY a.creado_en DESC
-        `, [req.user.empleadorId]),
+        `, [empleadorId]),
       ]);
 
     res.json({
