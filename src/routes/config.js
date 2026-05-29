@@ -8,8 +8,15 @@ const { auth, soloAdmin } = require('../middleware/auth');
 
 router.get('/empleador', auth, async (req, res) => {
   try {
+    let empleadorId = req.user.empleadorId;
+    if (!empleadorId) {
+      const { rows: [u] } = await db.query(
+        'SELECT empleador_id FROM public.usuarios WHERE id = $1', [req.user.id]
+      );
+      empleadorId = u?.empleador_id;
+    }
     const { rows: [emp] } = await db.query(
-      'SELECT * FROM public.empleadores WHERE id = $1', [req.user.empleadorId]
+      'SELECT * FROM public.empleadores WHERE id = $1', [empleadorId]
     );
     res.json(emp);
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
@@ -25,6 +32,15 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
   } = req.body;
 
   try {
+    let empleadorId = req.user.empleadorId;
+    if (!empleadorId) {
+      const { rows: [u] } = await db.query(
+        'SELECT empleador_id FROM public.usuarios WHERE id = $1', [req.user.id]
+      );
+      empleadorId = u?.empleador_id;
+    }
+    if (!empleadorId) return res.status(400).json({ error: 'Sin empleador asignado' });
+
     const { rows: [emp] } = await db.query(`
       UPDATE public.empleadores SET
         razon_social       = COALESCE($1,  razon_social),
@@ -55,9 +71,9 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
       logo_url, color_primario, color_secundario, nombre_sistema,
       oficina_lat, oficina_lng, oficina_radio_m,
       emails_admin, convenio_id,
-      req.user.empleadorId,
+      empleadorId,
     ]);
-    res.json(emp);
+    res.json(emp || {});
   } catch (err) {
     console.error('[CFG] Empleador patch error:', err.message);
     res.status(500).json({ error: 'Error interno' });
@@ -87,7 +103,6 @@ router.get('/empleados', auth, soloAdmin, async (req, res) => {
 });
 
 router.get('/empleados/:id', auth, async (req, res) => {
-  // El empleado solo puede ver su propio perfil
   if (req.user.rol === 'empleado' && req.user.empleadoId != req.params.id)
     return res.status(403).json({ error: 'Acceso denegado' });
 
@@ -110,10 +125,8 @@ router.patch('/empleados/:id', auth, async (req, res) => {
   if (!esAdmin && !esPropioEmpleado) return res.status(403).json({ error: 'Acceso denegado' });
 
   const {
-    // Admin puede cambiar:
     legajo, categoria, sector, fecha_ingreso, salario_base, tipo_contrato,
     jornada_config_id, activo,
-    // Empleado puede cambiar:
     nombre, apellido, dni, cuil, domicilio, localidad, provincia, telefono,
     foto_perfil_url, domicilio_lat, domicilio_lng,
   } = req.body;
@@ -129,7 +142,6 @@ router.patch('/empleados/:id', auth, async (req, res) => {
       }
     };
 
-    // Solo admin puede cambiar datos laborales
     if (esAdmin) {
       addField('legajo', legajo);
       addField('categoria', categoria);
@@ -141,7 +153,6 @@ router.patch('/empleados/:id', auth, async (req, res) => {
       addField('activo', activo);
     }
 
-    // Cualquiera puede actualizar datos personales
     addField('nombre', nombre);
     addField('apellido', apellido);
     addField('dni', dni);
@@ -200,7 +211,6 @@ router.post('/jornada', auth, soloAdmin, async (req, res) => {
       dias_laborables || [1,2,3,4,5,6], horas_diarias_objetivo || 8,
     ]);
 
-    // Asignar al empleado si se especifica
     if (empleado_id) {
       await db.query(
         'UPDATE public.empleados SET jornada_config_id = $1 WHERE id = $2 AND empleador_id = $3',
@@ -221,7 +231,6 @@ router.post('/jornada', auth, soloAdmin, async (req, res) => {
 
 router.get('/categorias-salida', auth, async (req, res) => {
   try {
-    // Filtrar por sector del empleado si corresponde
     let sectorFiltro = req.query.sector;
     if (req.user.rol === 'empleado' && !sectorFiltro) {
       const { rows: [emp] } = await db.query(
