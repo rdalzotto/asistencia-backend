@@ -119,11 +119,11 @@ router.post('/invitar', auth, soloAdmin, async (req, res) => {
       fecha_ingreso, salario_base || null, tipo_contrato || 'tiempo_indeterminado'
     ]);
 
-    // Crear token de invitación
+    // Crear token de invitación (expira en 48 horas)
     const token = crypto.randomBytes(32).toString('hex');
     await client.query(`
-      INSERT INTO public.invitaciones (empleador_id, email, token)
-      VALUES ($1,$2,$3)
+      INSERT INTO public.invitaciones (empleador_id, email, token, expira_en)
+      VALUES ($1,$2,$3, NOW() + INTERVAL '48 hours')
     `, [req.user.empleadorId, email.toLowerCase().trim(), token]);
 
     await client.query('COMMIT');
