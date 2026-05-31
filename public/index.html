@@ -724,6 +724,10 @@ body {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
       <span>Recursos</span>
     </button>
+    <button class="nav-item" onclick="navEmpleado('visitas',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <span>Visitas</span>
+    </button>
   </nav>
 </div>
 
@@ -749,6 +753,7 @@ body {
       <button class="tab" onclick="tabAdmin('pendientes',this)">Pendientes</button>
       <button class="tab" onclick="tabAdmin('reportes',this)">Reportes</button>
       <button class="tab" onclick="tabAdmin('recursos',this)">Recursos</button>
+      <button class="tab" onclick="tabAdmin('visitas',this)">Visitas</button>
     </div>
 
     <!-- DASHBOARD -->
@@ -1024,6 +1029,167 @@ body {
       </div>
     </div>
   </div>
+
+  <!-- MODAL: Nueva visita / editar visita -->
+  <div class="modal-overlay" id="modal-nueva-visita">
+    <div class="modal" style="max-height:90vh;overflow-y:auto">
+      <div class="modal-handle"></div>
+      <div class="modal-title" id="modal-visita-titulo">Programar visita</div>
+
+      <!-- Para admin: selector de empleado -->
+      <div class="form-group" id="grupo-empleado-visita" style="display:none">
+        <label>Empleado</label>
+        <select id="vis-empleado-id"></select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Fecha</label>
+          <input type="date" id="vis-fecha">
+        </div>
+        <div class="form-group">
+          <label>Hora estimada de salida</label>
+          <input type="time" id="vis-hora-salida">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Sale desde</label>
+        <select id="vis-origen" onchange="toggleOrigenVisita()">
+          <option value="oficina">🏢 Oficina</option>
+          <option value="domicilio">🏠 Domicilio</option>
+        </select>
+      </div>
+
+      <!-- Clientes a visitar -->
+      <div class="form-group">
+        <label>Clientes a visitar (en orden)</label>
+        <div id="vis-destinos-lista" style="margin-bottom:8px"></div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
+          <input type="text" id="vis-dest-nombre" placeholder="Nombre del cliente *" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
+          <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
+          <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
+          <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar cliente</button>
+        </div>
+      </div>
+
+      <!-- Recursos necesarios -->
+      <div class="form-group">
+        <label>Recursos necesarios (opcional)</label>
+        <div id="vis-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;max-height:120px;overflow-y:auto">
+          <p style="color:var(--text3);font-size:13px">Cargando recursos...</p>
+        </div>
+      </div>
+
+      <!-- Km y viático estimado -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label>Km estimados</label>
+          <input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>Viático estimado $</label>
+          <input type="number" id="vis-viatico-est" placeholder="0" min="0">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Observaciones</label>
+        <textarea id="vis-obs" placeholder="Notas adicionales..."></textarea>
+      </div>
+
+      <input type="hidden" id="vis-edit-id">
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-nueva-visita')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarVisita()">Guardar visita</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Rendición de gastos de visita -->
+  <div class="modal-overlay" id="modal-rendir-visita">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Rendir gastos del viaje</div>
+      <div id="rendir-destinos-lista" style="margin-bottom:12px"></div>
+      <div class="form-group">
+        <label>Km reales recorridos</label>
+        <input type="number" id="rendir-km" placeholder="0" min="0" step="0.1">
+      </div>
+      <div class="form-group">
+        <label>Total gastado $</label>
+        <input type="number" id="rendir-viatico" placeholder="0" min="0">
+      </div>
+      <div class="form-group">
+        <label>Descripción del gasto</label>
+        <input type="text" id="rendir-desc" placeholder="Combustible, peaje, comida...">
+      </div>
+      <div class="form-group">
+        <label>Foto comprobante (opcional)</label>
+        <input type="file" id="rendir-foto" accept="image/*" style="color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;width:100%">
+      </div>
+      <input type="hidden" id="rendir-visita-id">
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-rendir-visita')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarRendicion()">Guardar rendición</button>
+      </div>
+    </div>
+  </div>
+
+    <!-- VISITAS -->
+    <div class="section" id="tab-visitas">
+
+      <!-- Filtros -->
+      <div class="card" style="padding:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end">
+          <div class="form-group" style="margin:0">
+            <label>Desde</label>
+            <input type="date" id="vis-filtro-desde">
+          </div>
+          <div class="form-group" style="margin:0">
+            <label>Hasta</label>
+            <input type="date" id="vis-filtro-hasta">
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="cargarVisitasAdmin()">Buscar</button>
+        </div>
+        <div class="form-group" style="margin-top:10px;margin-bottom:0">
+          <label>Empleado</label>
+          <select id="vis-filtro-empleado">
+            <option value="">Todos</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Resumen del mes -->
+      <div class="card" id="card-resumen-visitas">
+        <div class="card-title">📊 Resumen del período</div>
+        <div id="resumen-visitas-content" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center">
+          <div><div style="font-size:22px;font-weight:700;color:var(--accent)" id="vis-total-visitas">0</div><div style="font-size:11px;color:var(--text2)">Visitas</div></div>
+          <div><div style="font-size:22px;font-weight:700;color:var(--green)" id="vis-total-km">0</div><div style="font-size:11px;color:var(--text2)">Km totales</div></div>
+          <div><div style="font-size:22px;font-weight:700;color:var(--yellow)" id="vis-total-viaticos">$0</div><div style="font-size:11px;color:var(--text2)">Viáticos</div></div>
+        </div>
+      </div>
+
+      <!-- Botón nueva visita (admin puede crear para cualquier empleado) -->
+      <button class="btn btn-primary" style="margin-bottom:16px" onclick="abrirModalNuevaVisita()">+ Programar visita</button>
+
+      <!-- Lista de visitas -->
+      <div id="lista-visitas-admin">
+        <p style="color:var(--text3);text-align:center;padding:16px">Seleccioná un período para ver las visitas</p>
+      </div>
+
+      <!-- Comparativa por destino -->
+      <div class="card" style="margin-top:8px">
+        <div class="card-title">📍 Comparativa por destino</div>
+        <div style="display:flex;gap:10px;margin-bottom:12px">
+          <button class="btn btn-secondary btn-sm" onclick="cargarReporteVisitas()">Ver comparativa</button>
+        </div>
+        <div id="reporte-visitas-content">
+          <p style="color:var(--text3);font-size:13px;text-align:center">Hacé clic en "Ver comparativa" para cargar</p>
+        </div>
+      </div>
+
+    </div>
 
     <!-- REPORTES -->
     <div class="section" id="tab-reportes">
@@ -1304,6 +1470,25 @@ body {
   </div>
 </div>
 
+<div class="modal-overlay" id="panel-visitas-emp">
+  <div class="modal" style="max-height:90vh">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div class="modal-title" style="margin:0">Mis visitas</div>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalNuevaVisitaEmp()">+ Nueva</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input type="date" id="vis-emp-desde" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-family:var(--font)">
+      <input type="date" id="vis-emp-hasta" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-family:var(--font)">
+      <button class="btn btn-secondary btn-sm" onclick="cargarMisVisitas()">Ver</button>
+    </div>
+    <div id="lista-mis-visitas">
+      <p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Seleccioná un período</p>
+    </div>
+    <button class="btn btn-secondary" onclick="cerrarModal('panel-visitas-emp')" style="margin-top:16px">Cerrar</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="panel-historial">
   <div class="modal" style="max-height:90vh">
     <div class="modal-handle"></div>
@@ -1335,7 +1520,9 @@ body {
 // ══════════════════════════════════════════════════════════════
 // CONFIGURACIÓN
 // ══════════════════════════════════════════════════════════════
-const API = 'https://asistencia-backend-production-a5b9.up.railway.app/api';
+const API = window.location.hostname === 'localhost' || window.location.hostname.includes('railway.app')
+  ? '/api'
+  : 'https://asistencia-backend-production-a5b9.up.railway.app/api';
 
 // ══════════════════════════════════════════════════════════════
 // ESTADO GLOBAL
@@ -2262,6 +2449,7 @@ function tabAdmin(id, el) {
   document.querySelectorAll('.tabs .tab').forEach(t => { if (t.getAttribute('onclick')?.includes(id)) t.classList.add('active'); else t.classList.remove('active'); });
   if (id === 'config') abrirPanelConfig();
   if (id === 'recursos') cargarTabRecursos();
+  if (id === 'visitas') cargarTabVisitas();
 }
 
 function tabPendientes(id, el) {
@@ -2968,6 +3156,322 @@ async function navEmpleadoRecursos() {
 
 // ── Cargar Recursos cuando se activa el tab ───────────────────
 // (integrado en tabAdmin original arriba — no redefinir aquí)
+
+// ══════════════════════════════════════════════════════════════
+// VISITAS — planificación, seguimiento y rendición
+// ══════════════════════════════════════════════════════════════
+
+let visDestinos = [];
+
+// ── Tab visitas admin ─────────────────────────────────────────
+async function cargarTabVisitas() {
+  const hoy = new Date().toISOString().split('T')[0];
+  const primerDiaMes = hoy.slice(0,8) + '01';
+  document.getElementById('vis-filtro-desde').value = primerDiaMes;
+  document.getElementById('vis-filtro-hasta').value = hoy;
+  // Poblar selector de empleados
+  try {
+    const emps = await api('/config/empleados');
+    const sel = document.getElementById('vis-filtro-empleado');
+    sel.innerHTML = '<option value="">Todos</option>' +
+      emps.map(e => `<option value="${e.id}">${e.nombre} ${e.apellido}</option>`).join('');
+  } catch {}
+  await cargarVisitasAdmin();
+}
+
+async function cargarVisitasAdmin() {
+  const desde = document.getElementById('vis-filtro-desde').value;
+  const hasta = document.getElementById('vis-filtro-hasta').value;
+  const empId = document.getElementById('vis-filtro-empleado').value;
+  const cont  = document.getElementById('lista-visitas-admin');
+  cont.innerHTML = '<p style="color:var(--text3);text-align:center;padding:16px">Cargando...</p>';
+  try {
+    let url = `/visitas?desde=${desde}&hasta=${hasta}`;
+    if (empId) url += `&empleado_id=${empId}`;
+    const visitas = await api(url);
+    // Actualizar resumen
+    const totalKm  = visitas.reduce((s, v) => s + parseFloat(v.km_reales||v.km_estimados||0), 0);
+    const totalVia = visitas.reduce((s, v) => s + parseFloat(v.viatico_real||v.viatico_estimado||0), 0);
+    document.getElementById('vis-total-visitas').textContent = visitas.length;
+    document.getElementById('vis-total-km').textContent = totalKm.toFixed(1);
+    document.getElementById('vis-total-viaticos').textContent = '$' + totalVia.toFixed(0);
+    if (!visitas.length) {
+      cont.innerHTML = '<p style="color:var(--text3);text-align:center;padding:16px">Sin visitas en el período</p>';
+      return;
+    }
+    cont.innerHTML = visitas.map(v => renderTarjetaVisita(v, true)).join('');
+  } catch (e) {
+    cont.innerHTML = '<p style="color:var(--red);text-align:center;padding:16px">Error cargando visitas</p>';
+  }
+}
+
+function renderTarjetaVisita(v, esAdmin) {
+  const colores = { programada: 'var(--accent)', en_curso: 'var(--green)', completada: 'var(--text3)', cancelada: 'var(--red)' };
+  const labels  = { programada: 'Programada', en_curso: 'En curso', completada: 'Completada', cancelada: 'Cancelada' };
+  const destinos = v.destinos || [];
+  const recursos = v.recursos || [];
+  const gastos   = v.gastos   || [];
+  const totalGastos = gastos.reduce((s, g) => s + parseFloat(g.monto||0), 0);
+  return `
+    <div class="card" style="margin-bottom:12px;border-left:3px solid ${colores[v.estado]||'var(--border)'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:600">${v.fecha} ${v.hora_estimada_salida ? '· ' + String(v.hora_estimada_salida).slice(0,5) : ''}</div>
+          ${esAdmin ? `<div style="font-size:12px;color:var(--accent)">👤 ${v.emp_nombre} ${v.emp_apellido}</div>` : ''}
+          <div style="font-size:12px;color:var(--text2)">Sale desde: ${v.origen === 'domicilio' ? '🏠 Domicilio' : '🏢 Oficina'}</div>
+        </div>
+        <span style="font-size:11px;font-weight:600;color:${colores[v.estado]||'var(--text3)'}">● ${labels[v.estado]||v.estado}</span>
+      </div>
+      <!-- Destinos -->
+      <div style="margin-bottom:8px">
+        ${destinos.map((d,i) => `
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;${d.completado?'color:var(--text3);text-decoration:line-through':''}">
+            <span style="color:var(--accent);font-weight:700">${i+1}.</span>
+            <span>${d.cliente_nombre}${d.domicilio ? ' — ' + d.domicilio : ''}${d.motivo ? ' · ' + d.motivo : ''}</span>
+            ${!d.completado && !esAdmin ? `<button onclick="marcarDestinoCompletado(${d.id},${v.id})" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:14px;margin-left:auto">✓</button>` : ''}
+          </div>
+        `).join('')}
+      </div>
+      <!-- Recursos -->
+      ${recursos.length ? `<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 ${recursos.map(r=>r.nombre).join(', ')}</div>` : ''}
+      <!-- Km y viáticos -->
+      <div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">
+        ${v.km_estimados ? `<span>🛣 Est: ${v.km_estimados} km</span>` : ''}
+        ${v.km_reales ? `<span style="color:var(--green)">🛣 Real: ${v.km_reales} km</span>` : ''}
+        ${v.viatico_estimado ? `<span>💵 Est: $${v.viatico_estimado}</span>` : ''}
+        ${totalGastos ? `<span style="color:var(--green)">💵 Real: $${totalGastos.toFixed(0)}</span>` : ''}
+      </div>
+      <!-- Acciones -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${v.estado === 'programada' ? `<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita(${v.id},'en_curso')">▶ Iniciar</button>` : ''}
+        ${v.estado === 'en_curso' ? `<button class="btn btn-sm btn-success" onclick="abrirRendicion(${v.id},${JSON.stringify(destinos).replace(/"/g,'&quot;')})">✓ Rendir</button>` : ''}
+        ${v.estado !== 'completada' && v.estado !== 'cancelada' ? `<button class="btn btn-sm btn-secondary" onclick="editarVisita(${v.id})">✏ Editar</button>` : ''}
+        ${esAdmin && v.estado !== 'completada' ? `<button class="btn btn-sm btn-danger" onclick="cancelarVisita(${v.id})">✕ Cancelar</button>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function cargarReporteVisitas() {
+  const desde = document.getElementById('vis-filtro-desde').value;
+  const hasta = document.getElementById('vis-filtro-hasta').value;
+  const cont  = document.getElementById('reporte-visitas-content');
+  cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center">Cargando...</p>';
+  try {
+    const data = await api(`/visitas/reporte?desde=${desde}&hasta=${hasta}`);
+    if (!data.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center">Sin datos en el período</p>'; return; }
+    cont.innerHTML = data.map(d => `
+      <div style="padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px">
+        <div style="font-size:13px;font-weight:600">📍 ${d.cliente_nombre}</div>
+        <div style="font-size:12px;color:var(--text2);margin:4px 0">
+          ${d.cantidad_visitas} visitas · ${d.empleados_distintos} empleados · ${d.km_promedio||0} km prom · $${d.viatico_promedio||0} prom
+        </div>
+        <div style="font-size:12px;color:var(--yellow);font-weight:600">Total gastado: $${d.viatico_total||0}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    cont.innerHTML = '<p style="color:var(--red);font-size:13px;text-align:center">Error cargando reporte</p>';
+  }
+}
+
+// ── Modal nueva visita (admin) ────────────────────────────────
+async function abrirModalNuevaVisita() {
+  visDestinos = [];
+  document.getElementById('vis-edit-id').value = '';
+  document.getElementById('modal-visita-titulo').textContent = 'Programar visita';
+  document.getElementById('vis-fecha').value = new Date().toISOString().split('T')[0];
+  document.getElementById('vis-hora-salida').value = '';
+  document.getElementById('vis-origen').value = 'oficina';
+  document.getElementById('vis-km-est').value = '';
+  document.getElementById('vis-viatico-est').value = '';
+  document.getElementById('vis-obs').value = '';
+  renderizarDestinosVisita();
+  // Selector de empleados para admin
+  document.getElementById('grupo-empleado-visita').style.display = 'block';
+  try {
+    const emps = await api('/config/empleados');
+    document.getElementById('vis-empleado-id').innerHTML =
+      emps.map(e => `<option value="${e.id}">${e.nombre} ${e.apellido}</option>`).join('');
+  } catch {}
+  await cargarCheckboxRecursos('vis-recursos-checks');
+  abrirModal('modal-nueva-visita');
+}
+
+// ── Modal nueva visita (empleado) ─────────────────────────────
+async function abrirModalNuevaVisitaEmp() {
+  visDestinos = [];
+  document.getElementById('vis-edit-id').value = '';
+  document.getElementById('modal-visita-titulo').textContent = 'Programar visita';
+  document.getElementById('vis-fecha').value = new Date().toISOString().split('T')[0];
+  document.getElementById('vis-hora-salida').value = '';
+  document.getElementById('vis-origen').value = 'oficina';
+  document.getElementById('vis-km-est').value = '';
+  document.getElementById('vis-viatico-est').value = '';
+  document.getElementById('vis-obs').value = '';
+  document.getElementById('grupo-empleado-visita').style.display = 'none';
+  renderizarDestinosVisita();
+  await cargarCheckboxRecursos('vis-recursos-checks');
+  abrirModal('modal-nueva-visita');
+}
+
+function agregarDestinoVisita() {
+  const nombre = document.getElementById('vis-dest-nombre').value.trim();
+  if (!nombre) { toast('Escribí el nombre del cliente', 'error'); return; }
+  visDestinos.push({
+    cliente_nombre: nombre,
+    domicilio: document.getElementById('vis-dest-domicilio').value.trim(),
+    motivo:    document.getElementById('vis-dest-motivo').value.trim(),
+  });
+  document.getElementById('vis-dest-nombre').value = '';
+  document.getElementById('vis-dest-domicilio').value = '';
+  document.getElementById('vis-dest-motivo').value = '';
+  renderizarDestinosVisita();
+}
+
+function quitarDestinoVisita(idx) {
+  visDestinos.splice(idx, 1);
+  renderizarDestinosVisita();
+}
+
+function renderizarDestinosVisita() {
+  const cont = document.getElementById('vis-destinos-lista');
+  if (!visDestinos.length) { cont.innerHTML = ''; return; }
+  cont.innerHTML = visDestinos.map((d, i) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:6px">
+      <div>
+        <div style="font-size:13px;font-weight:600">${i+1}. ${d.cliente_nombre}</div>
+        ${d.domicilio ? `<div style="font-size:11px;color:var(--text2)">${d.domicilio}</div>` : ''}
+        ${d.motivo ? `<div style="font-size:11px;color:var(--text3)">${d.motivo}</div>` : ''}
+      </div>
+      <button onclick="quitarDestinoVisita(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px">✕</button>
+    </div>
+  `).join('');
+}
+
+async function guardarVisita() {
+  if (!visDestinos.length) { toast('Agregá al menos un cliente', 'error'); return; }
+  const fecha = document.getElementById('vis-fecha').value;
+  if (!fecha) { toast('Seleccioná una fecha', 'error'); return; }
+  const recursosIds = getCheckboxSeleccionados('vis-recursos-checks');
+  const editId = document.getElementById('vis-edit-id').value;
+  const empId  = document.getElementById('vis-empleado-id')?.value || null;
+  try {
+    const body = {
+      fecha,
+      hora_estimada_salida: document.getElementById('vis-hora-salida').value || null,
+      origen:        document.getElementById('vis-origen').value,
+      km_estimados:  parseFloat(document.getElementById('vis-km-est').value) || 0,
+      viatico_estimado: parseFloat(document.getElementById('vis-viatico-est').value) || 0,
+      observaciones: document.getElementById('vis-obs').value.trim(),
+      destinos:      visDestinos,
+      recursos_ids:  recursosIds,
+      empleado_id:   empId,
+    };
+    if (editId) {
+      await api('/visitas/' + editId, { method: 'PATCH', body: JSON.stringify(body) });
+      toast('Visita actualizada ✓', 'success');
+    } else {
+      await api('/visitas', { method: 'POST', body: JSON.stringify(body) });
+      toast('Visita programada ✓', 'success');
+    }
+    cerrarModal('modal-nueva-visita');
+    visDestinos = [];
+    if (STATE.rol === 'admin') await cargarVisitasAdmin();
+    else await cargarMisVisitas();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function cambiarEstadoVisita(id, estado) {
+  try {
+    await api('/visitas/' + id, { method: 'PATCH', body: JSON.stringify({ estado }) });
+    toast(estado === 'en_curso' ? 'Visita iniciada ✓' : 'Estado actualizado ✓', 'success');
+    if (STATE.rol === 'admin') await cargarVisitasAdmin();
+    else await cargarMisVisitas();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function cancelarVisita(id) {
+  try {
+    await api('/visitas/' + id, { method: 'PATCH', body: JSON.stringify({ estado: 'cancelada' }) });
+    toast('Visita cancelada', 'info');
+    await cargarVisitasAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function marcarDestinoCompletado(destinoId, visitaId) {
+  try {
+    await api(`/visitas/${visitaId}/destinos/${destinoId}`, { method: 'PATCH', body: JSON.stringify({ completado: true }) });
+    await cargarMisVisitas();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Rendición de gastos ───────────────────────────────────────
+function abrirRendicion(visitaId, destinos) {
+  document.getElementById('rendir-visita-id').value = visitaId;
+  document.getElementById('rendir-km').value = '';
+  document.getElementById('rendir-viatico').value = '';
+  document.getElementById('rendir-desc').value = '';
+  const cont = document.getElementById('rendir-destinos-lista');
+  cont.innerHTML = destinos.map((d,i) => `
+    <div style="font-size:12px;color:var(--text2);padding:3px 0">${i+1}. ${d.cliente_nombre}</div>
+  `).join('');
+  abrirModal('modal-rendir-visita');
+}
+
+async function guardarRendicion() {
+  const visitaId = document.getElementById('rendir-visita-id').value;
+  const km       = parseFloat(document.getElementById('rendir-km').value) || 0;
+  const monto    = parseFloat(document.getElementById('rendir-viatico').value) || 0;
+  const desc     = document.getElementById('rendir-desc').value.trim();
+  if (!monto)    { toast('Ingresá el monto gastado', 'error'); return; }
+  if (!desc)     { toast('Ingresá una descripción del gasto', 'error'); return; }
+  const file = document.getElementById('rendir-foto').files[0];
+  let fotoBase64 = null;
+  if (file) {
+    fotoBase64 = await new Promise(res => {
+      const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(file);
+    });
+  }
+  try {
+    await api('/visitas/' + visitaId, { method: 'PATCH', body: JSON.stringify({ km_reales: km, viatico_real: monto, estado: 'completada' }) });
+    await api('/visitas/' + visitaId + '/gastos', { method: 'POST', body: JSON.stringify({ descripcion: desc, monto, foto_comprobante: fotoBase64 }) });
+    cerrarModal('modal-rendir-visita');
+    toast('Rendición guardada ✓', 'success');
+    if (STATE.rol === 'admin') await cargarVisitasAdmin();
+    else await cargarMisVisitas();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── Visitas del empleado ──────────────────────────────────────
+async function cargarMisVisitas() {
+  const desde = document.getElementById('vis-emp-desde').value;
+  const hasta = document.getElementById('vis-emp-hasta').value;
+  const cont  = document.getElementById('lista-mis-visitas');
+  if (!desde) { cont.innerHTML = '<p style="color:var(--text3);font-size:14px;text-align:center">Seleccioná un período</p>'; return; }
+  cont.innerHTML = '<p style="color:var(--text3);text-align:center">Cargando...</p>';
+  try {
+    const visitas = await api(`/visitas?desde=${desde}&hasta=${hasta||desde}`);
+    if (!visitas.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Sin visitas en el período</p>'; return; }
+    cont.innerHTML = visitas.map(v => renderTarjetaVisita(v, false)).join('');
+  } catch { cont.innerHTML = '<p style="color:var(--red);font-size:13px;text-align:center">Error cargando</p>'; }
+}
+
+// ── Integración con navEmpleado ───────────────────────────────
+const _navEmpleadoOrig = navEmpleado;
+function navEmpleado(sec, el) {
+  if (sec === 'visitas') {
+    document.querySelectorAll('#nav-empleado .nav-item').forEach(i => i.classList.remove('active'));
+    if (el) el.classList.add('active');
+    const hoy = new Date().toISOString().split('T')[0];
+    const primerDia = hoy.slice(0,8) + '01';
+    document.getElementById('vis-emp-desde').value = primerDia;
+    document.getElementById('vis-emp-hasta').value = hoy;
+    cargarMisVisitas();
+    abrirModal('panel-visitas-emp');
+  } else {
+    _navEmpleadoOrig(sec, el);
+  }
+}
 </script>
 
 <!-- OVERLAY ÉXITO POST-REGISTRO -->
