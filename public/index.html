@@ -3247,7 +3247,7 @@ function renderTarjetaVisita(v, esAdmin) {
         ${v.estado === 'programada' ? `<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita(${v.id},'en_curso')">▶ Iniciar</button>` : ''}
         ${v.estado === 'en_curso' ? `<button class="btn btn-sm btn-success" onclick="abrirRendicion(${v.id},${JSON.stringify(destinos).replace(/"/g,'&quot;')})">✓ Rendir</button>` : ''}
         ${v.estado !== 'completada' && v.estado !== 'cancelada' ? `<button class="btn btn-sm btn-secondary" onclick="editarVisita(${v.id})">✏ Editar</button>` : ''}
-        ${esAdmin && v.estado !== 'completada' ? `<button class="btn btn-sm btn-danger" onclick="cancelarVisita(${v.id})">✕ Cancelar</button>` : ''}
+        ${v.estado !== 'completada' && v.estado !== 'cancelada' ? `<button class="btn btn-sm btn-danger" onclick="cancelarVisita(${v.id})">✕ Cancelar</button>` : ''}
       </div>
     </div>
   `;
