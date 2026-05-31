@@ -3216,7 +3216,7 @@ function renderTarjetaVisita(v, esAdmin) {
     <div class="card" style="margin-bottom:12px;border-left:3px solid ${colores[v.estado]||'var(--border)'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
-          <div style="font-size:13px;font-weight:600">${v.fecha} ${v.hora_estimada_salida ? '· ' + String(v.hora_estimada_salida).slice(0,5) : ''}</div>
+          <div style="font-size:13px;font-weight:600">${new Date(v.fecha).toLocaleDateString('es-AR', {timeZone:'UTC'}) } ${v.hora_estimada_salida ? '· ' + String(v.hora_estimada_salida).slice(0,5) : ''}</div>
           ${esAdmin ? `<div style="font-size:12px;color:var(--accent)">👤 ${v.emp_nombre} ${v.emp_apellido}</div>` : ''}
           <div style="font-size:12px;color:var(--text2)">Sale desde: ${v.origen === 'domicilio' ? '🏠 Domicilio' : '🏢 Oficina'}</div>
         </div>
@@ -3539,4 +3539,3 @@ function cancelarCierreExito() {
 </script>
 </body>
 </html>
-HTMLEOF
