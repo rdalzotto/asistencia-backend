@@ -29,10 +29,11 @@ app.use('/api/licencias',      require('./routes/licencias'));
 app.use('/api/config',         require('./routes/config'));
 app.use('/api/reportes',       require('./routes/reportes'));
 app.use('/api/notificaciones', require('./routes/notificaciones'));
+app.use('/api/recursos',       require('./routes/recursos'));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '2.0.0' });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '2.1.0' });
 });
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
@@ -47,10 +48,8 @@ app.use((err, req, res, next) => {
 });
 
 // ─── Cierre automático de jornada ────────────────────────────────────────────
-// Se ejecuta todos los días a las 20:00 Argentina
 async function cierreAutomaticoJornadas() {
   try {
-    // Buscar empleados con ingreso hoy pero sin egreso
     const { rows } = await db.query(`
       SELECT DISTINCT m.empleado_id, m.empleador_id
       FROM public.movimientos m
@@ -65,7 +64,6 @@ async function cierreAutomaticoJornadas() {
     `);
 
     for (const row of rows) {
-      // Registrar egreso automático
       const crypto = require('crypto');
       const hash   = crypto.createHash('sha256')
         .update(JSON.stringify({ tipo: 'egreso_automatico', ...row, hora: new Date().toISOString() }))
@@ -77,7 +75,6 @@ async function cierreAutomaticoJornadas() {
         VALUES ($1,$2,'egreso',CURRENT_DATE,NOW(),TRUE,TRUE,$3)
       `, [row.empleado_id, row.empleador_id, hash]);
 
-      // Notificar al admin
       const { rows: [emp] } = await db.query(
         'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [row.empleado_id]
       );
@@ -94,13 +91,11 @@ async function cierreAutomaticoJornadas() {
   }
 }
 
-// Verificar si es momento de ejecutar el cierre (cada minuto)
 function iniciarCronCierre() {
   const HORA_CIERRE = parseInt(process.env.HORA_CIERRE_AUTO || '20', 10);
 
   setInterval(() => {
     const ahora  = new Date();
-    // Argentina UTC-3
     const horaAR = (ahora.getUTCHours() - 3 + 24) % 24;
     const minAR  = ahora.getUTCMinutes();
 
@@ -108,12 +103,12 @@ function iniciarCronCierre() {
       console.log(`[CRON] Ejecutando cierre automático de jornadas...`);
       cierreAutomaticoJornadas();
     }
-  }, 60 * 1000); // cada minuto
+  }, 60 * 1000);
 }
 
 // ─── Iniciar servidor ─────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 AsistenciaAR Backend v2.0 corriendo en puerto ${PORT}`);
+  console.log(`\n🚀 AsistenciaAR Backend v2.1 corriendo en puerto ${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/health\n`);
   iniciarCronCierre();
 });
