@@ -1066,9 +1066,17 @@ body {
         <label>Clientes a visitar (en orden)</label>
         <div id="vis-destinos-lista" style="margin-bottom:8px"></div>
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <input type="text" id="vis-dest-nombre" placeholder="Nombre del cliente *" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
-          <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
+          <!-- Buscador de empresas -->
+          <div style="position:relative;margin-bottom:8px">
+            <input type="text" id="vis-dest-buscar" placeholder="Buscar empresa cliente..." 
+              style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font)"
+              oninput="buscarEmpresaDestino(this.value)" autocomplete="off">
+            <div id="vis-dest-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:999;max-height:180px;overflow-y:auto;box-shadow:var(--shadow)"></div>
+          </div>
+          <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (se completa automático)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
           <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
+          <input type="hidden" id="vis-dest-nombre">
+          <input type="hidden" id="vis-dest-id">
           <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar cliente</button>
         </div>
       </div>
@@ -3295,6 +3303,7 @@ async function abrirModalNuevaVisita() {
       emps.map(e => `<option value="${e.id}">${e.nombre} ${e.apellido}</option>`).join('');
   } catch {}
   await cargarCheckboxRecursos('vis-recursos-checks');
+  await cargarDestinosCache();
   abrirModal('modal-nueva-visita');
 }
 
@@ -3312,20 +3321,66 @@ async function abrirModalNuevaVisitaEmp() {
   document.getElementById('grupo-empleado-visita').style.display = 'none';
   renderizarDestinosVisita();
   await cargarCheckboxRecursos('vis-recursos-checks');
+  await cargarDestinosCache();
   abrirModal('modal-nueva-visita');
 }
 
+// ── Buscador de empresas destino ──────────────────────────────
+let _destinosCache = [];
+
+async function cargarDestinosCache() {
+  if (_destinosCache.length) return;
+  try {
+    _destinosCache = await api('/config/destinos');
+  } catch { _destinosCache = []; }
+}
+
+async function buscarEmpresaDestino(query) {
+  await cargarDestinosCache();
+  const sug = document.getElementById('vis-dest-sugerencias');
+  if (!query.trim()) { sug.style.display = 'none'; return; }
+  const filtrados = _destinosCache.filter(d =>
+    d.nombre.toLowerCase().includes(query.toLowerCase()) ||
+    (d.localidad && d.localidad.toLowerCase().includes(query.toLowerCase()))
+  ).slice(0, 8);
+  if (!filtrados.length) { sug.style.display = 'none'; return; }
+  sug.style.display = 'block';
+  sug.innerHTML = filtrados.map(d => `
+    <div onclick="seleccionarEmpresa(${d.id},'${d.nombre.replace(/'/g,"\\'")}','${(d.domicilio||'').replace(/'/g,"\\'")}','${(d.localidad||'').replace(/'/g,"\\'")}','${(d.lat||'')}','${(d.lng||'')}')"
+      style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)"
+      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+      <div style="font-weight:600">${d.nombre}</div>
+      ${d.domicilio || d.localidad ? `<div style="font-size:11px;color:var(--text2)">${[d.domicilio, d.localidad].filter(Boolean).join(', ')}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function seleccionarEmpresa(id, nombre, domicilio, localidad, lat, lng) {
+  document.getElementById('vis-dest-buscar').value = nombre;
+  document.getElementById('vis-dest-nombre').value = nombre;
+  document.getElementById('vis-dest-id').value = id;
+  const dom = [domicilio, localidad].filter(Boolean).join(', ');
+  document.getElementById('vis-dest-domicilio').value = dom;
+  document.getElementById('vis-dest-sugerencias').style.display = 'none';
+}
+
 function agregarDestinoVisita() {
-  const nombre = document.getElementById('vis-dest-nombre').value.trim();
-  if (!nombre) { toast('Escribí el nombre del cliente', 'error'); return; }
+  const nombre = document.getElementById('vis-dest-nombre').value.trim() ||
+                 document.getElementById('vis-dest-buscar').value.trim();
+  if (!nombre) { toast('Seleccioná o escribí una empresa', 'error'); return; }
   visDestinos.push({
     cliente_nombre: nombre,
     domicilio: document.getElementById('vis-dest-domicilio').value.trim(),
     motivo:    document.getElementById('vis-dest-motivo').value.trim(),
+    lat: null, lng: null,
   });
+  // Limpiar campos
+  document.getElementById('vis-dest-buscar').value = '';
   document.getElementById('vis-dest-nombre').value = '';
+  document.getElementById('vis-dest-id').value = '';
   document.getElementById('vis-dest-domicilio').value = '';
   document.getElementById('vis-dest-motivo').value = '';
+  document.getElementById('vis-dest-sugerencias').style.display = 'none';
   renderizarDestinosVisita();
 }
 
