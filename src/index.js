@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors    = require('cors');
+const path    = require('path');
 const db      = require('./db');
 const push    = require('./services/pushService');
 
@@ -22,7 +23,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── Rutas ────────────────────────────────────────────────────────────────────
+// ─── Archivos estáticos (frontend) ───────────────────────────────────────────
+app.use(express.static(path.join(__dirname, '../public')));
+
+// ─── Rutas API ────────────────────────────────────────────────────────────────
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/movimientos',    require('./routes/movimientos'));
 app.use('/api/licencias',      require('./routes/licencias'));
@@ -36,9 +40,13 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '2.1.0' });
 });
 
-// ─── 404 ──────────────────────────────────────────────────────────────────────
-app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint no encontrado' });
+// ─── Todas las rutas no-API sirven el frontend (SPA) ─────────────────────────
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+  } else {
+    res.status(404).json({ error: 'Endpoint no encontrado' });
+  }
 });
 
 // ─── Error handler ────────────────────────────────────────────────────────────
