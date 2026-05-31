@@ -3227,8 +3227,9 @@ function renderTarjetaVisita(v, esAdmin) {
         ${destinos.map((d,i) => `
           <div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;${d.completado?'color:var(--text3);text-decoration:line-through':''}">
             <span style="color:var(--accent);font-weight:700">${i+1}.</span>
-            <span>${d.cliente_nombre}${d.domicilio ? ' — ' + d.domicilio : ''}${d.motivo ? ' · ' + d.motivo : ''}</span>
-            ${!d.completado && !esAdmin ? `<button onclick="marcarDestinoCompletado(${d.id},${v.id})" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:14px;margin-left:auto">✓</button>` : ''}
+            <span style="flex:1">${d.cliente_nombre}${d.domicilio ? ' — ' + d.domicilio : ''}${d.motivo ? ' · ' + d.motivo : ''}</span>
+            ${!d.completado && !esAdmin ? `<button onclick="marcarDestinoCompletado(${d.id},${v.id})" style="background:none;border:none;color:var(--green);cursor:pointer;font-size:14px">✓</button>` : ''}
+            ${v.estado === 'programada' ? `<button onclick="eliminarDestino(${d.id},${v.id})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button>` : ''}
           </div>
         `).join('')}
       </div>
@@ -3402,6 +3403,15 @@ async function marcarDestinoCompletado(destinoId, visitaId) {
   try {
     await api(`/visitas/${visitaId}/destinos/${destinoId}`, { method: 'PATCH', body: JSON.stringify({ completado: true }) });
     await cargarMisVisitas();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function eliminarDestino(destinoId, visitaId) {
+  try {
+    await api(`/visitas/${visitaId}/destinos/${destinoId}`, { method: 'DELETE' });
+    toast('Destino eliminado ✓', 'success');
+    if (STATE.rol === 'admin') await cargarVisitasAdmin();
+    else await cargarMisVisitas();
   } catch (e) { toast(e.message, 'error'); }
 }
 
