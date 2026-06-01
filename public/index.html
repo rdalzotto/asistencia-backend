@@ -563,7 +563,7 @@ body {
     </div>
     <button class="btn btn-primary" onclick="doLogin()" id="btn-login">Ingresar</button>
     <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text3)">
-      ¿Primer acceso? Usá el link de invitación que recibiste.
+      Si es tu primer acceso, abrí el link que te enviaron por WhatsApp.
     </p>
   </div>
 </div>
@@ -573,8 +573,8 @@ body {
 <!-- ══════════════════════════════════════════════════════════ -->
 <div class="screen" id="screen-onboarding">
   <div class="onboarding-header">
-    <h2>Completá tu perfil</h2>
-    <p>Esta información quedará registrada en el sistema de la empresa</p>
+    <h2>¡Bienvenido a AsistenciaAR!</h2>
+    <p>Completá tus datos para activar tu cuenta. Solo tenés que hacerlo una vez.</p>
   </div>
 
   <div class="foto-perfil-area">
@@ -1344,10 +1344,11 @@ body {
 <div class="modal-overlay" id="modal-ausencia">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Reportar ausencia</div>
+    <div class="modal-title" id="modal-ausencia-titulo">Solicitar ausencia / permiso</div>
     <div class="form-group">
       <label>Tipo</label>
       <select id="aus-tipo">
+        <option value="tramite_personal">📋 Trámite personal (con aviso previo)</option>
         <option value="enfermedad_leve">😷 Enfermedad leve (hasta 3 días)</option>
         <option value="enfermedad_certificada">🏥 Enfermedad con certificado médico</option>
         <option value="emergencia">🚨 Emergencia / situación imprevista</option>
@@ -1376,9 +1377,12 @@ body {
       <input type="file" id="aus-cert" accept=".pdf,image/*" style="color:var(--text)">
       <small style="color:var(--text3);font-size:11px;display:block;margin-top:4px">Desde celular o PC</small>
     </div>
+    <div style="background:rgba(var(--accent-rgb,0,200,255),0.08);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--text2);margin-bottom:12px">
+      ⏳ La solicitud queda pendiente hasta que el administrador la apruebe.
+    </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-ausencia')">Cancelar</button>
-      <button class="btn btn-primary" onclick="enviarAusencia()">Enviar</button>
+      <button class="btn btn-primary" onclick="enviarAusencia()">Enviar solicitud</button>
     </div>
   </div>
 </div>
@@ -2255,10 +2259,20 @@ async function cargarPendientesAdmin() {
     // Ausencias
     const aus = await api('/licencias/ausencias?estado=pendiente');
     const contA = document.getElementById('lista-ausencias-pend');
+    const tiposAus = {
+      tramite_personal: '📋 Trámite personal',
+      enfermedad_leve: '😷 Enfermedad leve',
+      enfermedad_certificada: '🏥 Enfermedad con certificado',
+      emergencia: '🚨 Emergencia',
+      licencia_matrimonio: '💍 Matrimonio',
+      licencia_nacimiento: '👶 Nacimiento de hijo',
+      licencia_fallecimiento: '🖤 Fallecimiento de familiar',
+      licencia_examen: '📚 Examen',
+    };
     contA.innerHTML = aus.length ? aus.map(a => `
       <div class="card" style="margin-bottom:12px">
         <div style="font-size:14px;font-weight:600">${a.nombre} ${a.apellido}</div>
-        <div style="font-size:13px;color:var(--text2);margin:6px 0">${a.tipo.replace(/_/g,' ')} · ${a.fecha_inicio} → ${a.fecha_fin}</div>
+        <div style="font-size:13px;color:var(--text2);margin:6px 0">${tiposAus[a.tipo]||a.tipo} · ${String(a.fecha_inicio).slice(0,10).split('-').reverse().join('/')}${a.fecha_fin !== a.fecha_inicio ? ' → ' + String(a.fecha_fin).slice(0,10).split('-').reverse().join('/') : ''}</div>
         ${a.descripcion ? `<div style="font-size:12px;color:var(--text3)">${a.descripcion}</div>` : ''}
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn btn-sm btn-success" onclick="resolverAusencia(${a.id},'aprobada')">✓ Aprobar</button>
