@@ -22,13 +22,11 @@ router.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(password, usr.password_hash);
     if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
 
-    // Actualizar último acceso
     await db.query(
       'UPDATE public.usuarios SET ultimo_acceso = NOW() WHERE id = $1',
       [usr.id]
     );
 
-    // Obtener datos del empleado si corresponde
     let empleadoData = null;
     if (usr.rol === 'empleado') {
       const { rows: [emp] } = await db.query(
@@ -95,19 +93,16 @@ router.post('/invitar', auth, soloAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Crear usuario provisorio (sin password)
     const hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
     const { rows: [usr] } = await client.query(`
       INSERT INTO public.usuarios (empleador_id, email, password_hash, rol)
       VALUES ($1,$2,$3,'empleado') RETURNING id
     `, [req.user.empleadorId, email.toLowerCase().trim(), hash]);
 
-    // Obtener jornada config por defecto
     const { rows: [jcDef] } = await client.query(
       'SELECT id FROM public.jornadas_config ORDER BY id ASC LIMIT 1'
     );
 
-    // Crear empleado
     const { rows: [emp] } = await client.query(`
       INSERT INTO public.empleados
         (empleador_id, usuario_id, jornada_config_id, legajo, categoria, sector,
@@ -119,7 +114,6 @@ router.post('/invitar', auth, soloAdmin, async (req, res) => {
       fecha_ingreso, salario_base || null, tipo_contrato || 'tiempo_indeterminado'
     ]);
 
-    // Crear token de invitación (expira en 48 horas)
     const token = crypto.randomBytes(32).toString('hex');
     await client.query(`
       INSERT INTO public.invitaciones (empleador_id, email, token, expira_en)
@@ -128,8 +122,7 @@ router.post('/invitar', auth, soloAdmin, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // URL de onboarding
-    const url = `${process.env.FRONTEND_URL}/onboarding?token=${token}`;
+    const url = `${process.env.FRONTEND_URL}/?token=${token}`;
     res.json({ ok: true, empleadoId: emp.id, invitacionUrl: url, token });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -137,6 +130,33 @@ router.post('/invitar', auth, soloAdmin, async (req, res) => {
     res.status(500).json({ error: 'Error al crear la invitación' });
   } finally {
     client.release();
+  }
+});
+
+// ─── POST /auth/renovar-invitacion (admin) ────────────────────────────────────
+router.post('/renovar-invitacion', auth, soloAdmin, async (req, res) => {
+  const { empleado_id } = req.body;
+  if (!empleado_id) return res.status(400).json({ error: 'empleado_id requerido' });
+  try {
+    const { rows: [emp] } = await db.query(`
+      SELECT u.email FROM public.empleados e
+      JOIN public.usuarios u ON u.id = e.usuario_id
+      WHERE e.id = $1 AND e.empleador_id = $2
+    `, [empleado_id, req.user.empleadorId]);
+    if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    await db.query(`
+      INSERT INTO public.invitaciones (empleador_id, email, token, expira_en)
+      VALUES ($1,$2,$3, NOW() + INTERVAL '48 hours')
+      ON CONFLICT (email) DO UPDATE SET token = $3, expira_en = NOW() + INTERVAL '48 hours', usado = FALSE
+    `, [req.user.empleadorId, emp.email, token]);
+
+    const url = `${process.env.FRONTEND_URL}/?token=${token}`;
+    res.json({ ok: true, email: emp.email, invitacionUrl: url });
+  } catch (err) {
+    console.error('[AUTH] Renovar invitación error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
@@ -155,21 +175,18 @@ router.post('/onboarding', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Verificar token
     const { rows: [inv] } = await client.query(
       'SELECT * FROM public.invitaciones WHERE token = $1 AND usado = FALSE AND expira_en > NOW()',
       [token]
     );
     if (!inv) return res.status(400).json({ error: 'Invitación inválida o expirada' });
 
-    // Hash de la nueva contraseña
     const hash = await bcrypt.hash(password, 12);
     await client.query(
       'UPDATE public.usuarios SET password_hash = $1 WHERE email = $2',
       [hash, inv.email]
     );
 
-    // Completar datos del empleado
     await client.query(`
       UPDATE public.empleados SET
         nombre = $1, apellido = $2, dni = $3, cuil = $4,
@@ -182,7 +199,6 @@ router.post('/onboarding', async (req, res) => {
     `, [nombre, apellido, dni, cuil, domicilio, localidad, provincia,
         telefono, domicilio_lat || null, domicilio_lng || null, inv.email]);
 
-    // Marcar invitación como usada
     await client.query(
       'UPDATE public.invitaciones SET usado = TRUE WHERE id = $1',
       [inv.id]
