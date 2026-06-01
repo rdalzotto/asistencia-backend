@@ -2437,12 +2437,47 @@ async function enviarInvitacion() {
     });
     cerrarModal('modal-invitar');
     toast('Invitación creada ✓', 'success');
-    // Mostrar URL de invitación
-    setTimeout(() => {
-      alert('Link de invitación para ' + email + ':\n\n' + data.invitacionUrl + '\n\nCompartilo con el empleado. Expira en 48 horas.');
-    }, 500);
+    setTimeout(() => mostrarLinkInvitacion(email, data.invitacionUrl), 500);
     cargarEmpleadosAdmin();
   } catch (e) { toast(e.message, 'error'); }
+}
+
+function mostrarLinkInvitacion(email, url) {
+  // Crear modal dinámico con el link
+  const existing = document.getElementById('modal-link-invitacion');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'modal-link-invitacion';
+  div.className = 'modal-overlay';
+  div.style.display = 'flex';
+  div.innerHTML = `
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Link de invitación</div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Compartí este link con <strong>${email}</strong>. Expira en 48 horas.</p>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-size:12px;word-break:break-all;color:var(--text);margin-bottom:12px">${url}</div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-primary" onclick="copiarLink('${url}')">📋 Copiar link</button>
+        <button class="btn btn-secondary" onclick="document.getElementById('modal-link-invitacion').remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+function copiarLink(url) {
+  navigator.clipboard.writeText(url).then(() => {
+    toast('Link copiado ✓', 'success');
+  }).catch(() => {
+    // Fallback para navegadores que no soportan clipboard
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    toast('Link copiado ✓', 'success');
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
