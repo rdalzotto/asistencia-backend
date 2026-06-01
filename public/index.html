@@ -2319,6 +2319,8 @@ async function reenviarInvitacion(empleadoId) {
     mostrarLinkInvitacion(data.email, data.invitacionUrl);
   } catch (e) { toast(e.message, 'error'); }
 }
+
+async function resolverSolicitud(id, estado) {
   try {
     await api('/notificaciones/solicitud/' + id, { method: 'PATCH', body: JSON.stringify({ estado }) });
     toast(estado === 'aprobada' ? 'Aprobada ✓' : 'Rechazada', estado === 'aprobada' ? 'success' : 'info');
