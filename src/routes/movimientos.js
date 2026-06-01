@@ -46,12 +46,12 @@ router.post('/registrar', auth, async (req, res) => {
         [req.user.empleadorId]
       );
       if (emp?.oficina_lat && emp?.oficina_lng) {
-        distanciaM = calcularDistancia(lat, lng, emp.oficina_lat, emp.oficina_lng);
+        distanciaM = Math.round(calcularDistancia(lat, lng, emp.oficina_lat, emp.oficina_lng));
         gpsValido  = distanciaM <= (emp.oficina_radio_m || 200);
         if (!gpsValido)
           return res.status(400).json({
-            error: `GPS fuera del área permitida (${Math.round(distanciaM)}m de distancia)`,
-            distanciaM: Math.round(distanciaM),
+            error: `GPS fuera del área permitida (${distanciaM}m de distancia)`,
+            distanciaM,
           });
       }
     }
@@ -104,14 +104,20 @@ router.post('/registrar', auth, async (req, res) => {
       ) RETURNING *
     `, [
       empleadoId, req.user.empleadorId, tipo,
-      lat, lng, gpsValido, distanciaM,
-      es_remoto || false, domicilio_partida_lat || null, domicilio_partida_lng || null,
+      lat !== undefined ? parseFloat(lat) : null,
+      lng !== undefined ? parseFloat(lng) : null,
+      gpsValido, distanciaM,
+      es_remoto || false,
+      domicilio_partida_lat !== undefined ? parseFloat(domicilio_partida_lat) : null,
+      domicilio_partida_lng !== undefined ? parseFloat(domicilio_partida_lng) : null,
       foto_url || null, !!foto_url,
-      categoria_salida_id || null, destino_id || null, destino_descripcion || null,
+      categoria_salida_id ? parseInt(categoria_salida_id) : null,
+      destino_id ? parseInt(destino_id) : null,
+      destino_descripcion || null,
       esTardanza, minutosTardanza,
       feriado,
       consentimiento_extra || null,
-      es_remoto ? false : true, // remotos requieren validación
+      es_remoto ? false : true,
       hash,
     ]);
 
@@ -131,7 +137,6 @@ router.post('/registrar', auth, async (req, res) => {
       const n = push.notif.ingreso(nombre, hora, esTardanza ? minutosTardanza : null);
       await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
 
-      // Alerta tardanzas acumuladas
       if (esTardanza) {
         const { rows: [cnt] } = await db.query(`
           SELECT COUNT(*) as total FROM public.movimientos
@@ -245,7 +250,6 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
 
     if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
 
-    // Si se aprueba, recalcular banco de horas
     if (aprobado !== false) {
       const client = await db.connect();
       try {
@@ -283,7 +287,7 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
 
 // ─── Función auxiliar: distancia Haversine ───────────────────────────────────
 function calcularDistancia(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // metros
+  const R = 6371000;
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
