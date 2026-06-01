@@ -1467,6 +1467,59 @@ body {
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODAL: EDITAR EMPLEADO                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-editar-empleado">
+  <div class="modal" style="max-height:90vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="editar-emp-titulo">Editar empleado</div>
+    <input type="hidden" id="editar-emp-id">
+
+    <div class="form-section">
+      <div class="form-section-title">Datos laborales</div>
+      <div class="form-group"><label>Legajo</label><input type="text" id="editar-legajo" placeholder="001"></div>
+      <div class="form-group"><label>Categoría</label><input type="text" id="editar-categoria" placeholder="Ej: Empleado A"></div>
+      <div class="form-group">
+        <label>Sector</label>
+        <select id="editar-sector">
+          <option value="tecnico">Técnico / Comercial</option>
+          <option value="administrativo">Administrativo</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Fecha de ingreso</label><input type="date" id="editar-ingreso"></div>
+      <div class="form-group"><label>Salario base ($)</label><input type="number" id="editar-salario" placeholder="0.00"></div>
+    </div>
+
+    <div class="form-section">
+      <div class="form-section-title">Horario</div>
+      <div class="form-group">
+        <label>Modalidad</label>
+        <select id="editar-modalidad">
+          <option value="corrida">Corrida</option>
+          <option value="partida">Partida</option>
+          <option value="flexible">Flexible</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Hora ingreso</label><input type="time" id="editar-hora-ingreso"></div>
+      <div class="form-group"><label>Hora egreso</label><input type="time" id="editar-hora-egreso"></div>
+      <div class="form-group"><label>Días vacaciones/año</label><input type="number" id="editar-vacaciones" placeholder="14"></div>
+    </div>
+
+    <div class="form-section" id="editar-seccion-reset">
+      <div class="form-section-title">Acceso al sistema</div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Si el empleado no puede ingresar, generá un nuevo link de acceso.</p>
+      <button class="btn btn-secondary" onclick="resetearAccesoEmpleado()" style="width:100%">🔑 Generar nuevo link de acceso</button>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-editar-empleado')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarEdicionEmpleado()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
 <!-- MODAL: REPORTE MENSUAL                                      -->
 <!-- ══════════════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="modal-reporte">
@@ -3706,6 +3759,67 @@ function navEmpleado(sec, el) {
   } else {
     _navEmpleadoOrig(sec, el);
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// EDITAR EMPLEADO
+// ══════════════════════════════════════════════════════════════
+async function abrirEditarEmpleado(id) {
+  try {
+    const emps = await api('/config/empleados');
+    const e = emps.find(x => x.id === id);
+    if (!e) return toast('Empleado no encontrado', 'error');
+
+    document.getElementById('editar-emp-id').value = id;
+    document.getElementById('editar-emp-titulo').textContent = 'Editar: ' + (e.nombre || 'Sin nombre') + ' ' + (e.apellido || '');
+    document.getElementById('editar-legajo').value       = e.legajo || '';
+    document.getElementById('editar-categoria').value    = e.categoria || '';
+    document.getElementById('editar-sector').value       = e.sector || 'tecnico';
+    document.getElementById('editar-ingreso').value      = e.fecha_ingreso ? String(e.fecha_ingreso).slice(0,10) : '';
+    document.getElementById('editar-salario').value      = e.salario_base || '';
+    document.getElementById('editar-modalidad').value    = e.modalidad || 'corrida';
+    document.getElementById('editar-hora-ingreso').value = e.hora_ingreso || '';
+    document.getElementById('editar-hora-egreso').value  = e.hora_egreso || '';
+    document.getElementById('editar-vacaciones').value   = e.dias_vacaciones || 14;
+
+    abrirModal('modal-editar-empleado');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function guardarEdicionEmpleado() {
+  const id = document.getElementById('editar-emp-id').value;
+  if (!id) return;
+  const payload = {
+    legajo:          document.getElementById('editar-legajo').value.trim(),
+    categoria:       document.getElementById('editar-categoria').value.trim(),
+    sector:          document.getElementById('editar-sector').value,
+    fecha_ingreso:   document.getElementById('editar-ingreso').value,
+    salario_base:    document.getElementById('editar-salario').value || null,
+    modalidad:       document.getElementById('editar-modalidad').value,
+    hora_ingreso:    document.getElementById('editar-hora-ingreso').value,
+    hora_egreso:     document.getElementById('editar-hora-egreso').value,
+    dias_vacaciones: parseInt(document.getElementById('editar-vacaciones').value) || 14,
+  };
+  try {
+    await api('/config/empleados/' + id, { method: 'PATCH', body: JSON.stringify(payload) });
+    toast('Datos guardados ✓', 'success');
+    cerrarModal('modal-editar-empleado');
+    cargarEmpleadosAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function resetearAccesoEmpleado() {
+  const id = parseInt(document.getElementById('editar-emp-id').value);
+  if (!id) return;
+  if (!confirm('¿Generar un nuevo link de acceso para este empleado? El link anterior quedará inválido.')) return;
+  try {
+    const data = await api('/auth/renovar-invitacion', {
+      method: 'POST',
+      body: JSON.stringify({ empleado_id: id })
+    });
+    cerrarModal('modal-editar-empleado');
+    mostrarLinkInvitacion(data.email, data.invitacionUrl);
+  } catch (e) { toast(e.message, 'error'); }
 }
 </script>
 
