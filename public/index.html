@@ -2230,8 +2230,16 @@ async function cargarEmpleadosAdmin() {
         <div class="avatar">${(e.nombre||'?').charAt(0)}</div>
         <div class="emp-info">
           <div class="emp-nombre">${e.nombre||'Sin nombre'} ${e.apellido||''}</div>
-          <div class="emp-detalle">Legajo ${e.legajo||'--'} · ${e.categoria||'--'} · Ingreso ${e.fecha_ingreso||'--'}</div>
+          <div class="emp-detalle">Legajo ${e.legajo||'--'} · ${e.categoria||'--'} · Ingreso ${String(e.fecha_ingreso||'').slice(0,10).split('-').reverse().join('/')}</div>
           <div class="emp-detalle" style="margin-top:2px">Vacaciones: ${e.dias_vacaciones||0} días/año · ${e.modalidad||'corrida'} ${e.hora_ingreso||''}-${e.hora_egreso||''}</div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn btn-sm btn-secondary" onclick="abrirEditarEmpleado(${e.id})">✏ Editar</button>
+            ${e.activo
+              ? `<button class="btn btn-sm btn-danger" onclick="desactivarEmpleado(${e.id},'${e.nombre} ${e.apellido}')">✕ Desactivar</button>`
+              : `<button class="btn btn-sm btn-success" onclick="activarEmpleado(${e.id})">✓ Activar</button>`
+            }
+            ${!e.nombre ? `<button class="btn btn-sm btn-secondary" onclick="reenviarInvitacion(${e.id})">📨 Reenviar invitación</button>` : ''}
+          </div>
         </div>
         <span class="badge ${e.activo ? 'badge-green':'badge-red'}">${e.activo?'Activo':'Inactivo'}</span>
       </div>
@@ -2284,7 +2292,33 @@ async function cargarPendientesAdmin() {
   } catch (e) { console.error(e); }
 }
 
-async function resolverSolicitud(id, estado) {
+async function desactivarEmpleado(id, nombre) {
+  if (!confirm(`¿Desactivar a ${nombre}? Ya no podrá acceder al sistema.`)) return;
+  try {
+    await api('/config/empleados/' + id, { method: 'PATCH', body: JSON.stringify({ activo: false }) });
+    toast('Empleado desactivado', 'info');
+    cargarEmpleadosAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function activarEmpleado(id) {
+  try {
+    await api('/config/empleados/' + id, { method: 'PATCH', body: JSON.stringify({ activo: true }) });
+    toast('Empleado activado ✓', 'success');
+    cargarEmpleadosAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function reenviarInvitacion(empleadoId) {
+  try {
+    // Renovar la invitación en la base de datos
+    const data = await api('/auth/renovar-invitacion', {
+      method: 'POST',
+      body: JSON.stringify({ empleado_id: empleadoId })
+    });
+    mostrarLinkInvitacion(data.email, data.invitacionUrl);
+  } catch (e) { toast(e.message, 'error'); }
+}
   try {
     await api('/notificaciones/solicitud/' + id, { method: 'PATCH', body: JSON.stringify({ estado }) });
     toast(estado === 'aprobada' ? 'Aprobada ✓' : 'Rechazada', estado === 'aprobada' ? 'success' : 'info');
