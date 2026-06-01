@@ -784,6 +784,12 @@ body {
         </div>
       </div>
 
+      <!-- Vacaciones del mes -->
+      <div class="card" id="card-vacaciones-mes" style="display:none">
+        <div class="card-title" style="color:var(--accent)">🌴 Vacaciones este mes</div>
+        <div id="lista-vacaciones-mes"></div>
+      </div>
+
       <!-- Validaciones remotas pendientes -->
       <div class="card" id="card-remotos" style="display:none">
         <div class="card-title" style="color:var(--orange)">⚠ Jornadas remotas — validar</div>
@@ -1393,31 +1399,42 @@ body {
 <div class="modal-overlay" id="modal-vacaciones">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Solicitar días</div>
+    <div class="modal-title">Solicitar vacaciones / días</div>
     <div class="form-group">
       <label>Tipo</label>
-      <select id="vac-tipo">
-        <option value="vacaciones">🌴 Vacaciones</option>
+      <select id="vac-tipo" onchange="toggleTipoVac()">
+        <option value="vacaciones">🌴 Vacaciones anuales</option>
         <option value="dias_particulares">📅 Días particulares</option>
+        <option value="vacaciones_admin">💻 Vacaciones (administrativo — remoto disponible)</option>
       </select>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group">
         <label>Desde</label>
-        <input type="date" id="vac-desde">
+        <input type="date" id="vac-desde" onchange="calcularDiasVac()">
       </div>
       <div class="form-group">
         <label>Hasta</label>
-        <input type="date" id="vac-hasta">
+        <input type="date" id="vac-hasta" onchange="calcularDiasVac()">
       </div>
+    </div>
+    <div id="vac-dias-info" style="font-size:13px;color:var(--accent);margin-bottom:8px;display:none"></div>
+    <div id="vac-anticipacion-warn" style="display:none;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:8px">
+      ⚠ Las vacaciones deben solicitarse con al menos 15 días de anticipación.
     </div>
     <div class="form-group">
       <label>Motivo (opcional)</label>
       <input type="text" id="vac-motivo" placeholder="Ej: Viaje familiar">
     </div>
+    <div id="vac-admin-info" style="display:none;background:rgba(0,200,255,0.08);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--text2);margin-bottom:8px">
+      💻 En caso de urgencia, estarás disponible en forma remota durante este período.
+    </div>
+    <div style="background:rgba(var(--accent-rgb,0,200,255),0.06);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--text2);margin-bottom:12px">
+      ⏳ La solicitud queda pendiente hasta que el administrador la apruebe.
+    </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-vacaciones')">Cancelar</button>
-      <button class="btn btn-primary" onclick="enviarVacaciones()">Solicitar</button>
+      <button class="btn btn-primary" onclick="enviarVacaciones()">Enviar solicitud</button>
     </div>
   </div>
 </div>
@@ -2134,9 +2151,41 @@ async function enviarAusencia() {
 
 function abrirModalVacaciones() {
   const hoy = new Date().toISOString().split('T')[0];
-  document.getElementById('vac-desde').value = hoy;
-  document.getElementById('vac-hasta').value = hoy;
+  // Fecha mínima: 15 días desde hoy
+  const minFecha = new Date();
+  minFecha.setDate(minFecha.getDate() + 15);
+  const minStr = minFecha.toISOString().split('T')[0];
+  document.getElementById('vac-desde').value = minStr;
+  document.getElementById('vac-desde').min = minStr;
+  document.getElementById('vac-hasta').value = minStr;
+  document.getElementById('vac-hasta').min = minStr;
+  document.getElementById('vac-dias-info').style.display = 'none';
+  document.getElementById('vac-anticipacion-warn').style.display = 'none';
+  document.getElementById('vac-admin-info').style.display = 'none';
+  document.getElementById('vac-motivo').value = '';
   abrirModal('modal-vacaciones');
+}
+
+function toggleTipoVac() {
+  const tipo = document.getElementById('vac-tipo').value;
+  document.getElementById('vac-admin-info').style.display =
+    tipo === 'vacaciones_admin' ? 'block' : 'none';
+}
+
+function calcularDiasVac() {
+  const desde = document.getElementById('vac-desde').value;
+  const hasta = document.getElementById('vac-hasta').value;
+  if (!desde || !hasta) return;
+  const dias = Math.round((new Date(hasta) - new Date(desde)) / 86400000) + 1;
+  const info = document.getElementById('vac-dias-info');
+  info.style.display = 'block';
+  info.textContent = `📅 ${dias} día${dias > 1 ? 's' : ''}`;
+  // Validar anticipación
+  const hoy = new Date();
+  const fechaDesde = new Date(desde);
+  const diasAnticipacion = Math.round((fechaDesde - hoy) / 86400000);
+  const warn = document.getElementById('vac-anticipacion-warn');
+  warn.style.display = diasAnticipacion < 15 ? 'block' : 'none';
 }
 
 async function enviarVacaciones() {
@@ -2145,6 +2194,13 @@ async function enviarVacaciones() {
   const tipo  = document.getElementById('vac-tipo').value;
   const motivo= document.getElementById('vac-motivo').value;
   if (!desde || !hasta) return toast('Seleccioná las fechas', 'error');
+  // Validar anticipación mínima de 15 días
+  const hoy = new Date();
+  const fechaDesde = new Date(desde);
+  const diasAnticipacion = Math.round((fechaDesde - hoy) / 86400000);
+  if (diasAnticipacion < 15) {
+    return toast('Debés solicitar las vacaciones con al menos 15 días de anticipación', 'error');
+  }
   try {
     await api('/licencias/vacaciones', { method: 'POST', body: JSON.stringify({ fecha_inicio: desde, fecha_fin: hasta, tipo, motivo }) });
     cerrarModal('modal-vacaciones');
@@ -2209,7 +2265,36 @@ async function cargarDashboardAdmin() {
         </div>
       `).join('');
     }
+
+    // Vacaciones del mes
+    await cargarVacacionesMes();
+
   } catch (e) { console.error(e); }
+}
+
+async function cargarVacacionesMes() {
+  try {
+    const hoy = new Date();
+    const desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
+    const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).toISOString().split('T')[0];
+    const vacs = await api(`/licencias/vacaciones?desde=${desde}&hasta=${hasta}`);
+    const card = document.getElementById('card-vacaciones-mes');
+    const cont = document.getElementById('lista-vacaciones-mes');
+    if (!vacs || !vacs.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    cont.innerHTML = vacs.map(v => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:13px;font-weight:600">${v.nombre} ${v.apellido}</div>
+          <div style="font-size:12px;color:var(--text2)">${String(v.fecha_inicio).slice(0,10).split('-').reverse().join('/')} → ${String(v.fecha_fin).slice(0,10).split('-').reverse().join('/')} · ${v.dias_corridos} días</div>
+          ${v.tipo === 'vacaciones_admin' ? '<div style="font-size:11px;color:var(--accent)">💻 Disponible remoto</div>' : ''}
+        </div>
+        <span style="font-size:11px;font-weight:600;color:${v.estado==='aprobada'?'var(--green)':v.estado==='rechazada'?'var(--red)':'var(--orange)'}">
+          ${v.estado==='aprobada'?'✓ Aprobada':v.estado==='rechazada'?'✗ Rechazada':'⏳ Pendiente'}
+        </span>
+      </div>
+    `).join('');
+  } catch { document.getElementById('card-vacaciones-mes').style.display = 'none'; }
 }
 
 async function validarRemoto(id, aprobado) {
