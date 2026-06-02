@@ -8,11 +8,8 @@ const push    = require('../services/pushService');
 router.post('/registrar', auth, async (req, res) => {
   const {
     tipo, lat, lng, foto_url,
-    // Para salida externa
     categoria_salida_id, destino_id, destino_descripcion,
-    // Para jornada remota
     es_remoto, domicilio_partida_lat, domicilio_partida_lng,
-    // Consentimiento horas extra
     consentimiento_extra,
   } = req.body;
 
@@ -45,9 +42,15 @@ router.post('/registrar', auth, async (req, res) => {
         'SELECT oficina_lat, oficina_lng, oficina_radio_m FROM public.empleadores WHERE id = $1',
         [req.user.empleadorId]
       );
-      if (emp?.oficina_lat && emp?.oficina_lng) {
-        distanciaM = Math.round(calcularDistancia(lat, lng, emp.oficina_lat, emp.oficina_lng));
-        gpsValido  = distanciaM <= (emp.oficina_radio_m || 200);
+      if (emp && emp.oficina_lat != null && emp.oficina_lng != null) {
+        distanciaM = Math.round(calcularDistancia(
+          parseFloat(lat),
+          parseFloat(lng),
+          parseFloat(emp.oficina_lat),
+          parseFloat(emp.oficina_lng)
+        ));
+        const radioPermitido = parseInt(emp.oficina_radio_m) || 300;
+        gpsValido = distanciaM <= radioPermitido;
         if (!gpsValido)
           return res.status(400).json({
             error: `GPS fuera del área permitida (${distanciaM}m de distancia)`,
