@@ -1476,6 +1476,13 @@ body {
     <input type="hidden" id="editar-emp-id">
 
     <div class="form-section">
+      <div class="form-section-title">Datos personales</div>
+      <div class="form-group"><label>Nombre</label><input type="text" id="editar-nombre" placeholder="Nombre"></div>
+      <div class="form-group"><label>Apellido</label><input type="text" id="editar-apellido" placeholder="Apellido"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="editar-email" placeholder="correo@empresa.com"></div>
+    </div>
+
+    <div class="form-section">
       <div class="form-section-title">Datos laborales</div>
       <div class="form-group"><label>Legajo</label><input type="text" id="editar-legajo" placeholder="001"></div>
       <div class="form-group"><label>Categoría</label><input type="text" id="editar-categoria" placeholder="Ej: Empleado A"></div>
@@ -2372,6 +2379,7 @@ async function cargarEmpleadosAdmin() {
           <div class="emp-detalle" style="margin-top:2px">Vacaciones: ${e.dias_vacaciones||0} días/año · ${e.modalidad||'corrida'} ${e.hora_ingreso||''}-${e.hora_egreso||''}</div>
           <div style="display:flex;gap:6px;margin-top:8px">
             <button class="btn btn-sm btn-secondary" onclick="abrirEditarEmpleado(${e.id})">✏ Editar</button>
+            <button class="btn btn-sm btn-secondary" onclick="abrirHorarioPorDia(${e.id},'${(e.nombre||'') + ' ' + (e.apellido||'')}')" style="background:var(--bg3)">🕐 Horario</button>
             ${e.activo
               ? `<button class="btn btn-sm btn-danger" onclick="desactivarEmpleado(${e.id},'${e.nombre} ${e.apellido}')">✕ Desactivar</button>`
               : `<button class="btn btn-sm btn-success" onclick="activarEmpleado(${e.id})">✓ Activar</button>`
@@ -3772,6 +3780,9 @@ async function abrirEditarEmpleado(id) {
 
     document.getElementById('editar-emp-id').value = id;
     document.getElementById('editar-emp-titulo').textContent = 'Editar: ' + (e.nombre || 'Sin nombre') + ' ' + (e.apellido || '');
+    document.getElementById('editar-nombre').value       = e.nombre || '';
+    document.getElementById('editar-apellido').value     = e.apellido || '';
+    document.getElementById('editar-email').value        = e.email || '';
     document.getElementById('editar-legajo').value       = e.legajo || '';
     document.getElementById('editar-categoria').value    = e.categoria || '';
     document.getElementById('editar-sector').value       = e.sector || 'tecnico';
@@ -3790,6 +3801,9 @@ async function guardarEdicionEmpleado() {
   const id = document.getElementById('editar-emp-id').value;
   if (!id) return;
   const payload = {
+    nombre:          document.getElementById('editar-nombre').value.trim(),
+    apellido:        document.getElementById('editar-apellido').value.trim(),
+    email:           document.getElementById('editar-email').value.trim() || null,
     legajo:          document.getElementById('editar-legajo').value.trim(),
     categoria:       document.getElementById('editar-categoria').value.trim(),
     sector:          document.getElementById('editar-sector').value,
@@ -3823,6 +3837,26 @@ async function resetearAccesoEmpleado() {
 }
 </script>
 
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- MODAL: HORARIO POR DÍA                                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-horario-dia">
+  <div class="modal" style="max-height:92vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="horario-dia-titulo">Horario por día</div>
+    <input type="hidden" id="horario-dia-empid">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">
+      Configurá el horario específico de cada día. Si un día no tiene horario propio, se usa el horario general del empleado.
+    </p>
+    <div id="horario-dias-container"></div>
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-horario-dia')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarHorarioPorDia()">Guardar horarios</button>
+    </div>
+  </div>
+</div>
+
 <!-- OVERLAY ÉXITO POST-REGISTRO -->
 <div id="overlay-exito">
   <div class="exito-icono">✅</div>
@@ -3834,6 +3868,105 @@ async function resetearAccesoEmpleado() {
 </div>
 
 <script>
+
+// ════════════════════════════════════════════════════════════════
+// HORARIO POR DÍA
+// ════════════════════════════════════════════════════════════════
+const DIAS_SEMANA = [
+  { num: 1, nombre: 'Lunes' },
+  { num: 2, nombre: 'Martes' },
+  { num: 3, nombre: 'Miércoles' },
+  { num: 4, nombre: 'Jueves' },
+  { num: 5, nombre: 'Viernes' },
+  { num: 6, nombre: 'Sábado' },
+  { num: 7, nombre: 'Domingo' },
+];
+
+async function abrirHorarioPorDia(empId, empNombre) {
+  document.getElementById('horario-dia-empid').value = empId;
+  document.getElementById('horario-dia-titulo').textContent = 'Horario de ' + empNombre.trim();
+
+  // Cargar horarios existentes
+  let existentes = {};
+  try {
+    const rows = await api('/config/jornadas-por-dia/' + empId);
+    rows.forEach(r => { existentes[r.dia_semana] = r; });
+  } catch {}
+
+  const container = document.getElementById('horario-dias-container');
+  container.innerHTML = DIAS_SEMANA.map(d => {
+    const e = existentes[d.num] || {};
+    const mod = e.modalidad || 'sin_horario';
+    return `
+    <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:14px;margin-bottom:12px">
+      <div style="font-weight:600;margin-bottom:10px;color:var(--text1)">${d.nombre}</div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>Tipo de jornada</label>
+        <select id="hd-mod-${d.num}" onchange="toggleHorarioDia(${d.num})">
+          <option value="sin_horario" ${mod==='sin_horario'?'selected':''}>— Sin horario (día libre o no laboral) —</option>
+          <option value="corrida" ${mod==='corrida'?'selected':''}>Corrida (entrada y salida)</option>
+          <option value="partida" ${mod==='partida'?'selected':''}>Partida (mañana + tarde)</option>
+        </select>
+      </div>
+      <div id="hd-corrida-${d.num}" style="display:${mod==='corrida'?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group"><label>Entrada</label><input type="time" id="hd-ing-${d.num}" value="${e.hora_ingreso||''}"></div>
+        <div class="form-group"><label>Salida</label><input type="time" id="hd-egr-${d.num}" value="${e.hora_egreso||''}"></div>
+      </div>
+      <div id="hd-partida-${d.num}" style="display:${mod==='partida'?'grid':'none'};grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group"><label>Mañana inicio</label><input type="time" id="hd-mani-${d.num}" value="${e.hora_man_inicio||''}"></div>
+        <div class="form-group"><label>Mañana fin</label><input type="time" id="hd-manf-${d.num}" value="${e.hora_man_fin||''}"></div>
+        <div class="form-group"><label>Tarde inicio</label><input type="time" id="hd-tari-${d.num}" value="${e.hora_tar_inicio||''}"></div>
+        <div class="form-group"><label>Tarde fin</label><input type="time" id="hd-tarf-${d.num}" value="${e.hora_tar_fin||''}"></div>
+      </div>
+      <div id="hd-horas-row-${d.num}" style="display:${mod!=='sin_horario'?'block':'none'}">
+        <div class="form-group" style="margin-top:8px"><label>Horas objetivo ese día</label>
+          <input type="number" step="0.5" id="hd-hs-${d.num}" value="${e.horas_objetivo||8}" style="max-width:100px">
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  abrirModal('modal-horario-dia');
+}
+
+function toggleHorarioDia(num) {
+  const mod = document.getElementById('hd-mod-' + num)?.value;
+  document.getElementById('hd-corrida-' + num).style.display = mod === 'corrida' ? 'grid' : 'none';
+  document.getElementById('hd-partida-' + num).style.display = mod === 'partida' ? 'grid' : 'none';
+  document.getElementById('hd-horas-row-' + num).style.display = mod !== 'sin_horario' ? 'block' : 'none';
+}
+
+async function guardarHorarioPorDia() {
+  const empId = document.getElementById('horario-dia-empid').value;
+  const dias = [];
+  DIAS_SEMANA.forEach(d => {
+    const mod = document.getElementById('hd-mod-' + d.num)?.value;
+    if (!mod || mod === 'sin_horario') return;
+    dias.push({
+      dia_semana:     d.num,
+      modalidad:      mod,
+      hora_ingreso:   mod === 'corrida' ? (document.getElementById('hd-ing-' + d.num)?.value || null) : null,
+      hora_egreso:    mod === 'corrida' ? (document.getElementById('hd-egr-' + d.num)?.value || null) : null,
+      hora_man_inicio: mod === 'partida' ? (document.getElementById('hd-mani-' + d.num)?.value || null) : null,
+      hora_man_fin:    mod === 'partida' ? (document.getElementById('hd-manf-' + d.num)?.value || null) : null,
+      hora_tar_inicio: mod === 'partida' ? (document.getElementById('hd-tari-' + d.num)?.value || null) : null,
+      hora_tar_fin:    mod === 'partida' ? (document.getElementById('hd-tarf-' + d.num)?.value || null) : null,
+      horas_objetivo:  parseFloat(document.getElementById('hd-hs-' + d.num)?.value) || 8,
+    });
+  });
+
+  if (dias.length === 0) {
+    toast('No configuraste ningún día', 'error');
+    return;
+  }
+
+  try {
+    await api('/config/jornadas-por-dia', { method: 'POST', body: JSON.stringify({ empleado_id: parseInt(empId), dias }) });
+    toast('Horarios guardados ✓', 'success');
+    cerrarModal('modal-horario-dia');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 let _exitoTimer = null;
 let _exitoSegundos = 5;
 
