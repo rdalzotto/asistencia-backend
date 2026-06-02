@@ -175,7 +175,9 @@ router.patch('/empleados/:id', auth, async (req, res) => {
     // Si el admin envió email nuevo, actualizarlo en la tabla usuarios
     if (esAdmin && req.body.email) {
       await db.query(
-        `UPDATE public.usuarios SET email = $1 WHERE empleado_id = $2`,
+        `UPDATE public.usuarios u SET email = $1
+         FROM public.empleados e
+         WHERE e.usuario_id = u.id AND e.id = $2`,
         [req.body.email.trim().toLowerCase(), req.params.id]
       );
     }
