@@ -329,7 +329,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="card">
         <div class="card-title">🔧 Recursos compartidos</div>
         <div id="lista-recursos-admin" style="margin-bottom:12px"></div>
-        <button class="btn btn-secondary btn-sm" onclick="abrirModalNuevoRecurso()">+ Agregar recurso</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="abrirModalNuevoRecurso()">+ Agregar recurso</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('import-recursos-input').click()">📥 Importar Excel</button>
+          <button class="btn btn-secondary btn-sm" onclick="descargarPlantillaRecursos()">📄 Bajar plantilla</button>
+        </div>
+        <input type="file" id="import-recursos-input" accept=".xlsx,.xls" style="display:none" onchange="importarRecursos(this)">
       </div>
       <div class="card">
         <div class="card-title">📅 Reservas de hoy</div>
@@ -2229,6 +2234,59 @@ function toggleOrigenVisita() {}
 function editarVisita(id) {}
 function marcarDestinoCompletado(destinoId,visitaId) {}
 function eliminarDestino(destinoId,visitaId) {}
+
+// CARGA MASIVA DE RECURSOS
+async function importarRecursos(input) {
+  const file = input.files[0]; if (!file) return;
+  input.value = ''; toast('Procesando planilla...', 'info');
+  try {
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, {type:'array'});
+    const ws = wb.Sheets['Recursos'] || wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+    // Saltar fila 1 (título) y fila 2 (encabezados), empezar en fila 3
+    const dataRows = rows.slice(2).filter(r => r[0] && String(r[0]).trim() !== '');
+    if (!dataRows.length) return toast('No se encontraron datos en la planilla', 'error');
+    const tiposValidos = ['vehiculo','didactico','instrumental','otro'];
+    let ok = 0, err = 0;
+    for (const r of dataRows) {
+      const nombre = String(r[0] || '').trim();
+      const tipoRaw = String(r[1] || '').trim().toLowerCase();
+      const tipo = tiposValidos.includes(tipoRaw) ? tipoRaw : 'otro';
+      const descripcion = String(r[2] || '').trim() || null;
+      if (!nombre) continue;
+      try {
+        await api('/recursos', {method:'POST', body:JSON.stringify({nombre, tipo, descripcion})});
+        ok++;
+      } catch { err++; }
+    }
+    toast('Importados: ' + ok + ' recursos' + (err ? ' · ' + err + ' errores' : ''), ok > 0 ? 'success' : 'error');
+    await cargarRecursosAdmin();
+  } catch { toast('Error al leer el archivo Excel', 'error'); }
+}
+
+function descargarPlantillaRecursos() {
+  const wb = XLSX.utils.book_new();
+  const wsData = [
+    ['PLANTILLA CARGA MASIVA DE RECURSOS — AsistenciaAR'],
+    ['Nombre', 'Tipo', 'Descripción'],
+    ['Camioneta Ford F-100', 'vehiculo', 'Patente ABC123 — color blanco'],
+    ['Cañón EPSON EB-X51', 'didactico', 'Control remoto en cajón archivo'],
+    ['Taladro Bosch 1/2"', 'instrumental', 'Incluye maletín y brocas'],
+    ['Notebook Lenovo', 'otro', 'Para presentaciones externas'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  // Ancho de columnas
+  ws['!cols'] = [{wch:35},{wch:18},{wch:45}];
+  // Nota al pie con tipos válidos
+  XLSX.utils.sheet_add_aoa(ws, [
+    [''],
+    ['TIPOS VÁLIDOS: vehiculo · didactico · instrumental · otro'],
+    ['Empezar datos desde la fila 3. No modificar las dos primeras filas.'],
+  ], {origin:-1});
+  XLSX.utils.book_append_sheet(wb, ws, 'Recursos');
+  XLSX.writeFile(wb, 'Plantilla_Recursos_AsistenciaAR.xlsx');
+}
 </script>
 </body>
 </html>
