@@ -15,13 +15,15 @@ router.get('/', auth, async (req, res) => {
 
 // ── POST /recursos ────────────────────────────────────────────
 router.post('/', auth, soloAdmin, async (req, res) => {
-  const { nombre, tipo, descripcion } = req.body;
+  const { nombre, tipo, descripcion, accesorios } = req.body;
   if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
   try {
+    // Intentar agregar columna accesorios si no existe (migración automática)
+    await db.query(`ALTER TABLE public.recursos ADD COLUMN IF NOT EXISTS accesorios TEXT`).catch(()=>{});
     const { rows: [r] } = await db.query(
-      `INSERT INTO public.recursos (empleador_id, nombre, tipo, descripcion)
-       VALUES ($1,$2,$3,$4) RETURNING *`,
-      [req.user.empleadorId, nombre, tipo || 'otro', descripcion || null]
+      `INSERT INTO public.recursos (empleador_id, nombre, tipo, descripcion, accesorios)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.user.empleadorId, nombre, tipo || 'otro', descripcion || null, accesorios || null]
     );
     res.json(r);
   } catch (e) { res.status(500).json({ error: 'Error interno' }); }
@@ -35,6 +37,106 @@ router.delete('/:id', auth, soloAdmin, async (req, res) => {
       [req.params.id, req.user.empleadorId]
     );
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── GET /recursos/:id/checklist ───────────────────────────────
+router.get('/:id/checklist', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT * FROM public.recurso_checklist WHERE recurso_id = $1 AND empleador_id = $2 ORDER BY orden, id`,
+      [req.params.id, req.user.empleadorId]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── POST /recursos/:id/checklist ──────────────────────────────
+router.post('/:id/checklist', auth, soloAdmin, async (req, res) => {
+  const { item, orden } = req.body;
+  if (!item) return res.status(400).json({ error: 'Ítem requerido' });
+  try {
+    const { rows: [r] } = await db.query(
+      `INSERT INTO public.recurso_checklist (recurso_id, empleador_id, item, orden)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [req.params.id, req.user.empleadorId, item, orden || 0]
+    );
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── DELETE /recursos/:id/checklist/:itemId ────────────────────
+router.delete('/:id/checklist/:itemId', auth, soloAdmin, async (req, res) => {
+  try {
+    await db.query(
+      `DELETE FROM public.recurso_checklist WHERE id = $1 AND empleador_id = $2`,
+      [req.params.itemId, req.user.empleadorId]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── GET /recursos/advertencias (todas activas del empleador) ──
+router.get('/advertencias', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT ra.*, rc.nombre as recurso_nombre,
+              e.nombre as creado_por_nombre
+       FROM public.recurso_advertencias ra
+       JOIN public.recursos rc ON rc.id = ra.recurso_id
+       LEFT JOIN public.empleados e ON e.id = ra.creado_por
+       WHERE ra.empleador_id = $1 AND ra.resuelta = FALSE
+       ORDER BY ra.creado_en DESC`,
+      [req.user.empleadorId]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── GET /recursos/:id/advertencias ───────────────────────────
+router.get('/:id/advertencias', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT ra.*, rc.nombre as recurso_nombre,
+              e.nombre as creado_por_nombre
+       FROM public.recurso_advertencias ra
+       JOIN public.recursos rc ON rc.id = ra.recurso_id
+       LEFT JOIN public.empleados e ON e.id = ra.creado_por
+       WHERE ra.recurso_id = $1 AND ra.empleador_id = $2 AND ra.resuelta = FALSE
+       ORDER BY ra.creado_en DESC`,
+      [req.params.id, req.user.empleadorId]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── POST /recursos/:id/advertencias ──────────────────────────
+router.post('/:id/advertencias', auth, async (req, res) => {
+  const { descripcion } = req.body;
+  if (!descripcion) return res.status(400).json({ error: 'Descripción requerida' });
+  try {
+    const { rows: [r] } = await db.query(
+      `INSERT INTO public.recurso_advertencias
+         (recurso_id, empleador_id, descripcion, creado_por)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [req.params.id, req.user.empleadorId, descripcion,
+       req.user.empleadoId || null]
+    );
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── PATCH /recursos/advertencias/:id/resolver ─────────────────
+router.patch('/advertencias/:id/resolver', auth, async (req, res) => {
+  try {
+    const { rows: [r] } = await db.query(
+      `UPDATE public.recurso_advertencias
+       SET resuelta = TRUE, resuelta_por = $3, resuelta_en = NOW()
+       WHERE id = $1 AND empleador_id = $2
+       RETURNING *`,
+      [req.params.id, req.user.empleadorId, req.user.empleadoId || null]
+    );
+    res.json(r);
   } catch (e) { res.status(500).json({ error: 'Error interno' }); }
 });
 
@@ -63,7 +165,6 @@ router.post('/reservas', auth, async (req, res) => {
   if (!recurso_id || !fecha_desde || !hora_desde || !hora_hasta)
     return res.status(400).json({ error: 'Faltan datos requeridos' });
   try {
-    // Verificar conflicto
     const { rows: conflictos } = await db.query(
       `SELECT rv.*, e.nombre, e.apellido FROM public.reservas rv
        LEFT JOIN public.empleados e ON e.id = rv.empleado_id
