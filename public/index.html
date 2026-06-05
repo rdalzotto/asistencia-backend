@@ -409,13 +409,23 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   </div>
   <!-- MODAL NUEVO RECURSO -->
   <div class="modal-overlay" id="modal-nuevo-recurso">
-    <div class="modal">
+    <div class="modal" style="max-height:90vh;overflow-y:auto">
       <div class="modal-handle"></div>
       <div class="modal-title">Nuevo recurso compartido</div>
       <div class="form-group"><label>Nombre del recurso</label><input type="text" id="rec-nombre" placeholder="Ej: Camioneta Ford, Cañón EPSON..."></div>
-      <div class="form-group"><label>Tipo</label><select id="rec-tipo"><option value="vehiculo">🚗 Vehículo</option><option value="didactico">📽 Recurso didáctico</option><option value="instrumental">🔧 Instrumental</option><option value="otro">📦 Otro</option></select></div>
+      <div class="form-group"><label>Tipo</label><select id="rec-tipo" onchange="cargarChecklistPlantilla()"><option value="vehiculo">🚗 Vehículo</option><option value="didactico">📽 Recurso didáctico</option><option value="instrumental">🔧 Instrumental</option><option value="otro">📦 Otro</option></select></div>
       <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="rec-desc" placeholder="Detalles adicionales..."></div>
-      <div style="display:flex;gap:10px;margin-top:16px">
+      <div class="form-group"><label>Accesorios del equipo (opcional)</label><input type="text" id="rec-accesorios" placeholder="Ej: cajita herramientas, tester, cable largo..."></div>
+      <div class="form-section" style="margin-top:16px">
+        <div class="form-section-title">✅ Checklist de verificación</div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Ítems que se verifican antes de usar el recurso. Se cargó una plantilla según el tipo — podés editar.</p>
+        <div id="rec-checklist-lista" style="margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="rec-checklist-nuevo" placeholder="Nuevo ítem de chequeo..." style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font);font-size:13px">
+          <button class="btn btn-secondary btn-sm" onclick="agregarItemChecklist()">+ Agregar</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px">
         <button class="btn btn-secondary" onclick="cerrarModal('modal-nuevo-recurso')">Cancelar</button>
         <button class="btn btn-primary" onclick="guardarNuevoRecurso()">Guardar</button>
       </div>
@@ -423,10 +433,21 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   </div>
   <!-- MODAL RESERVAR RECURSO -->
   <div class="modal-overlay" id="modal-reservar-recurso">
-    <div class="modal">
+    <div class="modal" style="max-height:90vh;overflow-y:auto">
       <div class="modal-handle"></div>
       <div class="modal-title">Reservar recursos</div>
       <div class="form-group"><label>Recursos a reservar</label><div id="res-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;max-height:140px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
+      <!-- Advertencias activas -->
+      <div id="res-advertencias-panel" style="display:none;background:rgba(255,82,82,0.08);border:1px solid var(--red);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:8px">⚠ Advertencias activas en recursos seleccionados</div>
+        <div id="res-advertencias-lista"></div>
+      </div>
+      <!-- Checklist de los recursos seleccionados -->
+      <div id="res-checklist-panel" style="display:none;background:rgba(0,212,255,0.06);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:8px">✅ Checklist de preparación</div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Revisá estos ítems antes de la salida:</p>
+        <div id="res-checklist-lista"></div>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div class="form-group"><label>Fecha desde</label><input type="date" id="res-fecha-desde"></div>
         <div class="form-group"><label>Fecha hasta</label><input type="date" id="res-fecha-hasta"></div>
@@ -440,6 +461,21 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div style="display:flex;gap:10px;margin-top:16px">
         <button class="btn btn-secondary" onclick="cerrarModal('modal-reservar-recurso')">Cancelar</button>
         <button class="btn btn-primary" onclick="confirmarReserva()">Reservar</button>
+      </div>
+    </div>
+  </div>
+  <!-- MODAL ADVERTENCIA AL DEVOLVER -->
+  <div class="modal-overlay" id="modal-advertencia-recurso">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">⚠ Reportar anomalía</div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Si detectaste algo que no pudo resolverse, dejá una advertencia para que los demás estén alertas antes del próximo uso.</p>
+      <div class="form-group"><label>Recurso</label><div id="adv-recurso-nombre" style="font-size:14px;font-weight:600;padding:8px 0;color:var(--accent)"></div></div>
+      <div class="form-group"><label>Descripción de la anomalía</label><textarea id="adv-descripcion" placeholder="Ej: Llanta trasera derecha con presión baja. Batería del equipo no carga al 100%..." style="min-height:80px"></textarea></div>
+      <input type="hidden" id="adv-recurso-id">
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-advertencia-recurso')">Cancelar</button>
+        <button class="btn btn-primary" style="background:var(--orange)" onclick="guardarAdvertencia()">Reportar advertencia</button>
       </div>
     </div>
   </div>
@@ -1159,6 +1195,10 @@ async function confirmarMovimiento() {
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
     mostrarExito(tipo);
+    // Si es ingreso, verificar si tiene recursos reservados hoy
+    if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
+      setTimeout(() => verificarChecklistAlIngreso(), 6000); // Después del overlay de éxito
+    }
   } catch(e) {
     if (e.message && e.message.includes('GPS fuera del área')) {
       btn.innerHTML = 'Confirmar'; btn.disabled = false;
@@ -1746,7 +1786,16 @@ async function cargarRecursosAdmin() {
   try {
     const recursos = await api('/recursos');
     if (!recursos.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Sin recursos cargados aún</p>'; return; }
-    cont.innerHTML = recursos.map(r => '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2)">'+r.descripcion+'</div>':'')+'</div><div style="display:flex;gap:6px"><button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>').join('');
+    // Cargar advertencias activas para mostrar badges
+    let advertenciasMap = {};
+    try {
+      const advs = await api('/recursos/advertencias');
+      advs.forEach(a => { if (!advertenciasMap[a.recurso_id]) advertenciasMap[a.recurso_id] = 0; advertenciasMap[a.recurso_id]++; });
+    } catch {}
+    cont.innerHTML = recursos.map(r => {
+      const tieneAdv = advertenciasMap[r.id] > 0;
+      return '<div style="padding:10px;border:1px solid '+(tieneAdv?'var(--orange)':'var(--border)')+';border-radius:var(--radius-sm);margin-bottom:8px;background:'+(tieneAdv?'rgba(255,145,0,0.05)':'')+'"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2)">'+r.descripcion+'</div>':'')+'</div>'+(tieneAdv?'<span class="badge badge-orange">⚠ '+advertenciasMap[r.id]+' advertencia'+(advertenciasMap[r.id]>1?'s':'')+'</span>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\')" style="color:var(--orange)">⚠ Reportar</button>'+(tieneAdv?'<button class="btn btn-sm btn-secondary" onclick="verAdvertencias('+r.id+')">Ver avisos</button>':'')+'<button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>';
+    }).join('');
   } catch { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Error cargando recursos</p>'; }
 }
 
@@ -1831,17 +1880,67 @@ async function guardarMovAdmin() {
   } catch(e) { toast(e.message,'error'); }
 }
 
+// Plantillas de checklist por tipo de recurso
+const CHECKLIST_PLANTILLAS = {
+  vehiculo: ['Nivel de agua radiador','Nivel de combustible','Nivel de aceite','Presión de neumáticos','Luces (posición, baja, alta)','Documentación (libreta, seguro, VTV)','Botiquín y triángulos'],
+  didactico: ['Carga de batería / cable alimentación','Cables HDMI/VGA','Control remoto','Funda / maletín de transporte','Puntero láser','Prueba de imagen/sonido antes de salir'],
+  instrumental: ['Carga de baterías','Estado de cables','Chequeo de fallas / autodiagnóstico','Estuche o maletín','Accesorios completos'],
+  otro: ['Verificar estado general','Accesorios completos','Funcionamiento correcto'],
+};
+
+let _checklistNuevoRecurso = [];
+
+function cargarChecklistPlantilla() {
+  const tipo = document.getElementById('rec-tipo').value;
+  _checklistNuevoRecurso = [...(CHECKLIST_PLANTILLAS[tipo] || CHECKLIST_PLANTILLAS.otro)];
+  renderizarChecklistNuevo();
+}
+
+function renderizarChecklistNuevo() {
+  const cont = document.getElementById('rec-checklist-lista');
+  if (!cont) return;
+  cont.innerHTML = _checklistNuevoRecurso.map((item, i) =>
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:var(--bg3);border-radius:6px;margin-bottom:4px"><span style="font-size:13px">✓ '+item+'</span><button onclick="quitarItemChecklist('+i+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:0 4px">✕</button></div>'
+  ).join('');
+}
+
+function agregarItemChecklist() {
+  const input = document.getElementById('rec-checklist-nuevo');
+  const val = input.value.trim();
+  if (!val) return;
+  _checklistNuevoRecurso.push(val);
+  input.value = '';
+  renderizarChecklistNuevo();
+}
+
+function quitarItemChecklist(i) {
+  _checklistNuevoRecurso.splice(i, 1);
+  renderizarChecklistNuevo();
+}
+
 function abrirModalNuevoRecurso() {
   document.getElementById('rec-nombre').value='';
   document.getElementById('rec-desc').value='';
+  document.getElementById('rec-accesorios').value='';
+  document.getElementById('rec-checklist-nuevo').value='';
+  _checklistNuevoRecurso = [...CHECKLIST_PLANTILLAS.vehiculo];
+  renderizarChecklistNuevo();
   abrirModal('modal-nuevo-recurso');
 }
 
 async function guardarNuevoRecurso() {
   const nombre = document.getElementById('rec-nombre').value.trim();
   if (!nombre) { toast('Ingresá un nombre','error'); return; }
+  const accesorios = document.getElementById('rec-accesorios').value.trim() || null;
+  // Si hay un ítem nuevo sin agregar, agregarlo automáticamente
+  const itemPendiente = document.getElementById('rec-checklist-nuevo').value.trim();
+  if (itemPendiente) { _checklistNuevoRecurso.push(itemPendiente); document.getElementById('rec-checklist-nuevo').value=''; }
   try {
-    await api('/recursos',{method:'POST',body:JSON.stringify({nombre,tipo:document.getElementById('rec-tipo').value,descripcion:document.getElementById('rec-desc').value.trim()})});
+    const r = await api('/recursos',{method:'POST',body:JSON.stringify({nombre,tipo:document.getElementById('rec-tipo').value,descripcion:document.getElementById('rec-desc').value.trim()||null,accesorios})});
+    // Guardar checklist
+    for (let i=0; i<_checklistNuevoRecurso.length; i++) {
+      try { await api('/recursos/'+r.id+'/checklist',{method:'POST',body:JSON.stringify({item:_checklistNuevoRecurso[i],orden:i})}); } catch {}
+    }
     cerrarModal('modal-nuevo-recurso'); await cargarRecursosAdmin(); toast('Recurso agregado ✓','success');
   } catch(e) { toast(e.message,'error'); }
 }
@@ -1874,9 +1973,54 @@ async function abrirModalReservar(recursoId) {
   document.getElementById('res-hora-hasta').value='';
   document.getElementById('res-motivo').value='';
   document.getElementById('res-conflicto').style.display='none';
+  document.getElementById('res-advertencias-panel').style.display='none';
+  document.getElementById('res-checklist-panel').style.display='none';
   await cargarCheckboxRecursos('res-recursos-checks');
-  if (recursoId) { const cb=document.querySelector('#res-recursos-checks input[value="'+recursoId+'"]'); if(cb) cb.checked=true; }
+  if (recursoId) {
+    const cb=document.querySelector('#res-recursos-checks input[value="'+recursoId+'"]');
+    if(cb) { cb.checked=true; await actualizarInfoReserva(); }
+  }
+  // Escuchar cambios en checkboxes para actualizar checklist/advertencias
+  document.querySelectorAll('#res-recursos-checks input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', actualizarInfoReserva);
+  });
   abrirModal('modal-reservar-recurso');
+}
+
+async function actualizarInfoReserva() {
+  const ids = getCheckboxSeleccionados('res-recursos-checks');
+  if (!ids.length) {
+    document.getElementById('res-advertencias-panel').style.display='none';
+    document.getElementById('res-checklist-panel').style.display='none';
+    return;
+  }
+  // Cargar advertencias y checklist de todos los recursos seleccionados
+  let todasAdv=[], todosItems=[];
+  for (const id of ids) {
+    try {
+      const advs = await api('/recursos/'+id+'/advertencias');
+      todasAdv.push(...advs.map(a=>({...a, _rid:id})));
+    } catch {}
+    try {
+      const items = await api('/recursos/'+id+'/checklist');
+      const nombre = document.querySelector('#res-recursos-checks input[value="'+id+'"]')?.parentElement?.textContent?.trim()||'Recurso';
+      if (items.length) todosItems.push({recursoNombre:nombre, items});
+    } catch {}
+  }
+  // Mostrar advertencias
+  const advPanel = document.getElementById('res-advertencias-panel');
+  const advLista = document.getElementById('res-advertencias-lista');
+  if (todasAdv.length) {
+    advPanel.style.display='block';
+    advLista.innerHTML = todasAdv.map(a => '<div style="font-size:12px;padding:6px 0;border-bottom:1px solid rgba(255,82,82,0.2)"><div style="font-weight:600;color:var(--orange)">'+a.recurso_nombre+'</div><div style="color:var(--text)">'+a.descripcion+'</div><div style="color:var(--text3);font-size:11px;margin-top:2px">'+new Date(a.creado_en).toLocaleDateString('es-AR')+(a.creado_por_nombre?' · '+a.creado_por_nombre:'')+'</div><button class="btn btn-sm" style="margin-top:6px;background:rgba(0,230,118,0.15);color:var(--green);border:1px solid var(--green)" onclick="resolverAdvertencia('+a.id+')">✓ Marcar como resuelta</button></div>').join('');
+  } else { advPanel.style.display='none'; }
+  // Mostrar checklist
+  const chkPanel = document.getElementById('res-checklist-panel');
+  const chkLista = document.getElementById('res-checklist-lista');
+  if (todosItems.length) {
+    chkPanel.style.display='block';
+    chkLista.innerHTML = todosItems.map(g => '<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">'+g.recursoNombre+'</div>'+g.items.map(i=>'<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer"><input type="checkbox" style="width:15px;height:15px;accent-color:var(--green)"> '+i.item+'</label>').join('')+'</div>').join('');
+  } else { chkPanel.style.display='none'; }
 }
 
 async function confirmarReserva() {
@@ -2235,6 +2379,80 @@ function editarVisita(id) {}
 function marcarDestinoCompletado(destinoId,visitaId) {}
 function eliminarDestino(destinoId,visitaId) {}
 
+// ── ADVERTENCIAS DE RECURSOS ─────────────────────────────────────────────────
+
+function abrirModalAdvertencia(recursoId, recursoNombre) {
+  document.getElementById('adv-recurso-id').value = recursoId;
+  document.getElementById('adv-recurso-nombre').textContent = recursoNombre;
+  document.getElementById('adv-descripcion').value = '';
+  abrirModal('modal-advertencia-recurso');
+}
+
+async function guardarAdvertencia() {
+  const recursoId = document.getElementById('adv-recurso-id').value;
+  const descripcion = document.getElementById('adv-descripcion').value.trim();
+  if (!descripcion) { toast('Describí la anomalía','error'); return; }
+  try {
+    await api('/recursos/'+recursoId+'/advertencias', {method:'POST', body:JSON.stringify({descripcion})});
+    cerrarModal('modal-advertencia-recurso');
+    toast('Advertencia reportada ✓ — visible para todos','success');
+    await cargarRecursosAdmin();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function resolverAdvertencia(id) {
+  try {
+    await api('/recursos/advertencias/'+id+'/resolver', {method:'PATCH'});
+    toast('Advertencia resuelta ✓','success');
+    await actualizarInfoReserva();
+    await cargarRecursosAdmin();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function verAdvertencias(recursoId) {
+  try {
+    const advs = await api('/recursos/'+recursoId+'/advertencias');
+    if (!advs.length) { toast('Sin advertencias activas','info'); return; }
+    const nombres = advs.map(a => '⚠ '+a.descripcion+'\n   ('+new Date(a.creado_en).toLocaleDateString('es-AR')+')').join('\n\n');
+    alert('Advertencias activas:\n\n'+nombres);
+  } catch(e) { toast(e.message,'error'); }
+}
+
+// ── ALERTA DE CHEQUEO AL REGISTRAR ENTRADA ───────────────────────────────────
+
+async function verificarChecklistAlIngreso() {
+  // Buscar si el empleado tiene reserva activa hoy
+  try {
+    const hoy = new Date().toISOString().split('T')[0];
+    const reservas = await api('/recursos/reservas?fecha='+hoy);
+    const misReservas = reservas.filter(r => r.empleado_id === STATE.empleadoId || r.es_admin === false);
+    if (!misReservas.length) return; // Sin reservas hoy, no preguntar
+    const nombres = misReservas.map(r => r.recurso_nombre).join(', ');
+    mostrarAlertaChequeo(nombres, misReservas);
+  } catch {}
+}
+
+function mostrarAlertaChequeo(nombres, reservas) {
+  const existing = document.getElementById('banner-chequeo');
+  if (existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'banner-chequeo';
+  banner.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:500;display:flex;align-items:flex-end;justify-content:center;';
+  banner.innerHTML = '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;padding:24px 20px 40px;width:100%;max-width:500px"><div style="width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px"></div><div style="font-size:18px;font-weight:700;margin-bottom:8px">🔧 Tenés recursos reservados hoy</div><div style="font-size:14px;color:var(--text2);margin-bottom:20px">'+nombres+'</div><div style="font-size:15px;font-weight:600;margin-bottom:16px">¿Chequeaste los accesorios antes de salir?</div><div style="display:flex;gap:10px"><button class="btn btn-success" onclick="cerrarAlertaChequeo(true,'+JSON.stringify(reservas).replace(/"/g,"'")+')" style="flex:1">✓ Sí, ya lo hice</button><button class="btn btn-secondary" onclick="cerrarAlertaChequeo(false,'+JSON.stringify(reservas).replace(/"/g,"'")+')" style="flex:1;color:var(--orange)">No — ver checklist</button></div></div>';
+  document.body.appendChild(banner);
+}
+
+async function cerrarAlertaChequeo(chequeado, reservas) {
+  const banner = document.getElementById('banner-chequeo');
+  if (banner) banner.remove();
+  if (!chequeado) {
+    // Abrir modal de reserva con checklist visible
+    if (reservas && reservas.length) {
+      await abrirModalReservar(reservas[0].recurso_id);
+    }
+  }
+}
+
 // CARGA MASIVA DE RECURSOS
 async function importarRecursos(input) {
   const file = input.files[0]; if (!file) return;
@@ -2244,7 +2462,6 @@ async function importarRecursos(input) {
     const wb = XLSX.read(data, {type:'array'});
     const ws = wb.Sheets['Recursos'] || wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, {header:1});
-    // Saltar fila 1 (título) y fila 2 (encabezados), empezar en fila 3
     const dataRows = rows.slice(2).filter(r => r[0] && String(r[0]).trim() !== '');
     if (!dataRows.length) return toast('No se encontraron datos en la planilla', 'error');
     const tiposValidos = ['vehiculo','didactico','instrumental','otro'];
@@ -2254,9 +2471,18 @@ async function importarRecursos(input) {
       const tipoRaw = String(r[1] || '').trim().toLowerCase();
       const tipo = tiposValidos.includes(tipoRaw) ? tipoRaw : 'otro';
       const descripcion = String(r[2] || '').trim() || null;
+      const accesorios = String(r[3] || '').trim() || null;
+      const checklistRaw = String(r[4] || '').trim();
       if (!nombre) continue;
       try {
-        await api('/recursos', {method:'POST', body:JSON.stringify({nombre, tipo, descripcion})});
+        const rec = await api('/recursos', {method:'POST', body:JSON.stringify({nombre, tipo, descripcion, accesorios})});
+        // Guardar checklist si viene en la planilla, sino usar plantilla por tipo
+        const items = checklistRaw
+          ? checklistRaw.split('|').map(s=>s.trim()).filter(Boolean)
+          : (CHECKLIST_PLANTILLAS[tipo] || CHECKLIST_PLANTILLAS.otro);
+        for (let i=0; i<items.length; i++) {
+          try { await api('/recursos/'+rec.id+'/checklist',{method:'POST',body:JSON.stringify({item:items[i],orden:i})}); } catch {}
+        }
         ok++;
       } catch { err++; }
     }
@@ -2269,19 +2495,18 @@ function descargarPlantillaRecursos() {
   const wb = XLSX.utils.book_new();
   const wsData = [
     ['PLANTILLA CARGA MASIVA DE RECURSOS — AsistenciaAR'],
-    ['Nombre', 'Tipo', 'Descripción'],
-    ['Camioneta Ford F-100', 'vehiculo', 'Patente ABC123 — color blanco'],
-    ['Cañón EPSON EB-X51', 'didactico', 'Control remoto en cajón archivo'],
-    ['Taladro Bosch 1/2"', 'instrumental', 'Incluye maletín y brocas'],
-    ['Notebook Lenovo', 'otro', 'Para presentaciones externas'],
+    ['Nombre', 'Tipo', 'Descripción', 'Accesorios', 'Checklist (ítems separados por |)'],
+    ['Camioneta Ford F-100', 'vehiculo', 'Patente ABC123 — color blanco', 'Botiquín, triángulos, linterna', 'Nivel de agua|Combustible|Aceite|Neumáticos|Luces|Documentación'],
+    ['Cañón EPSON EB-X51', 'didactico', 'Control remoto en cajón archivo', 'Cable HDMI, adaptador VGA', 'Carga batería|Cable HDMI|Control remoto|Funda|Prueba imagen'],
+    ['Analizador de redes', 'instrumental', 'Modelo Fluke 435-II', 'Cajita herramientas, tester, cable largo, jabalinas adicionales', 'Carga de batería|Estado de cables|Autodiagnóstico|Estuche|Accesorios completos'],
+    ['Notebook Lenovo', 'otro', 'Para presentaciones externas', 'Cargador, adaptador HDMI', ''],
   ];
   const ws = XLSX.utils.aoa_to_sheet(wsData);
-  // Ancho de columnas
-  ws['!cols'] = [{wch:35},{wch:18},{wch:45}];
-  // Nota al pie con tipos válidos
+  ws['!cols'] = [{wch:30},{wch:14},{wch:35},{wch:40},{wch:55}];
   XLSX.utils.sheet_add_aoa(ws, [
     [''],
     ['TIPOS VÁLIDOS: vehiculo · didactico · instrumental · otro'],
+    ['CHECKLIST: separar ítems con el símbolo | (si se deja vacío, se usa la plantilla predefinida según el tipo)'],
     ['Empezar datos desde la fila 3. No modificar las dos primeras filas.'],
   ], {origin:-1});
   XLSX.utils.book_append_sheet(wb, ws, 'Recursos');
