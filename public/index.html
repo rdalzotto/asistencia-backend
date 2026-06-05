@@ -99,6 +99,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .vstep.done{background:rgba(0,230,118,0.1);color:var(--green);}
 .vstep.active{background:rgba(0,212,255,0.1);color:var(--accent);}
 .vstep.pending{color:var(--text3);}
+.vstep.error{background:rgba(255,82,82,0.1);color:var(--red);}
 .vstep-icon{font-size:18px;width:24px;text-align:center;}
 #cameraPreview{width:100%;border-radius:var(--radius-sm);display:none;margin:12px 0;background:black;}
 .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 20px;font-size:14px;font-weight:500;z-index:999;box-shadow:var(--shadow);display:none;min-width:200px;text-align:center;animation:fadeIn 0.3s ease;}
@@ -567,7 +568,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="reg-descripcion" placeholder="Detalles adicionales"></div>
     </div>
     <div class="verification-steps" id="verif-steps">
-      <div class="vstep active" id="step-gps"><span class="vstep-icon">📍</span><span id="step-gps-txt">Obteniendo ubicación...</span></div>
+      <div class="vstep active" id="step-gps"><span class="vstep-icon">📍</span><span id="step-gps-txt">Obteniendo ubicación...</span><button id="btn-reintentar-gps" onclick="reintentarGPS()" style="display:none;margin-left:10px;padding:4px 10px;font-size:12px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer">🔄 Reintentar</button></div>
       <div class="vstep pending" id="step-foto"><span class="vstep-icon">📷</span><span id="step-foto-txt">Captura de foto pendiente</span></div>
       <div class="vstep pending" id="step-qr"><span class="vstep-icon">📱</span><span id="step-qr-txt">Verificación QR pendiente</span></div>
     </div>
@@ -1139,15 +1140,19 @@ async function iniciarVerificacion() {
   const btnConf = document.getElementById('btn-confirmar-mov');
   btnConf.disabled = true;
   setStep('gps','active','Obteniendo ubicación...');
+  document.getElementById('btn-reintentar-gps').style.display = 'none';
   try {
     const pos = await new Promise((res,rej) =>
       navigator.geolocation.getCurrentPosition(res, rej, {timeout:20000, enableHighAccuracy:true, maximumAge:0})
     );
     STATE.gpsCoords = {lat:pos.coords.latitude, lng:pos.coords.longitude};
     setStep('gps','done','✓ Ubicación obtenida');
-  } catch {
-    setStep('gps','done','⚠ GPS no disponible (se registrará sin coordenadas)');
+    document.getElementById('btn-reintentar-gps').style.display = 'none';
+  } catch(e) {
+    const msg = e && e.code === 1 ? '⚠ Permiso GPS denegado' : '⚠ No se pudo obtener ubicación';
+    setStep('gps','error', msg);
     STATE.gpsCoords = {lat:null, lng:null};
+    document.getElementById('btn-reintentar-gps').style.display = 'inline-block';
   }
   setStep('foto','active','Abriendo cámara...');
   try {
@@ -1177,6 +1182,24 @@ function setStep(id, estado, txt) {
   const el = document.getElementById('step-'+id);
   el.className = 'vstep ' + estado;
   document.getElementById('step-'+id+'-txt').textContent = txt;
+}
+
+async function reintentarGPS() {
+  const btn = document.getElementById('btn-reintentar-gps');
+  btn.style.display = 'none';
+  setStep('gps','active','Obteniendo ubicación...');
+  try {
+    const pos = await new Promise((res,rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej, {timeout:20000, enableHighAccuracy:true, maximumAge:0})
+    );
+    STATE.gpsCoords = {lat:pos.coords.latitude, lng:pos.coords.longitude};
+    setStep('gps','done','✓ Ubicación obtenida');
+  } catch(e) {
+    const msg = e && e.code === 1 ? '⚠ Permiso GPS denegado — revisá los permisos del navegador' : '⚠ No se pudo obtener ubicación';
+    setStep('gps','error', msg);
+    STATE.gpsCoords = {lat:null, lng:null};
+    btn.style.display = 'inline-block';
+  }
 }
 
 async function confirmarMovimiento() {
