@@ -1135,6 +1135,20 @@ function cambiarTipoMovimiento() {
   document.getElementById('grupo-externa').style.display = tipo === 'salida_externa' ? 'block' : 'none';
 }
 
+async function obtenerGPS() {
+  // Intento 1: rápido, acepta posición reciente de hasta 60 seg (funciona en interiores)
+  try {
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej, {timeout:8000, enableHighAccuracy:false, maximumAge:60000})
+    );
+    return pos;
+  } catch {}
+  // Intento 2: preciso sin caché (requiere señal GPS directa)
+  return await new Promise((res, rej) =>
+    navigator.geolocation.getCurrentPosition(res, rej, {timeout:20000, enableHighAccuracy:true, maximumAge:0})
+  );
+}
+
 async function iniciarVerificacion() {
   STATE.gpsCoords = null; STATE.fotoBlob = null; STATE.fotoBase64 = null;
   const btnConf = document.getElementById('btn-confirmar-mov');
@@ -1142,9 +1156,7 @@ async function iniciarVerificacion() {
   setStep('gps','active','Obteniendo ubicación...');
   document.getElementById('btn-reintentar-gps').style.display = 'none';
   try {
-    const pos = await new Promise((res,rej) =>
-      navigator.geolocation.getCurrentPosition(res, rej, {timeout:20000, enableHighAccuracy:true, maximumAge:0})
-    );
+    const pos = await obtenerGPS();
     STATE.gpsCoords = {lat:pos.coords.latitude, lng:pos.coords.longitude};
     setStep('gps','done','✓ Ubicación obtenida');
     document.getElementById('btn-reintentar-gps').style.display = 'none';
@@ -1189,9 +1201,7 @@ async function reintentarGPS() {
   btn.style.display = 'none';
   setStep('gps','active','Obteniendo ubicación...');
   try {
-    const pos = await new Promise((res,rej) =>
-      navigator.geolocation.getCurrentPosition(res, rej, {timeout:20000, enableHighAccuracy:true, maximumAge:0})
-    );
+    const pos = await obtenerGPS();
     STATE.gpsCoords = {lat:pos.coords.latitude, lng:pos.coords.longitude};
     setStep('gps','done','✓ Ubicación obtenida');
   } catch(e) {
