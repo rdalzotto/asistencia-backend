@@ -200,9 +200,17 @@ router.post('/:id/destinos', auth, async (req, res) => {
 // ── PATCH /visitas/:id/destinos/:did ─────────────────────────
 router.patch('/:id/destinos/:did', auth, async (req, res) => {
   try {
+    const { completado, lat_llegada, lng_llegada, hora_llegada, locacion_descripcion } = req.body;
+    const sets = [];
+    const params = [req.params.did];
+    if (completado !== undefined)          { params.push(completado !== false);  sets.push(`completado = $${params.length}`); }
+    if (lat_llegada != null)               { params.push(lat_llegada);           sets.push(`lat_llegada = $${params.length}`); }
+    if (lng_llegada != null)               { params.push(lng_llegada);           sets.push(`lng_llegada = $${params.length}`); }
+    if (hora_llegada != null)              { params.push(hora_llegada);          sets.push(`hora_llegada = $${params.length}`); }
+    if (locacion_descripcion !== undefined){ params.push(locacion_descripcion);  sets.push(`locacion_descripcion = $${params.length}`); }
+    if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
     const { rows: [d] } = await db.query(
-      `UPDATE public.visita_destinos SET completado = $1 WHERE id = $2 RETURNING *`,
-      [req.body.completado !== false, req.params.did]);
+      `UPDATE public.visita_destinos SET ${sets.join(',')} WHERE id = $1 RETURNING *`, params);
     res.json(d);
   } catch (e) { res.status(500).json({ error: 'Error interno' }); }
 });
