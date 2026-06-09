@@ -346,6 +346,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('import-recursos-input').click()">📥 Importar Excel</button>
           <button class="btn btn-secondary btn-sm" onclick="descargarPlantillaRecursos()">📄 Bajar plantilla</button>
         </div>
+        <p style="font-size:11px;color:var(--text3);margin-top:8px">Para carga masiva: bajá la plantilla Excel, completá los recursos y luego importala.</p>
         <input type="file" id="import-recursos-input" accept=".xlsx,.xls" style="display:none" onchange="importarRecursos(this)">
       </div>
       <div class="card">
@@ -1402,7 +1403,9 @@ async function cargarDashboardAdmin() {
     document.getElementById('dash-externos').textContent = externos;
     document.getElementById('dash-ausentes').textContent = ausentes;
     document.getElementById('dash-pendientes').textContent = pendTotal;
-    if (pendTotal>0) { const nb=document.getElementById('notif-count'); nb.textContent=pendTotal; nb.style.display='flex'; }
+    const nb=document.getElementById('notif-count');
+    if (pendTotal>0) { nb.textContent=pendTotal; nb.style.display='flex'; }
+    else { nb.style.display='none'; }
     const cont = document.getElementById('lista-estado-personal');
     if (!emps.length) { cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin empleados registrados</p>'; }
     else {
@@ -2085,8 +2088,33 @@ async function cargarCheckboxRecursos(contenedorId) {
     const recursos = await api('/recursos');
     if (!recursos.length) { cont.innerHTML='<p style="color:var(--text3);font-size:13px">Sin recursos cargados</p>'; return; }
     const iconos = {vehiculo:'🚗',didactico:'📽',instrumental:'🔧',otro:'📦'};
-    cont.innerHTML = recursos.map(r => '<label style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;font-size:13px"><input type="checkbox" value="'+r.id+'" style="width:16px;height:16px;accent-color:var(--accent)">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</label>').join('');
+    const searchId = contenedorId+'-search';
+    const listId = contenedorId+'-list';
+    cont.innerHTML =
+      '<div style="display:flex;gap:6px;margin-bottom:6px">' +
+        '<input type="text" id="'+searchId+'" placeholder="🔍 Buscar..." oninput="filtrarRecursosCheck(\''+contenedorId+'\')" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--font)">' +
+        '<button type="button" onclick="toggleTodosRecursos(\''+contenedorId+'\',true)" style="font-size:11px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">Todo</button>' +
+        '<button type="button" onclick="toggleTodosRecursos(\''+contenedorId+'\',false)" style="font-size:11px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">Ninguno</button>' +
+      '</div>' +
+      '<div id="'+listId+'" style="max-height:140px;overflow-y:auto">' +
+        recursos.map(r => '<label style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;font-size:13px" data-nombre="'+r.nombre.toLowerCase()+'"><input type="checkbox" value="'+r.id+'" style="width:16px;height:16px;accent-color:var(--accent)">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</label>').join('') +
+      '</div>';
   } catch { cont.innerHTML='<p style="color:var(--text3);font-size:13px">Error cargando recursos</p>'; }
+}
+
+function filtrarRecursosCheck(contenedorId) {
+  const q = (document.getElementById(contenedorId+'-search')?.value||'').toLowerCase().trim();
+  const list = document.getElementById(contenedorId+'-list');
+  if (!list) return;
+  list.querySelectorAll('label').forEach(lbl => {
+    lbl.style.display = (!q || lbl.dataset.nombre?.includes(q)) ? '' : 'none';
+  });
+}
+
+function toggleTodosRecursos(contenedorId, marcar) {
+  const list = document.getElementById(contenedorId+'-list') || document.getElementById(contenedorId);
+  if (!list) return;
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = marcar; });
 }
 
 function getCheckboxSeleccionados(contenedorId) {
@@ -2491,13 +2519,25 @@ async function guardarRendicion() {
 async function cargarMisVisitas() {
   const desde=document.getElementById('vis-emp-desde').value;
   const hasta=document.getElementById('vis-emp-hasta').value;
+  const mostrarInactivas=document.getElementById('vis-toggle-inactivas')?.checked||false;
   const cont=document.getElementById('lista-mis-visitas');
   if (!desde) { cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center">Seleccioná un período</p>'; return; }
   cont.innerHTML='<p style="color:var(--text3);text-align:center">Cargando...</p>';
   try {
     const visitas = await api('/visitas?desde='+desde+'&hasta='+(hasta||desde));
+    const INACTIVAS=['cancelada','rechazada','suspendida'];
+    const activas=visitas.filter(v=>!INACTIVAS.includes(v.estado));
+    const inactivas=visitas.filter(v=>INACTIVAS.includes(v.estado));
+    const mostradas=mostrarInactivas?visitas:activas;
     if (!visitas.length) { cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Sin visitas en el período</p>'; return; }
-    cont.innerHTML = visitas.map(v => renderTarjetaVisita(v,false)).join('');
+    let html='';
+    if (mostradas.length) { html=mostradas.map(v=>renderTarjetaVisita(v,false)).join(''); }
+    else { html='<p style="color:var(--text3);font-size:13px;text-align:center;padding:12px">Sin visitas activas en el período</p>'; }
+    if (inactivas.length) {
+      const label=mostrarInactivas?'Ocultar canceladas/rechazadas':'Ver también canceladas/rechazadas ('+inactivas.length+')';
+      html+='<div style="margin-top:12px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:var(--text2)">'+inactivas.length+' visita'+(inactivas.length>1?'s':'')+' cancelada'+(inactivas.length>1?'s/rechazadas':'/ rechazada')+' oculta'+(inactivas.length>1?'s':'')+' por defecto</span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--accent)"><input type="checkbox" id="vis-toggle-inactivas" '+(mostrarInactivas?'checked':'')+' onchange="cargarMisVisitas()" style="accent-color:var(--accent)">'+label+'</label></div>';
+    }
+    cont.innerHTML=html;
   } catch { cont.innerHTML='<p style="color:var(--red);font-size:13px;text-align:center">Error cargando</p>'; }
 }
 
