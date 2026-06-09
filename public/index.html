@@ -670,21 +670,41 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 <div class="modal-overlay" id="modal-suspender-visita" style="z-index:300">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Suspender / Reprogramar visita</div>
+    <div class="modal-title">⏸ Suspender visita</div>
+    <div id="susp-en-curso-aviso" style="display:none;background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:12px">
+      ⚠ Esta visita está <strong>en curso</strong>. Al suspenderla el empleado volverá al estado de oficina.
+    </div>
     <div class="form-group"><label>Motivo de suspensión</label>
       <select id="susp-motivo-tipo">
-        <option value="clima">🌧 Condiciones climáticas</option>
-        <option value="cliente">📞 Cliente canceló o no disponible</option>
-        <option value="interno">🏢 Motivo interno</option>
+        <option value="clima">🌧 Condiciones climáticas / estado de caminos</option>
+        <option value="cliente">📞 Cliente canceló o no estaba disponible</option>
+        <option value="vehiculo">🚗 Falla del vehículo o recurso</option>
+        <option value="interno">🏢 Motivo interno de la empresa</option>
         <option value="otro">📝 Otro motivo</option>
       </select>
     </div>
-    <div class="form-group"><label>Detalle (opcional)</label><textarea id="susp-detalle" placeholder="Descripción adicional..." style="min-height:60px"></textarea></div>
+    <div class="form-group"><label>Descripción del inconveniente <span style="color:var(--red)">*</span></label>
+      <textarea id="susp-detalle" placeholder="Describí qué pasó — esto queda como justificativo documentado..." style="min-height:80px"></textarea>
+    </div>
+    <div class="form-group">
+      <label>Foto de evidencia (opcional)</label>
+      <div id="susp-foto-preview" style="display:none;margin-bottom:8px;border-radius:var(--radius-sm);overflow:hidden;max-height:160px">
+        <img id="susp-foto-img" style="width:100%;object-fit:cover;border-radius:var(--radius-sm)" />
+        <button type="button" onclick="quitarFotoSuspension()" style="width:100%;margin-top:4px;font-size:11px;padding:4px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">✕ Quitar foto</button>
+      </div>
+      <div id="susp-foto-btn-area">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:13px;color:var(--text2)">
+          📷 Sacar o adjuntar foto del estado del camino / situación
+          <input type="file" id="susp-foto-input" accept="image/*" capture="environment" style="display:none" onchange="previsualizarFotoSuspension(this)">
+        </label>
+      </div>
+    </div>
     <div class="form-group"><label>Nueva fecha (si se reprograma)</label><input type="date" id="susp-nueva-fecha"></div>
     <input type="hidden" id="susp-visita-id">
+    <input type="hidden" id="susp-foto-base64">
     <div style="display:flex;gap:10px;margin-top:16px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-suspender-visita')">Cancelar</button>
-      <button class="btn btn-warning" onclick="confirmarSuspension()">Suspender</button>
+      <button class="btn btn-warning" onclick="confirmarSuspension()">⏸ Confirmar suspensión</button>
     </div>
   </div>
 </div>
@@ -2307,7 +2327,7 @@ function renderTarjetaVisita(v, esAdmin) {
   const totalGastos=gastos.reduce((s,g)=>s+parseFloat(g.monto||0),0);
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
-  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:6px;background:rgba(255,145,0,0.08);padding:6px 8px;border-radius:6px">⏸ Suspendida: '+v.motivo_suspension+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+'</div></div>';
+  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+'</div></div>';
 }
 
 async function cargarReporteVisitas() {
@@ -2465,10 +2485,50 @@ async function cancelarVisita(id) {
 }
 
 // ── SUSPENDER / REPROGRAMAR VISITA ───────────────────────────────────────────
-function abrirSuspenderVisita(id) {
+function previsualizarFotoSuspension(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    // Comprimir a max 800px / quality 0.7 para no mandar base64 enorme
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 800;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const b64 = canvas.toDataURL('image/jpeg', 0.7);
+      document.getElementById('susp-foto-base64').value = b64;
+      document.getElementById('susp-foto-img').src = b64;
+      document.getElementById('susp-foto-preview').style.display = 'block';
+      document.getElementById('susp-foto-btn-area').style.display = 'none';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function quitarFotoSuspension() {
+  document.getElementById('susp-foto-base64').value = '';
+  document.getElementById('susp-foto-img').src = '';
+  document.getElementById('susp-foto-preview').style.display = 'none';
+  document.getElementById('susp-foto-btn-area').style.display = 'block';
+  document.getElementById('susp-foto-input').value = '';
+}
+
+function abrirSuspenderVisita(id, estadoActual) {
   document.getElementById('susp-visita-id').value = id;
   document.getElementById('susp-detalle').value = '';
   document.getElementById('susp-nueva-fecha').value = '';
+  document.getElementById('susp-foto-base64').value = '';
+  document.getElementById('susp-foto-img').src = '';
+  document.getElementById('susp-foto-preview').style.display = 'none';
+  document.getElementById('susp-foto-btn-area').style.display = 'block';
+  if (document.getElementById('susp-foto-input')) document.getElementById('susp-foto-input').value = '';
+  const aviso = document.getElementById('susp-en-curso-aviso');
+  if (aviso) aviso.style.display = estadoActual === 'en_curso' ? 'block' : 'none';
   abrirModal('modal-suspender-visita');
 }
 
@@ -2477,11 +2537,14 @@ async function confirmarSuspension() {
   const tipo = document.getElementById('susp-motivo-tipo').value;
   const detalle = document.getElementById('susp-detalle').value.trim();
   const nuevaFecha = document.getElementById('susp-nueva-fecha').value;
-  const textoMotivos = {clima:'Condiciones climáticas',cliente:'Cliente canceló o no disponible',interno:'Motivo interno',otro:'Otro motivo'};
-  const motivo_suspension = textoMotivos[tipo] + (detalle?' — '+detalle:'');
+  const foto = document.getElementById('susp-foto-base64').value;
+  if (!detalle) { toast('Describí brevemente el motivo de la suspensión', 'error'); return; }
+  const textoMotivos = {clima:'Condiciones climáticas / estado de caminos',cliente:'Cliente canceló o no disponible',vehiculo:'Falla del vehículo o recurso',interno:'Motivo interno',otro:'Otro motivo'};
+  const motivo_suspension = textoMotivos[tipo] + ' — ' + detalle;
   try {
     const body = {estado:'suspendida', motivo_suspension};
     if (nuevaFecha) body.fecha_reprogramada = nuevaFecha;
+    if (foto) body.foto_evidencia_suspension = foto;
     await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify(body)});
     cerrarModal('modal-suspender-visita');
     toast('Visita suspendida'+(nuevaFecha?' — reprogramada para '+nuevaFecha.split('-').reverse().join('/'):''), 'info');
