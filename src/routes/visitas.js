@@ -114,18 +114,45 @@ router.post('/', auth, async (req, res) => {
 router.patch('/:id', auth, async (req, res) => {
   const { estado, km_reales, viatico_real, observaciones,
           motivo_suspension, motivo_rechazo, fecha_reprogramada,
-          foto_evidencia_suspension } = req.body;
+          foto_evidencia_suspension,
+          lat_inicio_real, lng_inicio_real, hora_inicio_real } = req.body;
   const sets = [];
   const params = [req.params.id, req.user.empleadorId];
-  if (estado)                      { params.push(estado);                     sets.push(`estado = $${params.length}`); }
-  if (km_reales != null)           { params.push(km_reales);                  sets.push(`km_reales = $${params.length}`); }
-  if (viatico_real != null)        { params.push(viatico_real);               sets.push(`viatico_real = $${params.length}`); }
-  if (observaciones)               { params.push(observaciones);              sets.push(`observaciones = $${params.length}`); }
-  if (motivo_suspension != null)   { params.push(motivo_suspension);          sets.push(`motivo_suspension = $${params.length}`); }
-  if (motivo_rechazo != null)      { params.push(motivo_rechazo);             sets.push(`motivo_rechazo = $${params.length}`); }
-  if (fecha_reprogramada != null)  { params.push(fecha_reprogramada);         sets.push(`fecha_reprogramada = $${params.length}`); }
+  if (estado)                        { params.push(estado);                     sets.push(`estado = $${params.length}`); }
+  if (km_reales != null)             { params.push(km_reales);                  sets.push(`km_reales = $${params.length}`); }
+  if (viatico_real != null)          { params.push(viatico_real);               sets.push(`viatico_real = $${params.length}`); }
+  if (observaciones)                 { params.push(observaciones);              sets.push(`observaciones = $${params.length}`); }
+  if (motivo_suspension != null)     { params.push(motivo_suspension);          sets.push(`motivo_suspension = $${params.length}`); }
+  if (motivo_rechazo != null)        { params.push(motivo_rechazo);             sets.push(`motivo_rechazo = $${params.length}`); }
+  if (fecha_reprogramada != null)    { params.push(fecha_reprogramada);         sets.push(`fecha_reprogramada = $${params.length}`); }
   if (foto_evidencia_suspension != null) { params.push(foto_evidencia_suspension); sets.push(`foto_evidencia_suspension = $${params.length}`); }
+  if (lat_inicio_real != null)       { params.push(lat_inicio_real);            sets.push(`lat_inicio_real = $${params.length}`); }
+  if (lng_inicio_real != null)       { params.push(lng_inicio_real);            sets.push(`lng_inicio_real = $${params.length}`); }
+  if (hora_inicio_real != null)      { params.push(hora_inicio_real);           sets.push(`hora_inicio_real = $${params.length}`); }
   if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
+  try {
+    // Si se suspende una visita en_curso, cerrar movimiento remoto abierto
+    const { rows: [visitaActual] } = await db.query(
+      `SELECT estado, empleado_id FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
+      [req.params.id, req.user.empleadorId]
+    );
+    const { rows: [v] } = await db.query(
+      `UPDATE public.visitas SET ${sets.join(',')} WHERE id = $1 AND empleador_id = $2 RETURNING *`, params);
+    if (estado === 'suspendida' && visitaActual?.estado === 'en_curso' && visitaActual?.empleado_id) {
+      await db.query(`
+        UPDATE public.movimientos
+        SET validado = TRUE, validado_en = NOW(),
+            observacion_admin = 'Validado automáticamente por suspensión de visita en curso'
+        WHERE empleado_id = $1 AND empleador_id = $2
+          AND es_remoto = TRUE AND validado = FALSE AND fecha = CURRENT_DATE
+      `, [visitaActual.empleado_id, req.user.empleadorId]);
+    }
+    res.json(v);
+  } catch (e) {
+    console.error('[VISITAS PATCH]', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
   try {
     const { rows: [v] } = await db.query(
       `UPDATE public.visitas SET ${sets.join(',')} WHERE id = $1 AND empleador_id = $2 RETURNING *`, params);
