@@ -2431,7 +2431,7 @@ function renderTarjetaVisita(v, esAdmin) {
   const totalGastos=gastos.reduce((s,g)=>s+parseFloat(g.monto||0),0);
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
-  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.estado==="completada"&&gastos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px;background:var(--bg3);border-radius:6px;padding:6px 8px"><div style="font-weight:600;margin-bottom:4px">📋 Gastos rendidos</div>'+gastos.map(g=>'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>'+g.descripcion+'</span><span style="color:var(--green);font-weight:600">$'+parseFloat(g.monto).toFixed(0)+'</span></div>').join('')+'</div>':'')+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+',' +(v.lat_inicio_real||'null')+','+(v.lng_inicio_real||'null')+')">✓ Rendir y finalizar</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+(esAdmin?'<button class="btn btn-sm btn-danger" style="opacity:0.6" onclick="eliminarVisita('+v.id+')">🗑 Eliminar</button>':'')+'</div></div>';
+  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="padding:4px 0;font-size:12px"><div style="display:flex;align-items:center;gap:6px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>'+(d.locacion_descripcion?'<div style="font-size:11px;color:var(--text2);padding-left:14px;margin-top:2px">📌 '+d.locacion_descripcion+'</div>':'')+(d.lat_llegada?'<div style="font-size:10px;color:var(--text3);padding-left:14px">GPS: '+parseFloat(d.lat_llegada).toFixed(5)+', '+parseFloat(d.lng_llegada).toFixed(5)+(d.hora_llegada?' · '+new Date(d.hora_llegada).toLocaleTimeString(\'es-AR\',{hour:\'2-digit\',minute:\'2-digit\'}):'')+'</div>':'')+'</div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.estado==="completada"&&gastos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px;background:var(--bg3);border-radius:6px;padding:6px 8px"><div style="font-weight:600;margin-bottom:4px">📋 Gastos rendidos</div>'+gastos.map(g=>'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>'+g.descripcion+'</span><span style="color:var(--green);font-weight:600">$'+parseFloat(g.monto).toFixed(0)+'</span></div>').join('')+'</div>':'')+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+',' +(v.lat_inicio_real||'null')+','+(v.lng_inicio_real||'null')+')">✓ Rendir y finalizar</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+(esAdmin?'<button class="btn btn-sm btn-danger" style="opacity:0.6" onclick="eliminarVisita('+v.id+')">🗑 Eliminar</button>':'')+'</div></div>';
 }
 
 async function cargarReporteVisitas() {
@@ -2744,6 +2744,7 @@ async function confirmarSuspension() {
 }
 
 let _rendicionGastos = [];
+let _rendicionDestinos = [];
 
 function previsualizarFotoRendicion(input) {
   const file = input.files[0]; if (!file) return;
@@ -2841,6 +2842,7 @@ async function calcularKmRendicion() {
 
 function abrirRendicion(visitaId, destinos, latInicio, lngInicio) {
   _rendicionGastos = [];
+  _rendicionDestinos = destinos.map(d => ({...d, lat_llegada: null, lng_llegada: null, hora_llegada: null, locacion_descripcion: ''}));
   document.getElementById('rendir-visita-id').value = visitaId;
   document.getElementById('rendir-km').value = '';
   document.getElementById('rendir-km-detalle').style.display = 'none';
@@ -2852,13 +2854,45 @@ function abrirRendicion(visitaId, destinos, latInicio, lngInicio) {
   document.getElementById('rendir-foto-btn').style.display = 'flex';
   if (document.getElementById('rendir-foto-input')) document.getElementById('rendir-foto-input').value = '';
   renderizarGastosRendicion();
-  // Usar coordenadas de inicio real si existen, sino oficina
+  renderizarDestinosRendicion();
   document.getElementById('rendir-origen-lat').value = latInicio || STATE.oficina_lat || -31.400379;
   document.getElementById('rendir-origen-lng').value = lngInicio || STATE.oficina_lng || -58.014207;
-  document.getElementById('rendir-destinos-lista').innerHTML = destinos.map((d,i) =>
-    '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+(i+1)+'. '+d.cliente_nombre+'</div>'
-  ).join('');
   abrirModal('modal-rendir-visita');
+}
+
+function renderizarDestinosRendicion() {
+  const cont = document.getElementById('rendir-destinos-lista');
+  if (!_rendicionDestinos?.length) { cont.innerHTML = ''; return; }
+  cont.innerHTML = _rendicionDestinos.map((d, i) => {
+    const gpsOk = d.lat_llegada && d.lng_llegada;
+    return '<div style="padding:8px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:8px;border-left:3px solid '+(gpsOk?'var(--green)':'var(--border)'+'">')+
+      '<div style="font-size:13px;font-weight:600;margin-bottom:6px"><span style="color:var(--accent)">'+(i+1)+'.</span> '+d.cliente_nombre+'</div>'+
+      '<input type="text" placeholder="Locación específica (ej: Obrador norte, Puesto km 45...)" value="'+(d.locacion_descripcion||'')+'" oninput="_rendicionDestinos['+i+'].locacion_descripcion=this.value" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);margin-bottom:6px">'+
+      (gpsOk
+        ? '<div style="font-size:11px;color:var(--green)">✓ GPS registrado · '+d.lat_llegada.toFixed(5)+', '+d.lng_llegada.toFixed(5)+(d.hora_llegada?' · '+new Date(d.hora_llegada).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}):'')+' <button type="button" onclick="registrarLlegadaGPS('+i+')" style="font-size:10px;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;margin-left:6px">🔄 Actualizar</button></div>'
+        : '<button type="button" onclick="registrarLlegadaGPS('+i+')" style="font-size:12px;padding:5px 10px;background:var(--bg);border:1px solid var(--accent);border-radius:var(--radius-sm);color:var(--accent);cursor:pointer;display:flex;align-items:center;gap:6px">📍 Registrar ubicación GPS de llegada</button>'
+      )+
+    '</div>';
+  }).join('');
+}
+
+async function registrarLlegadaGPS(idx) {
+  const btn = event.target;
+  const textoOriginal = btn.textContent;
+  btn.textContent = '📍 Obteniendo...';
+  btn.disabled = true;
+  try {
+    const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout:10000, enableHighAccuracy:true}));
+    _rendicionDestinos[idx].lat_llegada = pos.coords.latitude;
+    _rendicionDestinos[idx].lng_llegada = pos.coords.longitude;
+    _rendicionDestinos[idx].hora_llegada = new Date().toISOString();
+    renderizarDestinosRendicion();
+    toast('Ubicación registrada ✓', 'success');
+  } catch {
+    btn.textContent = textoOriginal;
+    btn.disabled = false;
+    toast('No se pudo obtener la ubicación GPS', 'error');
+  }
 }
 
 async function guardarRendicion() {
@@ -2874,6 +2908,20 @@ async function guardarRendicion() {
       viatico_real: totalGastado,
       estado: 'completada'
     })});
+    // Guardar coordenadas de llegada y locación por cada destino
+    for (const d of (_rendicionDestinos||[])) {
+      if (d.id && (d.lat_llegada || d.locacion_descripcion)) {
+        try {
+          await api('/visitas/'+visitaId+'/destinos/'+d.id, {method:'PATCH', body:JSON.stringify({
+            completado: true,
+            lat_llegada: d.lat_llegada || null,
+            lng_llegada: d.lng_llegada || null,
+            hora_llegada: d.hora_llegada || null,
+            locacion_descripcion: d.locacion_descripcion || null
+          })});
+        } catch {}
+      }
+    }
     // Guardar cada gasto individualmente
     for (const g of _rendicionGastos) {
       await api('/visitas/'+visitaId+'/gastos', {method:'POST', body:JSON.stringify({
