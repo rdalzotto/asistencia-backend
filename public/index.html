@@ -599,18 +599,18 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
     <div class="form-group"><label>Sale desde</label><select id="vis-origen" onchange="toggleOrigenVisita()"><option value="oficina">🏢 Oficina</option><option value="domicilio">🏠 Domicilio</option></select></div>
     <div class="form-group">
-      <label>Clientes a visitar (en orden)</label>
+      <label>Cliente(s) a visitar — agregá uno o más en orden de visita</label>
       <div id="vis-destinos-lista" style="margin-bottom:8px"></div>
       <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
         <div style="position:relative;margin-bottom:8px">
-          <input type="text" id="vis-dest-buscar" placeholder="Buscar empresa cliente..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font)" oninput="buscarEmpresaDestino(this.value)" autocomplete="off">
+          <input type="text" id="vis-dest-buscar" placeholder="Buscar empresa o escribí el nombre del cliente..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font)" oninput="buscarEmpresaDestino(this.value)" autocomplete="off">
           <div id="vis-dest-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:999;max-height:180px;overflow-y:auto;box-shadow:var(--shadow)"></div>
         </div>
         <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (se completa automático)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
         <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
         <input type="hidden" id="vis-dest-nombre">
         <input type="hidden" id="vis-dest-id">
-        <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar cliente</button>
+        <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar otro cliente (opcional)</button>
       </div>
     </div>
     <div class="form-group"><label>Recursos necesarios (opcional)</label><div id="vis-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;max-height:120px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
@@ -627,7 +627,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
     <!-- Aviso para empleado: la visita queda pendiente de aprobación -->
     <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:#b464ff">
-      📋 La visita quedará pendiente de aprobación por el administrador. Una vez aprobada podrás iniciarla.
+      📋 Esta visita será visada por el administrador. Podés completar todos los datos y guardarla — el admin la revisará y confirmará.
     </div>
   </div>
 </div>
