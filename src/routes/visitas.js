@@ -153,12 +153,6 @@ router.patch('/:id', auth, async (req, res) => {
     res.status(500).json({ error: 'Error interno' });
   }
 });
-  try {
-    const { rows: [v] } = await db.query(
-      `UPDATE public.visitas SET ${sets.join(',')} WHERE id = $1 AND empleador_id = $2 RETURNING *`, params);
-    res.json(v);
-  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
-});
 
 // ── DELETE /visitas/:id ───────────────────────────────────────
 router.delete('/:id', auth, async (req, res) => {
