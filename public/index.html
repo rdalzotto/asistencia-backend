@@ -2390,6 +2390,17 @@ function renderizarDestinosVisita() {
 }
 
 async function guardarVisita() {
+  // Si hay un cliente escrito pero no agregado aún, lo agrega automáticamente
+  const nombrePendiente = document.getElementById('vis-dest-nombre').value.trim() || document.getElementById('vis-dest-buscar').value.trim();
+  if (nombrePendiente && !visDestinos.find(d => d.cliente_nombre === nombrePendiente)) {
+    visDestinos.push({
+      cliente_nombre: nombrePendiente,
+      domicilio: document.getElementById('vis-dest-domicilio').value.trim(),
+      motivo: document.getElementById('vis-dest-motivo').value.trim(),
+      lat: null, lng: null
+    });
+    renderizarDestinosVisita();
+  }
   if (!visDestinos.length) { toast('Agregá al menos un cliente','error'); return; }
   const fecha=document.getElementById('vis-fecha').value;
   if (!fecha) { toast('Seleccioná una fecha','error'); return; }
