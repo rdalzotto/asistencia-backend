@@ -777,7 +777,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   </div>
 </div>
 
-<div class="modal-overlay" id="panel-visitas-emp">
+<div class="modal-overlay" id="panel-visitas-emp" style="z-index:200">
   <div class="modal" style="max-height:90vh">
     <div class="modal-handle"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -2335,7 +2335,10 @@ async function abrirModalNuevaVisitaEmp() {
   btn.textContent = 'Guardar visita';
   try { await cargarCheckboxRecursos('vis-recursos-checks'); } catch {}
   try { await cargarDestinosCache(); } catch {}
-  abrirModal('modal-nueva-visita');
+  // Forzar apertura con z-index superior al panel
+  const modal = document.getElementById('modal-nueva-visita');
+  modal.style.zIndex = '400';
+  modal.style.display = 'flex';
 }
 
 let _destinosCache=[];
