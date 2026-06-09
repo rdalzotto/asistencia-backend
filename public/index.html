@@ -496,107 +496,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
   </div>
 
-  <!-- MODAL NUEVA VISITA (admin y empleado) -->
-  <div class="modal-overlay" id="modal-nueva-visita" style="z-index:300">
-    <div class="modal" style="max-height:90vh;overflow-y:auto">
-      <div class="modal-handle"></div>
-      <div class="modal-title" id="modal-visita-titulo">Programar visita</div>
-      <div class="form-group" id="grupo-empleado-visita" style="display:none"><label>Empleado</label><select id="vis-empleado-id"></select></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group"><label>Fecha</label><input type="date" id="vis-fecha"></div>
-        <div class="form-group"><label>Hora estimada de salida</label><input type="time" id="vis-hora-salida"></div>
-      </div>
-      <div class="form-group"><label>Sale desde</label><select id="vis-origen" onchange="toggleOrigenVisita()"><option value="oficina">🏢 Oficina</option><option value="domicilio">🏠 Domicilio</option></select></div>
-      <div class="form-group">
-        <label>Clientes a visitar (en orden)</label>
-        <div id="vis-destinos-lista" style="margin-bottom:8px"></div>
-        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
-          <div style="position:relative;margin-bottom:8px">
-            <input type="text" id="vis-dest-buscar" placeholder="Buscar empresa cliente..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font)" oninput="buscarEmpresaDestino(this.value)" autocomplete="off">
-            <div id="vis-dest-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:999;max-height:180px;overflow-y:auto;box-shadow:var(--shadow)"></div>
-          </div>
-          <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (se completa automático)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
-          <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
-          <input type="hidden" id="vis-dest-nombre">
-          <input type="hidden" id="vis-dest-id">
-          <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar cliente</button>
-        </div>
-      </div>
-      <div class="form-group"><label>Recursos necesarios (opcional)</label><div id="vis-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;max-height:120px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div class="form-group"><label>Km estimados</label><input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1"></div>
-        <div class="form-group"><label>Viático estimado $</label><input type="number" id="vis-viatico-est" placeholder="0" min="0"></div>
-      </div>
-      <div class="form-group"><label>Observaciones</label><textarea id="vis-obs" placeholder="Notas adicionales..."></textarea></div>
-      <input type="hidden" id="vis-edit-id">
-      <input type="hidden" id="vis-modo"><!-- 'admin' o 'empleado' -->
-      <div style="display:flex;gap:10px;margin-top:16px">
-        <button class="btn btn-secondary" onclick="cerrarModal('modal-nueva-visita')">Cancelar</button>
-        <button class="btn btn-primary" id="btn-guardar-visita" onclick="guardarVisita()">Guardar visita</button>
-      </div>
-      <!-- Aviso para empleado: la visita queda pendiente de aprobación -->
-      <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:#b464ff">
-        📋 La visita quedará pendiente de aprobación por el administrador. Una vez aprobada podrás iniciarla.
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL RENDIR VISITA -->
-  <div class="modal-overlay" id="modal-rendir-visita" style="z-index:300">
-    <div class="modal">
-      <div class="modal-handle"></div>
-      <div class="modal-title">Rendir gastos del viaje</div>
-      <div id="rendir-destinos-lista" style="margin-bottom:12px"></div>
-      <div class="form-group"><label>Km reales recorridos</label><input type="number" id="rendir-km" placeholder="0" min="0" step="0.1"></div>
-      <div class="form-group"><label>Total gastado $</label><input type="number" id="rendir-viatico" placeholder="0" min="0"></div>
-      <div class="form-group"><label>Descripción del gasto</label><input type="text" id="rendir-desc" placeholder="Combustible, peaje, comida..."></div>
-      <div class="form-group"><label>Foto comprobante (opcional)</label><input type="file" id="rendir-foto" accept="image/*" style="color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;width:100%"></div>
-      <input type="hidden" id="rendir-visita-id">
-      <div style="display:flex;gap:10px;margin-top:16px">
-        <button class="btn btn-secondary" onclick="cerrarModal('modal-rendir-visita')">Cancelar</button>
-        <button class="btn btn-primary" onclick="guardarRendicion()">Guardar rendición</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL RECHAZAR VISITA (admin) -->
-  <div class="modal-overlay" id="modal-rechazar-visita" style="z-index:300">
-    <div class="modal">
-      <div class="modal-handle"></div>
-      <div class="modal-title">Rechazar solicitud de visita</div>
-      <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Podés dejar un motivo para que el empleado sepa por qué fue rechazada.</p>
-      <div class="form-group"><label>Motivo (opcional)</label><textarea id="rechazo-motivo" placeholder="Ej: Fecha no disponible, conflicto con otra actividad..." style="min-height:80px"></textarea></div>
-      <input type="hidden" id="rechazo-visita-id">
-      <div style="display:flex;gap:10px;margin-top:16px">
-        <button class="btn btn-secondary" onclick="cerrarModal('modal-rechazar-visita')">Cancelar</button>
-        <button class="btn btn-danger" onclick="confirmarRechazoVisita()">Rechazar visita</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL SUSPENDER/REPROGRAMAR VISITA -->
-  <div class="modal-overlay" id="modal-suspender-visita" style="z-index:300">
-    <div class="modal">
-      <div class="modal-handle"></div>
-      <div class="modal-title">Suspender / Reprogramar visita</div>
-      <div class="form-group"><label>Motivo de suspensión</label>
-        <select id="susp-motivo-tipo">
-          <option value="clima">🌧 Condiciones climáticas</option>
-          <option value="cliente">📞 Cliente canceló o no disponible</option>
-          <option value="interno">🏢 Motivo interno</option>
-          <option value="otro">📝 Otro motivo</option>
-        </select>
-      </div>
-      <div class="form-group"><label>Detalle (opcional)</label><textarea id="susp-detalle" placeholder="Descripción adicional..." style="min-height:60px"></textarea></div>
-      <div class="form-group"><label>Nueva fecha (si se reprograma)</label><input type="date" id="susp-nueva-fecha"></div>
-      <input type="hidden" id="susp-visita-id">
-      <div style="display:flex;gap:10px;margin-top:16px">
-        <button class="btn btn-secondary" onclick="cerrarModal('modal-suspender-visita')">Cancelar</button>
-        <button class="btn btn-warning" onclick="confirmarSuspension()">Suspender</button>
-      </div>
-    </div>
-  </div>
-
   <!-- MODAL INVITAR EMPLEADO -->
   <div class="modal-overlay" id="modal-invitar">
     <div class="modal">
@@ -686,6 +585,109 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <button class="nav-item" onclick="tabAdmin('config',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span>Config</span></button>
     <button class="nav-item" onclick="tabAdmin('recursos',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><span>Recursos</span></button>
   </nav>
+</div>
+
+<!-- MODAL NUEVA VISITA (admin y empleado) -->
+<div class="modal-overlay" id="modal-nueva-visita" style="z-index:300">
+  <div class="modal" style="max-height:90vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modal-visita-titulo">Programar visita</div>
+    <div class="form-group" id="grupo-empleado-visita" style="display:none"><label>Empleado</label><select id="vis-empleado-id"></select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label>Fecha</label><input type="date" id="vis-fecha"></div>
+      <div class="form-group"><label>Hora estimada de salida</label><input type="time" id="vis-hora-salida"></div>
+    </div>
+    <div class="form-group"><label>Sale desde</label><select id="vis-origen" onchange="toggleOrigenVisita()"><option value="oficina">🏢 Oficina</option><option value="domicilio">🏠 Domicilio</option></select></div>
+    <div class="form-group">
+      <label>Clientes a visitar (en orden)</label>
+      <div id="vis-destinos-lista" style="margin-bottom:8px"></div>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px">
+        <div style="position:relative;margin-bottom:8px">
+          <input type="text" id="vis-dest-buscar" placeholder="Buscar empresa cliente..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font)" oninput="buscarEmpresaDestino(this.value)" autocomplete="off">
+          <div id="vis-dest-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:999;max-height:180px;overflow-y:auto;box-shadow:var(--shadow)"></div>
+        </div>
+        <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (se completa automático)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
+        <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
+        <input type="hidden" id="vis-dest-nombre">
+        <input type="hidden" id="vis-dest-id">
+        <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar cliente</button>
+      </div>
+    </div>
+    <div class="form-group"><label>Recursos necesarios (opcional)</label><div id="vis-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;max-height:120px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label>Km estimados</label><input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1"></div>
+      <div class="form-group"><label>Viático estimado $</label><input type="number" id="vis-viatico-est" placeholder="0" min="0"></div>
+    </div>
+    <div class="form-group"><label>Observaciones</label><textarea id="vis-obs" placeholder="Notas adicionales..."></textarea></div>
+    <input type="hidden" id="vis-edit-id">
+    <input type="hidden" id="vis-modo"><!-- 'admin' o 'empleado' -->
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-nueva-visita')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-guardar-visita" onclick="guardarVisita()">Guardar visita</button>
+    </div>
+    <!-- Aviso para empleado: la visita queda pendiente de aprobación -->
+    <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:#b464ff">
+      📋 La visita quedará pendiente de aprobación por el administrador. Una vez aprobada podrás iniciarla.
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RENDIR VISITA -->
+<div class="modal-overlay" id="modal-rendir-visita" style="z-index:300">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Rendir gastos del viaje</div>
+    <div id="rendir-destinos-lista" style="margin-bottom:12px"></div>
+    <div class="form-group"><label>Km reales recorridos</label><input type="number" id="rendir-km" placeholder="0" min="0" step="0.1"></div>
+    <div class="form-group"><label>Total gastado $</label><input type="number" id="rendir-viatico" placeholder="0" min="0"></div>
+    <div class="form-group"><label>Descripción del gasto</label><input type="text" id="rendir-desc" placeholder="Combustible, peaje, comida..."></div>
+    <div class="form-group"><label>Foto comprobante (opcional)</label><input type="file" id="rendir-foto" accept="image/*" style="color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;width:100%"></div>
+    <input type="hidden" id="rendir-visita-id">
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-rendir-visita')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarRendicion()">Guardar rendición</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RECHAZAR VISITA (admin) -->
+<div class="modal-overlay" id="modal-rechazar-visita" style="z-index:300">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Rechazar solicitud de visita</div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Podés dejar un motivo para que el empleado sepa por qué fue rechazada.</p>
+    <div class="form-group"><label>Motivo (opcional)</label><textarea id="rechazo-motivo" placeholder="Ej: Fecha no disponible, conflicto con otra actividad..." style="min-height:80px"></textarea></div>
+    <input type="hidden" id="rechazo-visita-id">
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-rechazar-visita')">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarRechazoVisita()">Rechazar visita</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL SUSPENDER/REPROGRAMAR VISITA -->
+<div class="modal-overlay" id="modal-suspender-visita" style="z-index:300">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Suspender / Reprogramar visita</div>
+    <div class="form-group"><label>Motivo de suspensión</label>
+      <select id="susp-motivo-tipo">
+        <option value="clima">🌧 Condiciones climáticas</option>
+        <option value="cliente">📞 Cliente canceló o no disponible</option>
+        <option value="interno">🏢 Motivo interno</option>
+        <option value="otro">📝 Otro motivo</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Detalle (opcional)</label><textarea id="susp-detalle" placeholder="Descripción adicional..." style="min-height:60px"></textarea></div>
+    <div class="form-group"><label>Nueva fecha (si se reprograma)</label><input type="date" id="susp-nueva-fecha"></div>
+    <input type="hidden" id="susp-visita-id">
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-suspender-visita')">Cancelar</button>
+      <button class="btn btn-warning" onclick="confirmarSuspension()">Suspender</button>
+    </div>
+  </div>
+</div>
+
 </div>
 
 <!-- MODAL REGISTRO MOVIMIENTO -->
