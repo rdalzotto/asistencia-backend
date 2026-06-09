@@ -67,21 +67,22 @@ router.get('/', auth, async (req, res) => {
 // ── POST /visitas ─────────────────────────────────────────────
 router.post('/', auth, async (req, res) => {
   const { fecha, hora_estimada_salida, origen, origen_lat, origen_lng,
-          km_estimados, viatico_estimado, observaciones, destinos, recursos_ids } = req.body;
+          km_estimados, viatico_estimado, observaciones, destinos, recursos_ids, estado } = req.body;
   if (!fecha || !destinos?.length)
     return res.status(400).json({ error: 'Fecha y al menos un destino son requeridos' });
   const empleadoId = req.user.rol === 'admin' ? (req.body.empleado_id || null) : req.user.empleadoId;
+  const estadoFinal = estado || 'programada';
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const { rows: [v] } = await client.query(`
       INSERT INTO public.visitas
         (empleador_id, empleado_id, fecha, hora_estimada_salida, origen,
-         origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
+         origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones, estado)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *
     `, [req.user.empleadorId, empleadoId, fecha, hora_estimada_salida || null,
         origen || 'oficina', origen_lat || null, origen_lng || null,
-        km_estimados || 0, viatico_estimado || 0, observaciones || null]);
+        km_estimados || 0, viatico_estimado || 0, observaciones || null, estadoFinal]);
     for (let i = 0; i < destinos.length; i++) {
       const d = destinos[i];
       await client.query(`
