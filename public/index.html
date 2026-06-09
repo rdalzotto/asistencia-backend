@@ -536,7 +536,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       </div>
       <!-- Aviso para empleado: la visita queda pendiente de aprobación -->
       <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:#b464ff">
-        📋 Tu solicitud quedará pendiente de aprobación. Recibirás confirmación cuando sea aprobada.
+        📋 La visita quedará pendiente de aprobación por el administrador. Una vez aprobada podrás iniciarla.
       </div>
     </div>
   </div>
@@ -782,7 +782,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="modal-handle"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div class="modal-title" style="margin:0">Mis visitas</div>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalNuevaVisitaEmp()">+ Solicitar</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirModalNuevaVisitaEmp()">+ Programar visita</button>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <input type="date" id="vis-emp-desde" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-family:var(--font)">
@@ -2321,7 +2321,7 @@ async function abrirModalNuevaVisitaEmp() {
   visDestinos=[];
   document.getElementById('vis-edit-id').value='';
   document.getElementById('vis-modo').value='empleado';
-  document.getElementById('modal-visita-titulo').textContent='Solicitar visita';
+  document.getElementById('modal-visita-titulo').textContent='Programar visita';
   document.getElementById('vis-fecha').value=new Date().toISOString().split('T')[0];
   document.getElementById('vis-hora-salida').value='';
   document.getElementById('vis-origen').value='oficina';
@@ -2332,9 +2332,9 @@ async function abrirModalNuevaVisitaEmp() {
   document.getElementById('grupo-empleado-visita').style.display='none';
   renderizarDestinosVisita();
   const btn = document.getElementById('btn-guardar-visita');
-  btn.textContent = 'Enviar solicitud';
-  await cargarCheckboxRecursos('vis-recursos-checks');
-  await cargarDestinosCache();
+  btn.textContent = 'Guardar visita';
+  try { await cargarCheckboxRecursos('vis-recursos-checks'); } catch {}
+  try { await cargarDestinosCache(); } catch {}
   abrirModal('modal-nueva-visita');
 }
 
