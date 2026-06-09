@@ -1489,6 +1489,7 @@ async function validarRemoto(id, aprobado) {
     await api('/movimientos/validar-remoto/'+id, {method:'POST', body:JSON.stringify({aprobado})});
     toast(aprobado ? 'Jornada validada ✓' : 'Jornada rechazada', aprobado ? 'success' : 'info');
     cargarDashboardAdmin();
+    cargarPendientesAdmin();
   } catch(e) { toast(e.message, 'error'); }
 }
 </script>
@@ -1646,7 +1647,7 @@ async function resolverSolicitud(id, estado) {
 }
 
 async function resolverAusencia(id, estado) {
-  try { await api('/licencias/ausencia/'+id, {method:'PATCH', body:JSON.stringify({estado})}); toast(estado==='aprobada'?'Aprobada ✓':'Rechazada',estado==='aprobada'?'success':'info'); cargarPendientesAdmin(); }
+  try { await api('/licencias/ausencia/'+id, {method:'PATCH', body:JSON.stringify({estado})}); toast(estado==='aprobada'?'Aprobada ✓':'Rechazada',estado==='aprobada'?'success':'info'); cargarPendientesAdmin(); cargarDashboardAdmin(); }
   catch(e) { toast(e.message,'error'); }
 }
 </script>
