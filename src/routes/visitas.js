@@ -112,13 +112,19 @@ router.post('/', auth, async (req, res) => {
 
 // ── PATCH /visitas/:id ────────────────────────────────────────
 router.patch('/:id', auth, async (req, res) => {
-  const { estado, km_reales, viatico_real, observaciones } = req.body;
+  const { estado, km_reales, viatico_real, observaciones,
+          motivo_suspension, motivo_rechazo, fecha_reprogramada,
+          foto_evidencia_suspension } = req.body;
   const sets = [];
   const params = [req.params.id, req.user.empleadorId];
-  if (estado)               { params.push(estado);       sets.push(`estado = $${params.length}`); }
-  if (km_reales != null)    { params.push(km_reales);    sets.push(`km_reales = $${params.length}`); }
-  if (viatico_real != null) { params.push(viatico_real); sets.push(`viatico_real = $${params.length}`); }
-  if (observaciones)        { params.push(observaciones);sets.push(`observaciones = $${params.length}`); }
+  if (estado)                      { params.push(estado);                     sets.push(`estado = $${params.length}`); }
+  if (km_reales != null)           { params.push(km_reales);                  sets.push(`km_reales = $${params.length}`); }
+  if (viatico_real != null)        { params.push(viatico_real);               sets.push(`viatico_real = $${params.length}`); }
+  if (observaciones)               { params.push(observaciones);              sets.push(`observaciones = $${params.length}`); }
+  if (motivo_suspension != null)   { params.push(motivo_suspension);          sets.push(`motivo_suspension = $${params.length}`); }
+  if (motivo_rechazo != null)      { params.push(motivo_rechazo);             sets.push(`motivo_rechazo = $${params.length}`); }
+  if (fecha_reprogramada != null)  { params.push(fecha_reprogramada);         sets.push(`fecha_reprogramada = $${params.length}`); }
+  if (foto_evidencia_suspension != null) { params.push(foto_evidencia_suspension); sets.push(`foto_evidencia_suspension = $${params.length}`); }
   if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
   try {
     const { rows: [v] } = await db.query(
