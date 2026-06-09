@@ -611,12 +611,20 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
         <input type="hidden" id="vis-dest-nombre">
         <input type="hidden" id="vis-dest-id">
+        <input type="hidden" id="vis-dest-lat-hidden">
+        <input type="hidden" id="vis-dest-lng-hidden">
         <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar otro cliente (opcional)</button>
       </div>
     </div>
     <div class="form-group"><label>Recursos necesarios (opcional)</label><div id="vis-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;max-height:120px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group"><label>Km estimados</label><input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1"></div>
+      <div class="form-group">
+        <label>Km estimados
+          <button type="button" class="btn btn-secondary btn-sm" onclick="calcularKmVisita()" style="font-size:11px;padding:3px 8px;margin-left:8px">📍 Calcular</button>
+        </label>
+        <input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1">
+        <div id="vis-km-detalle" style="font-size:11px;color:var(--text3);margin-top:4px;display:none"></div>
+      </div>
       <div class="form-group"><label>Viático estimado $</label><input type="number" id="vis-viatico-est" placeholder="0" min="0"></div>
     </div>
     <div class="form-group"><label>Observaciones</label><textarea id="vis-obs" placeholder="Notas adicionales..."></textarea></div>
@@ -635,18 +643,75 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 
 <!-- MODAL RENDIR VISITA -->
 <div class="modal-overlay" id="modal-rendir-visita" style="z-index:300">
-  <div class="modal">
+  <div class="modal" style="max-height:90vh;overflow-y:auto">
     <div class="modal-handle"></div>
-    <div class="modal-title">Rendir gastos del viaje</div>
+    <div class="modal-title">✓ Rendir gastos del viaje</div>
+
+    <!-- Destinos visitados -->
     <div id="rendir-destinos-lista" style="margin-bottom:12px"></div>
-    <div class="form-group"><label>Km reales recorridos</label><input type="number" id="rendir-km" placeholder="0" min="0" step="0.1"></div>
-    <div class="form-group"><label>Total gastado $</label><input type="number" id="rendir-viatico" placeholder="0" min="0"></div>
-    <div class="form-group"><label>Descripción del gasto</label><input type="text" id="rendir-desc" placeholder="Combustible, peaje, comida..."></div>
-    <div class="form-group"><label>Foto comprobante (opcional)</label><input type="file" id="rendir-foto" accept="image/*" style="color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;width:100%"></div>
+
+    <!-- Km reales -->
+    <div class="form-group">
+      <label>Km reales recorridos
+        <button type="button" class="btn btn-secondary btn-sm" onclick="calcularKmRendicion()" style="font-size:11px;padding:3px 8px;margin-left:8px">📍 Calcular</button>
+      </label>
+      <input type="number" id="rendir-km" placeholder="0" min="0" step="0.1">
+      <div id="rendir-km-detalle" style="font-size:11px;color:var(--text3);margin-top:4px;display:none"></div>
+    </div>
+
+    <!-- Gastos múltiples -->
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Gastos a rendir</div>
+    <div id="rendir-gastos-lista" style="margin-bottom:8px"></div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="form-group" style="margin:0">
+          <label style="font-size:12px">Tipo de gasto</label>
+          <select id="rendir-tipo" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-family:var(--font);font-size:13px">
+            <option value="combustible">⛽ Combustible</option>
+            <option value="peaje">🛣 Peaje</option>
+            <option value="comida">🍽 Comida / viático</option>
+            <option value="alojamiento">🏨 Alojamiento</option>
+            <option value="estacionamiento">🅿 Estacionamiento</option>
+            <option value="otro">📝 Otro</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label style="font-size:12px">Monto $</label>
+          <input type="number" id="rendir-monto" placeholder="0" min="0" style="width:100%">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="font-size:12px">Detalle (opcional)</label>
+        <input type="text" id="rendir-desc" placeholder="Ej: Shell km 45, YPF Concordia...">
+      </div>
+      <div class="form-group" style="margin-bottom:8px">
+        <label style="font-size:12px">Foto del comprobante (opcional)</label>
+        <div id="rendir-foto-preview" style="display:none;margin-bottom:6px">
+          <img id="rendir-foto-img" style="width:100%;max-height:120px;object-fit:cover;border-radius:var(--radius-sm)" />
+          <button type="button" onclick="quitarFotoRendicion()" style="width:100%;margin-top:4px;font-size:11px;padding:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">✕ Quitar foto</button>
+        </div>
+        <label id="rendir-foto-btn" style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:12px;color:var(--text2)">
+          📷 Adjuntar ticket / factura
+          <input type="file" id="rendir-foto-input" accept="image/*" style="display:none" onchange="previsualizarFotoRendicion(this)">
+        </label>
+      </div>
+      <input type="hidden" id="rendir-foto-base64">
+      <button type="button" class="btn btn-secondary btn-sm" style="width:100%" onclick="agregarGastoRendicion()">+ Agregar gasto</button>
+    </div>
+
     <input type="hidden" id="rendir-visita-id">
-    <div style="display:flex;gap:10px;margin-top:16px">
+    <input type="hidden" id="rendir-origen-lat">
+    <input type="hidden" id="rendir-origen-lng">
+
+    <!-- Total -->
+    <div id="rendir-total-area" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:13px;color:var(--text2)">Total a rendir:</span>
+      <span id="rendir-total-valor" style="font-size:16px;font-weight:700;color:var(--green)">$0</span>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:4px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-rendir-visita')">Cancelar</button>
-      <button class="btn btn-primary" onclick="guardarRendicion()">Guardar rendición</button>
+      <button class="btn btn-primary" onclick="guardarRendicion()">✓ Finalizar y rendir</button>
     </div>
   </div>
 </div>
@@ -939,6 +1004,12 @@ function doLogout() {
 }
 
 async function irADashboard(rol) {
+  // Cargar coordenadas de oficina en STATE para cálculos de km
+  try {
+    const emp = await api('/config/empresa');
+    STATE.oficina_lat = parseFloat(emp.oficina_lat) || null;
+    STATE.oficina_lng = parseFloat(emp.oficina_lng) || null;
+  } catch {}
   if (rol === 'admin') {
     mostrarScreen('admin');
     cargarDashboardAdmin(); cargarEmpleadosAdmin();
@@ -2328,7 +2399,7 @@ function renderTarjetaVisita(v, esAdmin) {
   const totalGastos=gastos.reduce((s,g)=>s+parseFloat(g.monto||0),0);
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
-  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+'</div></div>';
+  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.estado==="completada"&&gastos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px;background:var(--bg3);border-radius:6px;padding:6px 8px"><div style="font-weight:600;margin-bottom:4px">📋 Gastos rendidos</div>'+gastos.map(g=>'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>'+g.descripcion+'</span><span style="color:var(--green);font-weight:600">$'+parseFloat(g.monto).toFixed(0)+'</span></div>').join('')+'</div>':'')+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+'</div></div>';
 }
 
 async function cargarReporteVisitas() {
@@ -2414,20 +2485,27 @@ function seleccionarEmpresa(id,nombre,domicilio,localidad,lat,lng) {
   document.getElementById('vis-dest-nombre').value=nombre;
   document.getElementById('vis-dest-id').value=id;
   document.getElementById('vis-dest-domicilio').value=[domicilio,localidad].filter(Boolean).join(', ');
+  document.getElementById('vis-dest-lat-hidden').value=lat||'';
+  document.getElementById('vis-dest-lng-hidden').value=lng||'';
   document.getElementById('vis-dest-sugerencias').style.display='none';
 }
 
 function agregarDestinoVisita() {
   const nombre=document.getElementById('vis-dest-nombre').value.trim()||document.getElementById('vis-dest-buscar').value.trim();
   if (!nombre) { toast('Seleccioná o escribí una empresa','error'); return; }
-  visDestinos.push({cliente_nombre:nombre,domicilio:document.getElementById('vis-dest-domicilio').value.trim(),motivo:document.getElementById('vis-dest-motivo').value.trim(),lat:null,lng:null});
+  const lat=parseFloat(document.getElementById('vis-dest-lat-hidden').value)||null;
+  const lng=parseFloat(document.getElementById('vis-dest-lng-hidden').value)||null;
+  visDestinos.push({cliente_nombre:nombre,domicilio:document.getElementById('vis-dest-domicilio').value.trim(),motivo:document.getElementById('vis-dest-motivo').value.trim(),lat,lng});
   document.getElementById('vis-dest-buscar').value='';
   document.getElementById('vis-dest-nombre').value='';
   document.getElementById('vis-dest-id').value='';
   document.getElementById('vis-dest-domicilio').value='';
   document.getElementById('vis-dest-motivo').value='';
+  document.getElementById('vis-dest-lat-hidden').value='';
+  document.getElementById('vis-dest-lng-hidden').value='';
   document.getElementById('vis-dest-sugerencias').style.display='none';
   renderizarDestinosVisita();
+  recalcularKmVisita();
 }
 
 function quitarDestinoVisita(idx) { visDestinos.splice(idx,1); renderizarDestinosVisita(); }
@@ -2553,31 +2631,145 @@ async function confirmarSuspension() {
   } catch(e) { toast(e.message,'error'); }
 }
 
+let _rendicionGastos = [];
+
+function previsualizarFotoRendicion(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 900; let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h*MAX/w); w = MAX; }
+      if (h > MAX) { w = Math.round(w*MAX/h); h = MAX; }
+      canvas.width=w; canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      const b64 = canvas.toDataURL('image/jpeg', 0.75);
+      document.getElementById('rendir-foto-base64').value = b64;
+      document.getElementById('rendir-foto-img').src = b64;
+      document.getElementById('rendir-foto-preview').style.display = 'block';
+      document.getElementById('rendir-foto-btn').style.display = 'none';
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function quitarFotoRendicion() {
+  document.getElementById('rendir-foto-base64').value = '';
+  document.getElementById('rendir-foto-img').src = '';
+  document.getElementById('rendir-foto-preview').style.display = 'none';
+  document.getElementById('rendir-foto-btn').style.display = 'flex';
+  document.getElementById('rendir-foto-input').value = '';
+}
+
+function agregarGastoRendicion() {
+  const monto = parseFloat(document.getElementById('rendir-monto').value);
+  if (!monto || monto <= 0) { toast('Ingresá el monto del gasto', 'error'); return; }
+  const tipo = document.getElementById('rendir-tipo').value;
+  const desc = document.getElementById('rendir-desc').value.trim();
+  const foto = document.getElementById('rendir-foto-base64').value;
+  const iconos = {combustible:'⛽',peaje:'🛣',comida:'🍽',alojamiento:'🏨',estacionamiento:'🅿',otro:'📝'};
+  const labels = {combustible:'Combustible',peaje:'Peaje',comida:'Comida / viático',alojamiento:'Alojamiento',estacionamiento:'Estacionamiento',otro:'Otro'};
+  _rendicionGastos.push({tipo, descripcion: labels[tipo] + (desc?' — '+desc:''), monto, foto_comprobante: foto||null});
+  // Limpiar campos
+  document.getElementById('rendir-monto').value = '';
+  document.getElementById('rendir-desc').value = '';
+  quitarFotoRendicion();
+  renderizarGastosRendicion();
+}
+
+function quitarGastoRendicion(idx) {
+  _rendicionGastos.splice(idx, 1);
+  renderizarGastosRendicion();
+}
+
+function renderizarGastosRendicion() {
+  const cont = document.getElementById('rendir-gastos-lista');
+  const totalArea = document.getElementById('rendir-total-area');
+  if (!_rendicionGastos.length) { cont.innerHTML = ''; totalArea.style.display = 'none'; return; }
+  const total = _rendicionGastos.reduce((s,g) => s+g.monto, 0);
+  cont.innerHTML = _rendicionGastos.map((g,i) =>
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px">' +
+    '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+g.descripcion+'</div>' +
+    (g.foto_comprobante ? '<div style="font-size:11px;color:var(--accent);margin-top:2px">📎 Comprobante adjunto</div>' : '') +
+    '</div>' +
+    '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:14px;font-weight:700;color:var(--green)">$'+g.monto.toFixed(0)+'</span>' +
+    '<button onclick="quitarGastoRendicion('+i+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0">✕</button></div>' +
+    '</div>'
+  ).join('');
+  document.getElementById('rendir-total-valor').textContent = '$' + total.toFixed(0);
+  totalArea.style.display = 'flex';
+}
+
+async function calcularKmRendicion() {
+  const info = document.getElementById('rendir-km-detalle');
+  const origenLat = parseFloat(document.getElementById('rendir-origen-lat').value);
+  const origenLng = parseFloat(document.getElementById('rendir-origen-lng').value);
+  // Recalcular desde posición actual (ya volvió, así que usamos GPS actual)
+  info.style.display = 'block';
+  info.textContent = '📍 Obteniendo ubicación actual...';
+  try {
+    const pos = await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,enableHighAccuracy:true}));
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    // Distancia desde origen de la visita hasta acá (aproxima el regreso)
+    const kmVuelta = haversineKm(origenLat||lat, origenLng||lng, lat, lng);
+    info.textContent = '✓ Distancia aproximada de regreso: ' + kmVuelta.toFixed(1) + ' km. Ajustá si es necesario.';
+  } catch {
+    info.textContent = '⚠ No se pudo obtener la ubicación. Ingresá los km manualmente.';
+  }
+}
+
 function abrirRendicion(visitaId, destinos) {
-  document.getElementById('rendir-visita-id').value=visitaId;
-  document.getElementById('rendir-km').value='';
-  document.getElementById('rendir-viatico').value='';
-  document.getElementById('rendir-desc').value='';
-  document.getElementById('rendir-destinos-lista').innerHTML=destinos.map((d,i)=>'<div style="font-size:12px;color:var(--text2);padding:3px 0">'+(i+1)+'. '+d.cliente_nombre+'</div>').join('');
+  _rendicionGastos = [];
+  document.getElementById('rendir-visita-id').value = visitaId;
+  document.getElementById('rendir-km').value = '';
+  document.getElementById('rendir-km-detalle').style.display = 'none';
+  document.getElementById('rendir-monto').value = '';
+  document.getElementById('rendir-desc').value = '';
+  document.getElementById('rendir-foto-base64').value = '';
+  document.getElementById('rendir-foto-img').src = '';
+  document.getElementById('rendir-foto-preview').style.display = 'none';
+  document.getElementById('rendir-foto-btn').style.display = 'flex';
+  if (document.getElementById('rendir-foto-input')) document.getElementById('rendir-foto-input').value = '';
+  renderizarGastosRendicion();
+  // Guardar coordenadas de origen para cálculo de km de regreso
+  const lat = STATE.oficina_lat || -31.400379;
+  const lng = STATE.oficina_lng || -58.014207;
+  document.getElementById('rendir-origen-lat').value = lat;
+  document.getElementById('rendir-origen-lng').value = lng;
+  document.getElementById('rendir-destinos-lista').innerHTML = destinos.map((d,i) =>
+    '<div style="font-size:12px;color:var(--text2);padding:3px 0">'+(i+1)+'. '+d.cliente_nombre+'</div>'
+  ).join('');
   abrirModal('modal-rendir-visita');
 }
 
 async function guardarRendicion() {
-  const visitaId=document.getElementById('rendir-visita-id').value;
-  const km=parseFloat(document.getElementById('rendir-km').value)||0;
-  const monto=parseFloat(document.getElementById('rendir-viatico').value)||0;
-  const desc=document.getElementById('rendir-desc').value.trim();
-  if (!monto) { toast('Ingresá el monto gastado','error'); return; }
-  if (!desc) { toast('Ingresá una descripción del gasto','error'); return; }
-  const file=document.getElementById('rendir-foto').files[0];
-  let fotoBase64=null;
-  if (file) { fotoBase64=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file);}); }
+  const visitaId = document.getElementById('rendir-visita-id').value;
+  const km = parseFloat(document.getElementById('rendir-km').value) || 0;
+  // Si hay un gasto pendiente sin agregar, agregarlo automáticamente
+  const montoSuelto = parseFloat(document.getElementById('rendir-monto').value);
+  if (montoSuelto > 0) agregarGastoRendicion();
+  const totalGastado = _rendicionGastos.reduce((s,g) => s+g.monto, 0);
   try {
-    await api('/visitas/'+visitaId,{method:'PATCH',body:JSON.stringify({km_reales:km,viatico_real:monto,estado:'completada'})});
-    await api('/visitas/'+visitaId+'/gastos',{method:'POST',body:JSON.stringify({descripcion:desc,monto,foto_comprobante:fotoBase64})});
-    cerrarModal('modal-rendir-visita'); toast('Rendición guardada ✓','success');
+    await api('/visitas/'+visitaId, {method:'PATCH', body:JSON.stringify({
+      km_reales: km,
+      viatico_real: totalGastado,
+      estado: 'completada'
+    })});
+    // Guardar cada gasto individualmente
+    for (const g of _rendicionGastos) {
+      await api('/visitas/'+visitaId+'/gastos', {method:'POST', body:JSON.stringify({
+        descripcion: g.descripcion,
+        monto: g.monto,
+        foto_comprobante: g.foto_comprobante
+      })});
+    }
+    cerrarModal('modal-rendir-visita');
+    toast('Rendición guardada ✓', 'success');
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message,'error'); }
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 async function cargarMisVisitas() {
@@ -2605,7 +2797,76 @@ async function cargarMisVisitas() {
   } catch { cont.innerHTML='<p style="color:var(--red);font-size:13px;text-align:center">Error cargando</p>'; }
 }
 
-function toggleOrigenVisita() {}
+function toggleOrigenVisita() {
+  recalcularKmVisita();
+}
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function calcularKmConCoordenadas(origenLat, origenLng) {
+  const detalle = document.getElementById('vis-km-detalle');
+  const destsCongPS = visDestinos.filter(d => d.lat && d.lng);
+  if (!destsCongPS.length) {
+    detalle.style.display = 'block';
+    detalle.textContent = '⚠ Los destinos no tienen coordenadas GPS cargadas. Ingresá los km manualmente.';
+    return;
+  }
+  // Calcular tramos: origen → dest1 → dest2 → ... → origen
+  let puntos = [{lat: origenLat, lng: origenLng}, ...destsCongPS.map(d=>({lat:d.lat,lng:d.lng})), {lat: origenLat, lng: origenLng}];
+  let kmTotal = 0;
+  let tramos = [];
+  for (let i = 0; i < puntos.length - 1; i++) {
+    const km = haversineKm(puntos[i].lat, puntos[i].lng, puntos[i+1].lat, puntos[i+1].lng);
+    kmTotal += km;
+    tramos.push(km.toFixed(1));
+  }
+  const kmRedondeado = Math.round(kmTotal * 10) / 10;
+  document.getElementById('vis-km-est').value = kmRedondeado;
+  detalle.style.display = 'block';
+  const sinGPS = visDestinos.filter(d => !d.lat || !d.lng).map(d => d.cliente_nombre);
+  detalle.innerHTML = '✓ ' + tramos.join(' + ') + ' = <strong>' + kmRedondeado + ' km</strong> ida y vuelta'
+    + (sinGPS.length ? '<br>⚠ Sin GPS: ' + sinGPS.join(', ') : '');
+}
+
+async function calcularKmVisita() {
+  const origen = document.getElementById('vis-origen').value;
+  const detalle = document.getElementById('vis-km-detalle');
+  if (!visDestinos.length) { toast('Agregá al menos un destino primero', 'error'); return; }
+  if (origen === 'domicilio') {
+    detalle.style.display = 'block';
+    detalle.textContent = '📍 Obteniendo tu ubicación actual...';
+    try {
+      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout:10000, enableHighAccuracy:true}));
+      calcularKmConCoordenadas(pos.coords.latitude, pos.coords.longitude);
+    } catch {
+      detalle.textContent = '⚠ No se pudo obtener tu ubicación. Ingresá los km manualmente.';
+    }
+  } else {
+    // Desde oficina
+    const lat = STATE.oficina_lat || -31.400379;
+    const lng = STATE.oficina_lng || -58.014207;
+    calcularKmConCoordenadas(lat, lng);
+  }
+}
+
+function recalcularKmVisita() {
+  // Recalcula silenciosamente si ya había un cálculo previo visible
+  if (document.getElementById('vis-km-detalle')?.style.display === 'block') {
+    const origen = document.getElementById('vis-origen').value;
+    if (origen === 'oficina') {
+      const lat = STATE.oficina_lat || -31.400379;
+      const lng = STATE.oficina_lng || -58.014207;
+      calcularKmConCoordenadas(lat, lng);
+    }
+    // No recalcular automático desde domicilio — requiere GPS activo
+  }
+}
 function editarVisita(id) { toast('Función en desarrollo','info'); }
 </script>
 
