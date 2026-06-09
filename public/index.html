@@ -605,6 +605,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
           <input type="text" id="vis-dest-buscar" placeholder="Buscar empresa o escribí el nombre del cliente..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font)" oninput="buscarEmpresaDestino(this.value)" autocomplete="off">
           <div id="vis-dest-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:999;max-height:180px;overflow-y:auto;box-shadow:var(--shadow)"></div>
         </div>
+        <div id="vis-tiempo-viaje-info" style="display:none;font-size:12px;color:var(--text2);background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:var(--radius-sm);padding:6px 8px;margin-bottom:8px"></div>
         <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (se completa automático)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
         <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
         <input type="hidden" id="vis-dest-nombre">
@@ -674,6 +675,16 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 
     <!-- Destinos visitados -->
     <div id="rendir-destinos-lista" style="margin-bottom:12px"></div>
+
+    <!-- Puntos GPS del recorrido dentro del predio -->
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:13px;font-weight:600">📍 Puntos del recorrido</span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="agregarPuntoRecorrido()" style="font-size:11px">+ Marcar punto GPS</button>
+      </div>
+      <div id="rendir-puntos-lista" style="margin-bottom:4px"></div>
+      <div style="font-size:11px;color:var(--text3)">Marcá cada lugar específico visitado dentro del establecimiento — puestos, galpones, frentes de obra, etc.</div>
+    </div>
 
     <!-- Km reales -->
     <div class="form-group">
@@ -2509,10 +2520,10 @@ async function buscarEmpresaDestino(query) {
   const filtrados=_destinosCache.filter(d=>d.nombre.toLowerCase().includes(query.toLowerCase())||(d.localidad&&d.localidad.toLowerCase().includes(query.toLowerCase()))).slice(0,8);
   if (!filtrados.length) { sug.style.display='none'; return; }
   sug.style.display='block';
-  sug.innerHTML=filtrados.map(d=>'<div onclick="seleccionarEmpresa('+d.id+',\''+d.nombre.replace(/'/g,"\\'")+'\',\''+(d.domicilio||'').replace(/'/g,"\\'")+'\',\''+(d.localidad||'').replace(/'/g,"\\'")+'\',\''+(d.lat||'')+'\',\''+(d.lng||'')+'\')" style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'"><div style="font-weight:600">'+d.nombre+'</div>'+(d.domicilio||d.localidad?'<div style="font-size:11px;color:var(--text2)">'+(d.domicilio&&d.localidad?d.domicilio+', '+d.localidad:d.domicilio||d.localidad)+'</div>':'')+'</div>').join('');
+  sug.innerHTML=filtrados.map(d=>{const t=d.tiempo_viaje_estimado_min;const tStr=t?'<span style="color:var(--accent);font-size:10px">🕐 ~'+formatearTiempoViaje(t)+'</span>':'';return '<div onclick="seleccionarEmpresa('+d.id+',\''+d.nombre.replace(/'/g,"\\'")+'\',\''+(d.domicilio||'').replace(/'/g,"\\'")+'\',\''+(d.localidad||'').replace(/'/g,"\\'")+'\',\''+(d.lat||'')+'\',\''+(d.lng||'')+'\','+(t||0)+')" style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600">'+d.nombre+'</span>'+tStr+'</div>'+(d.domicilio||d.localidad?'<div style="font-size:11px;color:var(--text2)">'+(d.domicilio&&d.localidad?d.domicilio+', '+d.localidad:d.domicilio||d.localidad)+'</div>':'')+'</div>';}).join('');
 }
 
-function seleccionarEmpresa(id,nombre,domicilio,localidad,lat,lng) {
+function seleccionarEmpresa(id,nombre,domicilio,localidad,lat,lng,tiempoViaje) {
   document.getElementById('vis-dest-buscar').value=nombre;
   document.getElementById('vis-dest-nombre').value=nombre;
   document.getElementById('vis-dest-id').value=id;
@@ -2520,6 +2531,20 @@ function seleccionarEmpresa(id,nombre,domicilio,localidad,lat,lng) {
   document.getElementById('vis-dest-lat-hidden').value=lat||'';
   document.getElementById('vis-dest-lng-hidden').value=lng||'';
   document.getElementById('vis-dest-sugerencias').style.display='none';
+  const infoEl = document.getElementById('vis-tiempo-viaje-info');
+  if (infoEl) {
+    if (tiempoViaje) {
+      infoEl.style.display='block';
+      infoEl.innerHTML = '🕐 Tiempo estimado hasta este destino: <strong>~'+formatearTiempoViaje(parseInt(tiempoViaje))+'</strong> <span style="font-size:10px;color:var(--text3)">(basado en viajes anteriores)</span>';
+    } else { infoEl.style.display='none'; }
+  }
+}
+
+function formatearTiempoViaje(min) {
+  if (!min) return '';
+  if (min < 60) return min + ' min';
+  const h = Math.floor(min/60), m = min%60;
+  return h + 'hs' + (m ? ' '+m+'min' : '');
 }
 
 function agregarDestinoVisita() {
@@ -2743,8 +2768,51 @@ async function confirmarSuspension() {
   } catch(e) { toast(e.message,'error'); }
 }
 
-let _rendicionGastos = [];
-let _rendicionDestinos = [];
+let _rendicionPuntos = [];
+
+function renderizarPuntosRendicion() {
+  const cont = document.getElementById('rendir-puntos-lista');
+  if (!_rendicionPuntos.length) { cont.innerHTML = ''; return; }
+  cont.innerHTML = _rendicionPuntos.map((p, i) =>
+    '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:4px">' +
+    '<div><div style="font-size:12px;font-weight:600">📍 '+p.nombre+'</div>' +
+    '<div style="font-size:10px;color:var(--text3)">'+p.lat.toFixed(5)+', '+p.lng.toFixed(5)+' · '+new Date(p.hora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})+'</div></div>' +
+    '<button onclick="quitarPuntoRecorrido('+i+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0 4px">✕</button>' +
+    '</div>'
+  ).join('');
+}
+
+async function agregarPuntoRecorrido() {
+  const nombre = prompt('Nombre del lugar (ej: Puesto 1 - familia García, Galpón norte, Obrador lote 3):');
+  if (!nombre?.trim()) return;
+  const btn = event.target;
+  const textoOriginal = btn.textContent;
+  btn.textContent = '📍 Obteniendo GPS...';
+  btn.disabled = true;
+  try {
+    const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout:10000, enableHighAccuracy:true}));
+    _rendicionPuntos.push({
+      nombre: nombre.trim(),
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      hora: new Date().toISOString(),
+      // Si es el primer punto y no hay hora_llegada_destino, usarlo para calcular tiempo de viaje
+      esPrimerPunto: _rendicionPuntos.length === 0
+    });
+    renderizarPuntosRendicion();
+    toast('Punto registrado ✓', 'success');
+  } catch {
+    toast('No se pudo obtener la ubicación GPS', 'error');
+  } finally {
+    btn.textContent = textoOriginal;
+    btn.disabled = false;
+  }
+}
+
+function quitarPuntoRecorrido(idx) {
+  _rendicionPuntos.splice(idx, 1);
+  renderizarPuntosRendicion();
+}
 
 function previsualizarFotoRendicion(input) {
   const file = input.files[0]; if (!file) return;
@@ -2843,6 +2911,7 @@ async function calcularKmRendicion() {
 function abrirRendicion(visitaId, destinos, latInicio, lngInicio) {
   _rendicionGastos = [];
   _rendicionDestinos = destinos.map(d => ({...d, lat_llegada: null, lng_llegada: null, hora_llegada: null, locacion_descripcion: ''}));
+  _rendicionPuntos = [];
   document.getElementById('rendir-visita-id').value = visitaId;
   document.getElementById('rendir-km').value = '';
   document.getElementById('rendir-km-detalle').style.display = 'none';
@@ -2855,6 +2924,7 @@ function abrirRendicion(visitaId, destinos, latInicio, lngInicio) {
   if (document.getElementById('rendir-foto-input')) document.getElementById('rendir-foto-input').value = '';
   renderizarGastosRendicion();
   renderizarDestinosRendicion();
+  renderizarPuntosRendicion();
   document.getElementById('rendir-origen-lat').value = latInicio || STATE.oficina_lat || -31.400379;
   document.getElementById('rendir-origen-lng').value = lngInicio || STATE.oficina_lng || -58.014207;
   abrirModal('modal-rendir-visita');
@@ -2929,6 +2999,26 @@ async function guardarRendicion() {
         monto: g.monto,
         foto_comprobante: g.foto_comprobante
       })});
+    }
+    // Guardar puntos GPS del recorrido
+    for (const p of _rendicionPuntos) {
+      try {
+        await api('/visitas/'+visitaId+'/puntos', {method:'POST', body:JSON.stringify({
+          nombre: p.nombre,
+          lat: p.lat,
+          lng: p.lng,
+          destino_id: (_rendicionDestinos[0]?.id) || null,
+          observaciones: null
+        })});
+      } catch {}
+    }
+    // Registrar hora_llegada_destino si hay puntos (primer punto = llegada)
+    if (_rendicionPuntos.length > 0 && _rendicionPuntos[0].hora) {
+      try {
+        await api('/visitas/'+visitaId, {method:'PATCH', body:JSON.stringify({
+          hora_llegada_destino: _rendicionPuntos[0].hora
+        })});
+      } catch {}
     }
     cerrarModal('modal-rendir-visita');
     toast('Rendición guardada ✓', 'success');
