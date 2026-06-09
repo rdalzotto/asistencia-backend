@@ -316,12 +316,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="tab active" onclick="tabPendientes('solicitudes',this)">Solicitudes</button>
         <button class="tab" onclick="tabPendientes('ausencias',this)">Ausencias</button>
         <button class="tab" onclick="tabPendientes('vacaciones',this)">Vacaciones</button>
-        <button class="tab" id="tab-pend-visitas-btn" onclick="tabPendientes('visitas',this)">Visitas</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section"><div id="lista-ausencias-pend"></div></div>
       <div id="pend-vacaciones" class="section"></div>
-      <div id="pend-visitas" class="section"><div id="lista-visitas-pend"></div></div>
     </div>
 
     <!-- RECURSOS ADMIN -->
@@ -635,8 +633,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <button class="btn btn-primary" id="btn-guardar-visita" onclick="guardarVisita()">Guardar visita</button>
     </div>
     <!-- Aviso para empleado: la visita queda pendiente de aprobación -->
-    <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:#b464ff">
-      📋 Esta visita será visada por el administrador. Podés completar todos los datos y guardarla — el admin la revisará y confirmará.
+    <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--accent)">
+      📋 La visita queda programada. El administrador recibirá un aviso y podrá hacer ajustes si lo considera necesario.
     </div>
   </div>
 </div>
@@ -1512,12 +1510,7 @@ async function cargarDashboardAdmin() {
     const externos = emps.filter(e=>e.estado==='en_externo').length;
     const ausentes = emps.filter(e=>e.estado==='ausente').length;
     // Contar visitas pendientes de aprobación para el badge
-    let visitasPend = 0;
-    try {
-      const vp = await api('/visitas?estado=pendiente_aprobacion');
-      visitasPend = vp.length;
-    } catch {}
-    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+visitasPend;
+    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0);
     document.getElementById('dash-presentes').textContent = presentes;
     document.getElementById('dash-externos').textContent = externos;
     document.getElementById('dash-ausentes').textContent = ausentes;
@@ -1655,8 +1648,7 @@ async function cargarPendientesAdmin() {
       </div>
     `).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin ausencias pendientes</p>';
 
-    // ── VISITAS PENDIENTES DE APROBACIÓN ──
-    await cargarVisitasPendientesAdmin();
+    // ── VISITAS: ya no se gestionan desde Pendientes ──
   } catch(e) { console.error(e); }
 }
 
@@ -2437,7 +2429,7 @@ function renderTarjetaVisita(v, esAdmin) {
   const totalGastos=gastos.reduce((s,g)=>s+parseFloat(g.monto||0),0);
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
-  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.estado==="completada"&&gastos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px;background:var(--bg3);border-radius:6px;padding:6px 8px"><div style="font-weight:600;margin-bottom:4px">📋 Gastos rendidos</div>'+gastos.map(g=>'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>'+g.descripcion+'</span><span style="color:var(--green);font-weight:600">$'+parseFloat(g.monto).toFixed(0)+'</span></div>').join('')+'</div>':'')+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+',' +(v.lat_inicio_real||'null')+','+(v.lng_inicio_real||'null')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+'</div></div>';
+  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.estado==="completada"&&gastos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px;background:var(--bg3);border-radius:6px;padding:6px 8px"><div style="font-weight:600;margin-bottom:4px">📋 Gastos rendidos</div>'+gastos.map(g=>'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>'+g.descripcion+'</span><span style="color:var(--green);font-weight:600">$'+parseFloat(g.monto).toFixed(0)+'</span></div>').join('')+'</div>':'')+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+',' +(v.lat_inicio_real||'null')+','+(v.lng_inicio_real||'null')+')">✓ Rendir y finalizar</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+'</div></div>';
 }
 
 async function cargarReporteVisitas() {
@@ -2573,15 +2565,15 @@ async function guardarVisita() {
   const editId=document.getElementById('vis-edit-id').value;
   const modo=document.getElementById('vis-modo').value;
   const empId=modo==='admin'?(document.getElementById('vis-empleado-id')?.value||null):null;
-  // Empleado crea con estado pendiente_aprobacion; admin crea directamente como programada
-  const estadoInicial = modo==='empleado' ? 'pendiente_aprobacion' : 'programada';
+  // Empleado crea directamente como programada — el admin ve la visita en su tab y puede actuar si lo considera
+  const estadoInicial = 'programada';
   try {
     const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId};
     if (!editId) body.estado = estadoInicial;
     if (editId) { await api('/visitas/'+editId,{method:'PATCH',body:JSON.stringify(body)}); toast('Visita actualizada ✓','success'); }
     else {
       await api('/visitas',{method:'POST',body:JSON.stringify(body)});
-      toast(modo==='empleado'?'Solicitud enviada — pendiente de aprobación ✓':'Visita programada ✓','success');
+      toast('Visita programada ✓ — el admin fue notificado','success');
     }
     cerrarModal('modal-nueva-visita'); visDestinos=[];
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
