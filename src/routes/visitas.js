@@ -148,6 +148,29 @@ router.patch('/:id', auth, async (req, res) => {
           AND es_remoto = TRUE AND validado = FALSE AND fecha = CURRENT_DATE
       `, [visitaActual.empleado_id, req.user.empleadorId]);
     }
+    // Al completar una visita, calcular tiempo real de viaje y actualizar promedio del destino
+    if (estado === 'completada' && v.hora_inicio_real && v.hora_llegada_destino) {
+      try {
+        const minutos = Math.round((new Date(v.hora_llegada_destino) - new Date(v.hora_inicio_real)) / 60000);
+        if (minutos > 0 && minutos < 600) { // entre 0 y 10 horas = viaje válido
+          // Buscar el destino_externo principal de esta visita
+          const { rows: destRows } = await db.query(`
+            SELECT vd.id, de.id as destino_externo_id, de.tiempo_viaje_estimado_min
+            FROM public.visita_destinos vd
+            LEFT JOIN public.destinos_externos de ON de.nombre = vd.cliente_nombre AND de.empleador_id = $2
+            WHERE vd.visita_id = $1 AND vd.orden = 1
+          `, [req.params.id, req.user.empleadorId]);
+          if (destRows[0]?.destino_externo_id) {
+            const anterior = destRows[0].tiempo_viaje_estimado_min;
+            // Promedio ponderado: 70% histórico + 30% nuevo viaje
+            const nuevo = anterior ? Math.round(anterior * 0.7 + minutos * 0.3) : minutos;
+            await db.query(
+              `UPDATE public.destinos_externos SET tiempo_viaje_estimado_min = $1 WHERE id = $2`,
+              [nuevo, destRows[0].destino_externo_id]);
+          }
+        }
+      } catch {} // No crítico — si falla no interrumpe la rendición
+    }
     res.json(v);
   } catch (e) {
     console.error('[VISITAS PATCH]', e.message);
@@ -229,3 +252,36 @@ router.post('/:id/gastos', auth, async (req, res) => {
 });
 
 module.exports = router;
+
+// ── GET /visitas/:id/puntos ───────────────────────────────────
+router.get('/:id/puntos', auth, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT * FROM public.visita_puntos WHERE visita_id = $1 ORDER BY hora ASC`,
+      [req.params.id]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── POST /visitas/:id/puntos ──────────────────────────────────
+router.post('/:id/puntos', auth, async (req, res) => {
+  const { nombre, lat, lng, destino_id, observaciones } = req.body;
+  if (!nombre || lat == null || lng == null)
+    return res.status(400).json({ error: 'Nombre, lat y lng son requeridos' });
+  try {
+    const { rows: [p] } = await db.query(`
+      INSERT INTO public.visita_puntos (visita_id, destino_id, nombre, lat, lng, observaciones)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
+    `, [req.params.id, destino_id || null, nombre, parseFloat(lat), parseFloat(lng), observaciones || null]);
+    res.json(p);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── DELETE /visitas/:id/puntos/:pid ───────────────────────────
+router.delete('/:id/puntos/:pid', auth, async (req, res) => {
+  try {
+    await db.query(`DELETE FROM public.visita_puntos WHERE id = $1 AND visita_id = $2`,
+      [req.params.pid, req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
