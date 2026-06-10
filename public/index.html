@@ -2280,7 +2280,7 @@ function renderTarjetaVisita(v, esAdmin) {
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
   const puedeConstancia = ['en_curso','completada','programada'].includes(v.estado);
-  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:6px;background:rgba(255,145,0,0.08);padding:6px 8px;border-radius:6px">⏸ Suspendida: '+v.motivo_suspension+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+(puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+')">📋 Constancia</button>':'')+'</div></div>';
+  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:6px;background:rgba(255,145,0,0.08);padding:6px 8px;border-radius:6px">⏸ Suspendida: '+v.motivo_suspension+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+(puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+','+JSON.stringify({destinos:v.destinos||[],hora_estimada_salida:v.hora_estimada_salida||null,emp_nombre:v.emp_nombre||'',emp_apellido:v.emp_apellido||''}).replace(/"/g,'&quot;')+')">📋 Constancia</button>':'')+'</div></div>';
 }
 
 async function cargarReporteVisitas() {
@@ -2848,16 +2848,32 @@ const CONST_PASOS = [
   {id:'firmas',label:'9. Firmas',icono:'✍'},
 ];
 
-async function abrirConstancia(visitaId) {
-  CONST_STATE = {constanciaId:null,visitaId,pasoActual:0,datos:{},selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},personal:[],equipos:[],acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},desvios:{},firmas:{},itemsMenu:{},offline:false,pendienteSync:false};
-  CONST_STATE.desvios = [];
+async function abrirConstancia(visitaId, visitaDatos) {
+  CONST_STATE = {constanciaId:null,visitaId,pasoActual:0,datos:{},selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},personal:[],equipos:[],acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},desvios:[],firmas:{},itemsMenu:{},offline:false,pendienteSync:false};
   CONST_STATE.offline = !navigator.onLine;
+
+  // Pre-completar con datos de la visita si es constancia nueva
+  if (visitaDatos && visitaDatos.destinos && visitaDatos.destinos.length) {
+    // Establecimiento = nombre del primer destino (y todos si hay varios)
+    const nombresDestinos = visitaDatos.destinos.map(d => d.cliente_nombre).filter(Boolean);
+    if (nombresDestinos.length) {
+      CONST_STATE.datos.establecimiento_sector = nombresDestinos.join(' / ');
+    }
+    // Hora de salida estimada como hora inicio
+    if (visitaDatos.hora_estimada_salida) {
+      CONST_STATE.datos.hora_inicio = String(visitaDatos.hora_estimada_salida).slice(0,5);
+    }
+    // Guardar destinos en state para autocompletar
+    CONST_STATE.destinosVisita = visitaDatos.destinos;
+  }
+
   try { CONST_STATE.itemsMenu = await api('/constancias/items'); } catch { CONST_STATE.itemsMenu = {}; }
   try {
     const data = await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:visitaId})});
     CONST_STATE.constanciaId = data.constancia.id;
     document.getElementById('const-header-numero').textContent = data.constancia.numero_informe || '';
     if (data.existente) {
+      // Si ya existe constancia, cargar sus datos (pisando el pre-completado)
       try { const c = await api('/constancias/'+CONST_STATE.constanciaId); cargarDatosConstanciaExistente(c); } catch {}
     }
   } catch {
@@ -2919,8 +2935,21 @@ function renderConstanciaPaso() {
 
 function renderPasoDatos() {
   const d=CONST_STATE.datos;
+  const destinos = CONST_STATE.destinosVisita || [];
+  const sugerencias = destinos.length > 0 ? `
+    <div style="margin-bottom:8px">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:6px">Destinos de la visita — tocá para usar:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${destinos.map(dest => `<button onclick="usarDestinoEnConstancia('${(dest.cliente_nombre||'').replace(/'/g,"\\'")}','${(dest.domicilio||'').replace(/'/g,"\\'")}','${(dest.localidad||'').replace(/'/g,"\\'")}',this)" style="background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);color:var(--accent);border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer">📍 ${dest.cliente_nombre}</button>`).join('')}
+        ${destinos.length > 1 ? `<button onclick="usarTodosDestinos()" style="background:rgba(0,230,118,0.1);border:1px solid rgba(0,230,118,0.3);color:var(--green);border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer">✓ Todos</button>` : ''}
+      </div>
+    </div>` : '';
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">1. Datos de la visita</div>
-  <div class="form-group"><label>Establecimiento / Sector</label><input type="text" id="ci-sector" value="${d.establecimiento_sector||''}" placeholder="Ej: Planta Norte — Línea de producción"></div>
+  <div class="form-group">
+    <label>Establecimiento / Sector</label>
+    ${sugerencias}
+    <input type="text" id="ci-sector" value="${d.establecimiento_sector||''}" placeholder="Ej: Planta Norte — Línea de producción" oninput="CONST_STATE.datos.establecimiento_sector=this.value">
+  </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora inicio</label><input type="time" id="ci-hora-ini" value="${d.hora_inicio||''}"></div><div class="form-group"><label>Hora fin</label><input type="time" id="ci-hora-fin" value="${d.hora_fin||''}"></div></div>
   <div class="form-group"><label>Coordenadas GPS <button onclick="obtenerGPSConstancia()" class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px">📍 Obtener</button></label><div id="ci-gps-info" style="font-size:12px;color:${d.gps_lat?'var(--green)':'var(--text3)'}">${d.gps_lat?'✓ Lat: '+d.gps_lat+' / Lng: '+d.gps_lng+(d.gps_precision_m?' (±'+d.gps_precision_m+'m)':''):'No capturado aún'}</div></div>`;
 }
@@ -3033,6 +3062,27 @@ async function obtenerGPSConstancia() {
     CONST_STATE.datos.gps_hora=new Date().toISOString();
     if(info){info.style.color='var(--green)';info.textContent='✓ Lat: '+CONST_STATE.datos.gps_lat+' / Lng: '+CONST_STATE.datos.gps_lng+' (±'+CONST_STATE.datos.gps_precision_m+'m)';}
   } catch { if(info){info.style.color='var(--text3)';info.textContent='⚠ No se pudo obtener GPS';} }
+}
+
+function usarDestinoEnConstancia(nombre, domicilio, localidad, btn) {
+  const full = [nombre, domicilio, localidad].filter(Boolean).join(' — ');
+  const input = document.getElementById('ci-sector');
+  if (input) input.value = full;
+  CONST_STATE.datos.establecimiento_sector = full;
+  // Resaltar el botón seleccionado
+  btn.parentElement.querySelectorAll('button').forEach(b => b.style.background = 'rgba(0,212,255,0.1)');
+  btn.style.background = 'rgba(0,212,255,0.3)';
+}
+
+function usarTodosDestinos() {
+  const destinos = CONST_STATE.destinosVisita || [];
+  const nombres = destinos.map(d => {
+    const partes = [d.cliente_nombre, d.domicilio, d.localidad].filter(Boolean);
+    return partes.join(' — ');
+  }).join(' / ');
+  const input = document.getElementById('ci-sector');
+  if (input) input.value = nombres;
+  CONST_STATE.datos.establecimiento_sector = nombres;
 }
 
 function toggleSeleccion(categoria,itemId,texto,checked) {
