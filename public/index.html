@@ -316,10 +316,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="tab active" onclick="tabPendientes('solicitudes',this)">Solicitudes</button>
         <button class="tab" onclick="tabPendientes('ausencias',this)">Ausencias</button>
         <button class="tab" onclick="tabPendientes('vacaciones',this)">Vacaciones</button>
+        <button class="tab" id="tab-pend-visitas-btn" onclick="tabPendientes('visitas',this)">Visitas</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section"><div id="lista-ausencias-pend"></div></div>
       <div id="pend-vacaciones" class="section"></div>
+      <div id="pend-visitas" class="section"><div id="lista-visitas-pend"></div></div>
     </div>
 
     <!-- RECURSOS ADMIN -->
@@ -344,7 +346,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('import-recursos-input').click()">📥 Importar Excel</button>
           <button class="btn btn-secondary btn-sm" onclick="descargarPlantillaRecursos()">📄 Bajar plantilla</button>
         </div>
-        <p style="font-size:11px;color:var(--text3);margin-top:8px">Para carga masiva: bajá la plantilla Excel, completá los recursos y luego importala.</p>
         <input type="file" id="import-recursos-input" accept=".xlsx,.xls" style="display:none" onchange="importarRecursos(this)">
       </div>
       <div class="card">
@@ -366,9 +367,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="card" id="card-resumen-visitas">
         <div class="card-title">📊 Resumen del período</div>
         <div id="resumen-visitas-content" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center">
-          <div><div style="font-size:22px;font-weight:700;color:var(--accent)" id="vis-total-visitas">0</div><div style="font-size:11px;color:var(--text2)">Completadas</div></div>
-          <div><div style="font-size:22px;font-weight:700;color:var(--green)" id="vis-total-km">0</div><div style="font-size:11px;color:var(--text2)">Km reales</div></div>
-          <div><div style="font-size:22px;font-weight:700;color:var(--yellow)" id="vis-total-viaticos">$0</div><div style="font-size:11px;color:var(--text2)">Viáticos reales</div></div>
+          <div><div style="font-size:22px;font-weight:700;color:var(--accent)" id="vis-total-visitas">0</div><div style="font-size:11px;color:var(--text2)">Visitas</div></div>
+          <div><div style="font-size:22px;font-weight:700;color:var(--green)" id="vis-total-km">0</div><div style="font-size:11px;color:var(--text2)">Km totales</div></div>
+          <div><div style="font-size:22px;font-weight:700;color:var(--yellow)" id="vis-total-viaticos">$0</div><div style="font-size:11px;color:var(--text2)">Viáticos</div></div>
         </div>
       </div>
       <button class="btn btn-primary" style="margin-bottom:16px" onclick="abrirModalNuevaVisita()">+ Programar visita</button>
@@ -605,25 +606,16 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
           <input type="text" id="vis-dest-buscar" placeholder="Buscar empresa o escribí el nombre del cliente..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;font-family:var(--font)" oninput="buscarEmpresaDestino(this.value)" autocomplete="off">
           <div id="vis-dest-sugerencias" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:999;max-height:180px;overflow-y:auto;box-shadow:var(--shadow)"></div>
         </div>
-        <div id="vis-tiempo-viaje-info" style="display:none;font-size:12px;color:var(--text2);background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:var(--radius-sm);padding:6px 8px;margin-bottom:8px"></div>
         <input type="text" id="vis-dest-domicilio" placeholder="Domicilio (se completa automático)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
         <input type="text" id="vis-dest-motivo" placeholder="Motivo de la visita (opcional)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px 10px;margin-bottom:8px;font-family:var(--font)">
         <input type="hidden" id="vis-dest-nombre">
         <input type="hidden" id="vis-dest-id">
-        <input type="hidden" id="vis-dest-lat-hidden">
-        <input type="hidden" id="vis-dest-lng-hidden">
         <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar otro cliente (opcional)</button>
       </div>
     </div>
     <div class="form-group"><label>Recursos necesarios (opcional)</label><div id="vis-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;max-height:120px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group">
-        <label>Km estimados
-          <button type="button" class="btn btn-secondary btn-sm" onclick="calcularKmVisita()" style="font-size:11px;padding:3px 8px;margin-left:8px">📍 Calcular</button>
-        </label>
-        <input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1">
-        <div id="vis-km-detalle" style="font-size:11px;color:var(--text3);margin-top:4px;display:none"></div>
-      </div>
+      <div class="form-group"><label>Km estimados</label><input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1"></div>
       <div class="form-group"><label>Viático estimado $</label><input type="number" id="vis-viatico-est" placeholder="0" min="0"></div>
     </div>
     <div class="form-group"><label>Observaciones</label><textarea id="vis-obs" placeholder="Notas adicionales..."></textarea></div>
@@ -634,120 +626,26 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <button class="btn btn-primary" id="btn-guardar-visita" onclick="guardarVisita()">Guardar visita</button>
     </div>
     <!-- Aviso para empleado: la visita queda pendiente de aprobación -->
-    <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.2);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--accent)">
-      📋 La visita queda programada. El administrador recibirá un aviso y podrá hacer ajustes si lo considera necesario.
+    <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:#b464ff">
+      📋 Esta visita será visada por el administrador. Podés completar todos los datos y guardarla — el admin la revisará y confirmará.
     </div>
-  </div>
-</div>
-
-<!-- MODAL INICIAR VIAJE -->
-<div class="modal-overlay" id="modal-iniciar-viaje" style="z-index:300">
-  <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">▶ Iniciar viaje</div>
-    <div id="iniciar-viaje-destinos" style="margin-bottom:12px"></div>
-    <div id="iniciar-gps-estado" style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;margin-bottom:16px;font-size:13px;text-align:center;color:var(--text2)">
-      📍 Obteniendo tu ubicación...
-    </div>
-    <div id="iniciar-viaje-info" style="display:none;margin-bottom:12px">
-      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Punto de partida registrado:</div>
-      <div id="iniciar-viaje-coords" style="font-size:12px;color:var(--accent);background:var(--bg3);padding:8px;border-radius:var(--radius-sm)"></div>
-    </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:16px">
-      Al confirmar, el sistema registra tu posición actual como punto de partida del recorrido. Los km se calcularán desde este punto al rendir el viaje.
-    </div>
-    <input type="hidden" id="iniciar-visita-id">
-    <input type="hidden" id="iniciar-lat">
-    <input type="hidden" id="iniciar-lng">
-    <div style="display:flex;gap:10px">
-      <button class="btn btn-secondary" onclick="cerrarModal('modal-iniciar-viaje')">Cancelar</button>
-      <button class="btn btn-primary" id="btn-confirmar-inicio" onclick="confirmarInicioViaje()" disabled>▶ Confirmar inicio</button>
-    </div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:8px;font-size:12px" onclick="iniciarViajeSinGPS()">Iniciar sin GPS (cargar km manualmente)</button>
   </div>
 </div>
 
 <!-- MODAL RENDIR VISITA -->
 <div class="modal-overlay" id="modal-rendir-visita" style="z-index:300">
-  <div class="modal" style="max-height:90vh;overflow-y:auto">
+  <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">✓ Rendir gastos del viaje</div>
-
-    <!-- Destinos visitados -->
+    <div class="modal-title">Rendir gastos del viaje</div>
     <div id="rendir-destinos-lista" style="margin-bottom:12px"></div>
-
-    <!-- Puntos GPS del recorrido dentro del predio -->
-    <div style="margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:13px;font-weight:600">📍 Puntos del recorrido</span>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="agregarPuntoRecorrido()" style="font-size:11px">+ Marcar punto GPS</button>
-      </div>
-      <div id="rendir-puntos-lista" style="margin-bottom:4px"></div>
-      <div style="font-size:11px;color:var(--text3)">Marcá cada lugar específico visitado dentro del establecimiento — puestos, galpones, frentes de obra, etc.</div>
-    </div>
-
-    <!-- Km reales -->
-    <div class="form-group">
-      <label>Km reales recorridos
-        <button type="button" class="btn btn-secondary btn-sm" onclick="calcularKmRendicion()" style="font-size:11px;padding:3px 8px;margin-left:8px">📍 Calcular</button>
-      </label>
-      <input type="number" id="rendir-km" placeholder="0" min="0" step="0.1">
-      <div id="rendir-km-detalle" style="font-size:11px;color:var(--text3);margin-top:4px;display:none"></div>
-    </div>
-
-    <!-- Gastos múltiples -->
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Gastos a rendir</div>
-    <div id="rendir-gastos-lista" style="margin-bottom:8px"></div>
-    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-        <div class="form-group" style="margin:0">
-          <label style="font-size:12px">Tipo de gasto</label>
-          <select id="rendir-tipo" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-family:var(--font);font-size:13px">
-            <option value="combustible">⛽ Combustible</option>
-            <option value="peaje">🛣 Peaje</option>
-            <option value="comida">🍽 Comida / viático</option>
-            <option value="alojamiento">🏨 Alojamiento</option>
-            <option value="estacionamiento">🅿 Estacionamiento</option>
-            <option value="otro">📝 Otro</option>
-          </select>
-        </div>
-        <div class="form-group" style="margin:0">
-          <label style="font-size:12px">Monto $</label>
-          <input type="number" id="rendir-monto" placeholder="0" min="0" style="width:100%">
-        </div>
-      </div>
-      <div class="form-group" style="margin-bottom:8px">
-        <label style="font-size:12px">Detalle (opcional)</label>
-        <input type="text" id="rendir-desc" placeholder="Ej: Shell km 45, YPF Concordia...">
-      </div>
-      <div class="form-group" style="margin-bottom:8px">
-        <label style="font-size:12px">Foto del comprobante (opcional)</label>
-        <div id="rendir-foto-preview" style="display:none;margin-bottom:6px">
-          <img id="rendir-foto-img" style="width:100%;max-height:120px;object-fit:cover;border-radius:var(--radius-sm)" />
-          <button type="button" onclick="quitarFotoRendicion()" style="width:100%;margin-top:4px;font-size:11px;padding:3px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">✕ Quitar foto</button>
-        </div>
-        <label id="rendir-foto-btn" style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;font-size:12px;color:var(--text2)">
-          📷 Adjuntar ticket / factura
-          <input type="file" id="rendir-foto-input" accept="image/*" style="display:none" onchange="previsualizarFotoRendicion(this)">
-        </label>
-      </div>
-      <input type="hidden" id="rendir-foto-base64">
-      <button type="button" class="btn btn-secondary btn-sm" style="width:100%" onclick="agregarGastoRendicion()">+ Agregar gasto</button>
-    </div>
-
+    <div class="form-group"><label>Km reales recorridos</label><input type="number" id="rendir-km" placeholder="0" min="0" step="0.1"></div>
+    <div class="form-group"><label>Total gastado $</label><input type="number" id="rendir-viatico" placeholder="0" min="0"></div>
+    <div class="form-group"><label>Descripción del gasto</label><input type="text" id="rendir-desc" placeholder="Combustible, peaje, comida..."></div>
+    <div class="form-group"><label>Foto comprobante (opcional)</label><input type="file" id="rendir-foto" accept="image/*" style="color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;width:100%"></div>
     <input type="hidden" id="rendir-visita-id">
-    <input type="hidden" id="rendir-origen-lat">
-    <input type="hidden" id="rendir-origen-lng">
-
-    <!-- Total -->
-    <div id="rendir-total-area" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
-      <span style="font-size:13px;color:var(--text2)">Total a rendir:</span>
-      <span id="rendir-total-valor" style="font-size:16px;font-weight:700;color:var(--green)">$0</span>
-    </div>
-
-    <div style="display:flex;gap:10px;margin-top:4px">
+    <div style="display:flex;gap:10px;margin-top:16px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-rendir-visita')">Cancelar</button>
-      <button class="btn btn-primary" onclick="guardarRendicion()">✓ Finalizar y rendir</button>
+      <button class="btn btn-primary" onclick="guardarRendicion()">Guardar rendición</button>
     </div>
   </div>
 </div>
@@ -771,41 +669,21 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 <div class="modal-overlay" id="modal-suspender-visita" style="z-index:300">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">⏸ Suspender visita</div>
-    <div id="susp-en-curso-aviso" style="display:none;background:rgba(255,145,0,0.1);border:1px solid rgba(255,145,0,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:12px">
-      ⚠ Esta visita está <strong>en curso</strong>. Al suspenderla el empleado volverá al estado de oficina.
-    </div>
+    <div class="modal-title">Suspender / Reprogramar visita</div>
     <div class="form-group"><label>Motivo de suspensión</label>
       <select id="susp-motivo-tipo">
-        <option value="clima">🌧 Condiciones climáticas / estado de caminos</option>
-        <option value="cliente">📞 Cliente canceló o no estaba disponible</option>
-        <option value="vehiculo">🚗 Falla del vehículo o recurso</option>
-        <option value="interno">🏢 Motivo interno de la empresa</option>
+        <option value="clima">🌧 Condiciones climáticas</option>
+        <option value="cliente">📞 Cliente canceló o no disponible</option>
+        <option value="interno">🏢 Motivo interno</option>
         <option value="otro">📝 Otro motivo</option>
       </select>
     </div>
-    <div class="form-group"><label>Descripción del inconveniente <span style="color:var(--red)">*</span></label>
-      <textarea id="susp-detalle" placeholder="Describí qué pasó — esto queda como justificativo documentado..." style="min-height:80px"></textarea>
-    </div>
-    <div class="form-group">
-      <label>Foto de evidencia (opcional)</label>
-      <div id="susp-foto-preview" style="display:none;margin-bottom:8px;border-radius:var(--radius-sm);overflow:hidden;max-height:160px">
-        <img id="susp-foto-img" style="width:100%;object-fit:cover;border-radius:var(--radius-sm)" />
-        <button type="button" onclick="quitarFotoSuspension()" style="width:100%;margin-top:4px;font-size:11px;padding:4px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">✕ Quitar foto</button>
-      </div>
-      <div id="susp-foto-btn-area">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:13px;color:var(--text2)">
-          📷 Sacar o adjuntar foto del estado del camino / situación
-          <input type="file" id="susp-foto-input" accept="image/*" style="display:none" onchange="previsualizarFotoSuspension(this)">
-        </label>
-      </div>
-    </div>
+    <div class="form-group"><label>Detalle (opcional)</label><textarea id="susp-detalle" placeholder="Descripción adicional..." style="min-height:60px"></textarea></div>
     <div class="form-group"><label>Nueva fecha (si se reprograma)</label><input type="date" id="susp-nueva-fecha"></div>
     <input type="hidden" id="susp-visita-id">
-    <input type="hidden" id="susp-foto-base64">
     <div style="display:flex;gap:10px;margin-top:16px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-suspender-visita')">Cancelar</button>
-      <button class="btn btn-warning" onclick="confirmarSuspension()">⏸ Confirmar suspensión</button>
+      <button class="btn btn-warning" onclick="confirmarSuspension()">Suspender</button>
     </div>
   </div>
 </div>
@@ -1040,18 +918,11 @@ function doLogout() {
 }
 
 async function irADashboard(rol) {
-  // Cargar coordenadas de oficina en STATE para cálculos de km
-  try {
-    const emp = await api('/config/empresa');
-    STATE.oficina_lat = parseFloat(emp.oficina_lat) || null;
-    STATE.oficina_lng = parseFloat(emp.oficina_lng) || null;
-  } catch {}
   if (rol === 'admin') {
     mostrarScreen('admin');
     cargarDashboardAdmin(); cargarEmpleadosAdmin();
     cargarPendientesAdmin(); cargarBancoHorasTodos();
     cargarSelectEmpleados();
-    iniciarPollingBadge();
   } else {
     mostrarScreen('empleado');
     iniciarReloj();
@@ -1521,14 +1392,17 @@ async function cargarDashboardAdmin() {
     const externos = emps.filter(e=>e.estado==='en_externo').length;
     const ausentes = emps.filter(e=>e.estado==='ausente').length;
     // Contar visitas pendientes de aprobación para el badge
-    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0);
+    let visitasPend = 0;
+    try {
+      const vp = await api('/visitas?estado=pendiente_aprobacion');
+      visitasPend = vp.length;
+    } catch {}
+    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+visitasPend;
     document.getElementById('dash-presentes').textContent = presentes;
     document.getElementById('dash-externos').textContent = externos;
     document.getElementById('dash-ausentes').textContent = ausentes;
     document.getElementById('dash-pendientes').textContent = pendTotal;
-    const nb=document.getElementById('notif-count');
-    if (pendTotal>0) { nb.textContent=pendTotal; nb.style.display='flex'; }
-    else { nb.style.display='none'; }
+    if (pendTotal>0) { const nb=document.getElementById('notif-count'); nb.textContent=pendTotal; nb.style.display='flex'; }
     const cont = document.getElementById('lista-estado-personal');
     if (!emps.length) { cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin empleados registrados</p>'; }
     else {
@@ -1592,7 +1466,6 @@ async function validarRemoto(id, aprobado) {
     await api('/movimientos/validar-remoto/'+id, {method:'POST', body:JSON.stringify({aprobado})});
     toast(aprobado ? 'Jornada validada ✓' : 'Jornada rechazada', aprobado ? 'success' : 'info');
     cargarDashboardAdmin();
-    cargarPendientesAdmin();
   } catch(e) { toast(e.message, 'error'); }
 }
 </script>
@@ -1659,7 +1532,8 @@ async function cargarPendientesAdmin() {
       </div>
     `).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin ausencias pendientes</p>';
 
-    // ── VISITAS: ya no se gestionan desde Pendientes ──
+    // ── VISITAS PENDIENTES DE APROBACIÓN ──
+    await cargarVisitasPendientesAdmin();
   } catch(e) { console.error(e); }
 }
 
@@ -1749,7 +1623,7 @@ async function resolverSolicitud(id, estado) {
 }
 
 async function resolverAusencia(id, estado) {
-  try { await api('/licencias/ausencia/'+id, {method:'PATCH', body:JSON.stringify({estado})}); toast(estado==='aprobada'?'Aprobada ✓':'Rechazada',estado==='aprobada'?'success':'info'); cargarPendientesAdmin(); cargarDashboardAdmin(); }
+  try { await api('/licencias/ausencia/'+id, {method:'PATCH', body:JSON.stringify({estado})}); toast(estado==='aprobada'?'Aprobada ✓':'Rechazada',estado==='aprobada'?'success':'info'); cargarPendientesAdmin(); }
   catch(e) { toast(e.message,'error'); }
 }
 </script>
@@ -1870,17 +1744,7 @@ function tabAdmin(id, el) {
   if (id==='config') abrirPanelConfig();
   if (id==='recursos') cargarTabRecursos();
   if (id==='visitas') cargarTabVisitas();
-  if (id==='pendientes') { cargarPendientesAdmin(); cargarDashboardAdmin(); }
-  if (id==='dashboard') cargarDashboardAdmin();
-}
-
-// Polling cada 60s para mantener el badge actualizado
-let _badgeInterval = null;
-function iniciarPollingBadge() {
-  if (_badgeInterval) clearInterval(_badgeInterval);
-  _badgeInterval = setInterval(() => {
-    if (STATE.rol === 'admin') cargarDashboardAdmin();
-  }, 60000);
+  if (id==='pendientes') cargarPendientesAdmin();
 }
 
 function tabPendientes(id, el) {
@@ -2221,33 +2085,8 @@ async function cargarCheckboxRecursos(contenedorId) {
     const recursos = await api('/recursos');
     if (!recursos.length) { cont.innerHTML='<p style="color:var(--text3);font-size:13px">Sin recursos cargados</p>'; return; }
     const iconos = {vehiculo:'🚗',didactico:'📽',instrumental:'🔧',otro:'📦'};
-    const searchId = contenedorId+'-search';
-    const listId = contenedorId+'-list';
-    cont.innerHTML =
-      '<div style="display:flex;gap:6px;margin-bottom:6px">' +
-        '<input type="text" id="'+searchId+'" placeholder="🔍 Buscar..." oninput="filtrarRecursosCheck(\''+contenedorId+'\')" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:5px 8px;font-size:12px;font-family:var(--font)">' +
-        '<button type="button" onclick="toggleTodosRecursos(\''+contenedorId+'\',true)" style="font-size:11px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">Todo</button>' +
-        '<button type="button" onclick="toggleTodosRecursos(\''+contenedorId+'\',false)" style="font-size:11px;padding:4px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer">Ninguno</button>' +
-      '</div>' +
-      '<div id="'+listId+'" style="max-height:140px;overflow-y:auto">' +
-        recursos.map(r => '<label style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;font-size:13px" data-nombre="'+r.nombre.toLowerCase()+'"><input type="checkbox" value="'+r.id+'" style="width:16px;height:16px;accent-color:var(--accent)">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</label>').join('') +
-      '</div>';
+    cont.innerHTML = recursos.map(r => '<label style="display:flex;align-items:center;gap:10px;padding:6px 4px;cursor:pointer;font-size:13px"><input type="checkbox" value="'+r.id+'" style="width:16px;height:16px;accent-color:var(--accent)">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</label>').join('');
   } catch { cont.innerHTML='<p style="color:var(--text3);font-size:13px">Error cargando recursos</p>'; }
-}
-
-function filtrarRecursosCheck(contenedorId) {
-  const q = (document.getElementById(contenedorId+'-search')?.value||'').toLowerCase().trim();
-  const list = document.getElementById(contenedorId+'-list');
-  if (!list) return;
-  list.querySelectorAll('label').forEach(lbl => {
-    lbl.style.display = (!q || lbl.dataset.nombre?.includes(q)) ? '' : 'none';
-  });
-}
-
-function toggleTodosRecursos(contenedorId, marcar) {
-  const list = document.getElementById(contenedorId+'-list') || document.getElementById(contenedorId);
-  if (!list) return;
-  list.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = marcar; });
 }
 
 function getCheckboxSeleccionados(contenedorId) {
@@ -2423,13 +2262,11 @@ async function cargarVisitasAdmin() {
     let url='/visitas?desde='+desde+'&hasta='+hasta;
     if (empId) url+='&empleado_id='+empId;
     const visitas = await api(url);
-    // Solo contar/sumar visitas completadas en los totales
-    const completadas = visitas.filter(v => v.estado === 'completada');
-    const totalKm = completadas.reduce((s,v)=>s+parseFloat(v.km_reales||0),0);
-    const totalVia = completadas.reduce((s,v)=>s+parseFloat(v.viatico_real||0),0);
-    document.getElementById('vis-total-visitas').textContent = completadas.length;
-    document.getElementById('vis-total-km').textContent = totalKm.toFixed(1);
-    document.getElementById('vis-total-viaticos').textContent = '$'+totalVia.toFixed(0);
+    const totalKm=visitas.reduce((s,v)=>s+parseFloat(v.km_reales||v.km_estimados||0),0);
+    const totalVia=visitas.reduce((s,v)=>s+parseFloat(v.viatico_real||v.viatico_estimado||0),0);
+    document.getElementById('vis-total-visitas').textContent=visitas.length;
+    document.getElementById('vis-total-km').textContent=totalKm.toFixed(1);
+    document.getElementById('vis-total-viaticos').textContent='$'+totalVia.toFixed(0);
     if (!visitas.length) { cont.innerHTML='<p style="color:var(--text3);text-align:center;padding:16px">Sin visitas en el período</p>'; return; }
     cont.innerHTML = visitas.map(v => renderTarjetaVisita(v,true)).join('');
   } catch { cont.innerHTML='<p style="color:var(--red);text-align:center;padding:16px">Error cargando visitas</p>'; }
@@ -2442,7 +2279,8 @@ function renderTarjetaVisita(v, esAdmin) {
   const totalGastos=gastos.reduce((s,g)=>s+parseFloat(g.monto||0),0);
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
-  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="padding:4px 0;font-size:12px"><div style="display:flex;align-items:center;gap:6px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>'+(d.locacion_descripcion?'<div style="font-size:11px;color:var(--text2);padding-left:14px;margin-top:2px">📌 '+d.locacion_descripcion+'</div>':'')+(d.lat_llegada?'<div style="font-size:10px;color:var(--text3);padding-left:14px">GPS: '+parseFloat(d.lat_llegada).toFixed(5)+', '+parseFloat(d.lng_llegada).toFixed(5)+(d.hora_llegada?' · '+new Date(d.hora_llegada).toLocaleTimeString(\'es-AR\',{hour:\'2-digit\',minute:\'2-digit\'}):'')+'</div>':'')+'</div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.estado==="completada"&&gastos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px;background:var(--bg3);border-radius:6px;padding:6px 8px"><div style="font-weight:600;margin-bottom:4px">📋 Gastos rendidos</div>'+gastos.map(g=>'<div style="display:flex;justify-content:space-between;padding:2px 0"><span>'+g.descripcion+'</span><span style="color:var(--green);font-weight:600">$'+parseFloat(g.monto).toFixed(0)+'</span></div>').join('')+'</div>':'')+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:8px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px"><div style="font-weight:600;margin-bottom:4px">⏸ Suspendida</div><div>'+v.motivo_suspension+'</div>'+(v.foto_evidencia_suspension?'<img src="'+v.foto_evidencia_suspension+'" style="width:100%;max-height:140px;object-fit:cover;border-radius:4px;margin-top:6px" onclick="this.style.maxHeight=(this.style.maxHeight===\'none\'?\'140px\':\'none\')" />':'')+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+',' +(v.lat_inicio_real||'null')+','+(v.lng_inicio_real||'null')+')">✓ Rendir y finalizar</button>':'')+(v.estado==='programada'||v.estado==='en_curso'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+',\''+v.estado+'\')" >⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+(esAdmin?'<button class="btn btn-sm btn-danger" style="opacity:0.6" onclick="eliminarVisita('+v.id+')">🗑 Eliminar</button>':'')+'</div></div>';
+  const puedeConstancia = ['en_curso','completada','programada'].includes(v.estado);
+  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:6px;background:rgba(255,145,0,0.08);padding:6px 8px;border-radius:6px">⏸ Suspendida: '+v.motivo_suspension+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+(puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+')">📋 Constancia</button>':'')+'</div></div>';
 }
 
 async function cargarReporteVisitas() {
@@ -2520,49 +2358,28 @@ async function buscarEmpresaDestino(query) {
   const filtrados=_destinosCache.filter(d=>d.nombre.toLowerCase().includes(query.toLowerCase())||(d.localidad&&d.localidad.toLowerCase().includes(query.toLowerCase()))).slice(0,8);
   if (!filtrados.length) { sug.style.display='none'; return; }
   sug.style.display='block';
-  sug.innerHTML=filtrados.map(d=>{const t=d.tiempo_viaje_estimado_min;const tStr=t?'<span style="color:var(--accent);font-size:10px">🕐 ~'+formatearTiempoViaje(t)+'</span>':'';return '<div onclick="seleccionarEmpresa('+d.id+',\''+d.nombre.replace(/'/g,"\\'")+'\',\''+(d.domicilio||'').replace(/'/g,"\\'")+'\',\''+(d.localidad||'').replace(/'/g,"\\'")+'\',\''+(d.lat||'')+'\',\''+(d.lng||'')+'\','+(t||0)+')" style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600">'+d.nombre+'</span>'+tStr+'</div>'+(d.domicilio||d.localidad?'<div style="font-size:11px;color:var(--text2)">'+(d.domicilio&&d.localidad?d.domicilio+', '+d.localidad:d.domicilio||d.localidad)+'</div>':'')+'</div>';}).join('');
+  sug.innerHTML=filtrados.map(d=>'<div onclick="seleccionarEmpresa('+d.id+',\''+d.nombre.replace(/'/g,"\\'")+'\',\''+(d.domicilio||'').replace(/'/g,"\\'")+'\',\''+(d.localidad||'').replace(/'/g,"\\'")+'\',\''+(d.lat||'')+'\',\''+(d.lng||'')+'\')" style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'"><div style="font-weight:600">'+d.nombre+'</div>'+(d.domicilio||d.localidad?'<div style="font-size:11px;color:var(--text2)">'+(d.domicilio&&d.localidad?d.domicilio+', '+d.localidad:d.domicilio||d.localidad)+'</div>':'')+'</div>').join('');
 }
 
-function seleccionarEmpresa(id,nombre,domicilio,localidad,lat,lng,tiempoViaje) {
+function seleccionarEmpresa(id,nombre,domicilio,localidad,lat,lng) {
   document.getElementById('vis-dest-buscar').value=nombre;
   document.getElementById('vis-dest-nombre').value=nombre;
   document.getElementById('vis-dest-id').value=id;
   document.getElementById('vis-dest-domicilio').value=[domicilio,localidad].filter(Boolean).join(', ');
-  document.getElementById('vis-dest-lat-hidden').value=lat||'';
-  document.getElementById('vis-dest-lng-hidden').value=lng||'';
   document.getElementById('vis-dest-sugerencias').style.display='none';
-  const infoEl = document.getElementById('vis-tiempo-viaje-info');
-  if (infoEl) {
-    if (tiempoViaje) {
-      infoEl.style.display='block';
-      infoEl.innerHTML = '🕐 Tiempo estimado hasta este destino: <strong>~'+formatearTiempoViaje(parseInt(tiempoViaje))+'</strong> <span style="font-size:10px;color:var(--text3)">(basado en viajes anteriores)</span>';
-    } else { infoEl.style.display='none'; }
-  }
-}
-
-function formatearTiempoViaje(min) {
-  if (!min) return '';
-  if (min < 60) return min + ' min';
-  const h = Math.floor(min/60), m = min%60;
-  return h + 'hs' + (m ? ' '+m+'min' : '');
 }
 
 function agregarDestinoVisita() {
   const nombre=document.getElementById('vis-dest-nombre').value.trim()||document.getElementById('vis-dest-buscar').value.trim();
   if (!nombre) { toast('Seleccioná o escribí una empresa','error'); return; }
-  const lat=parseFloat(document.getElementById('vis-dest-lat-hidden').value)||null;
-  const lng=parseFloat(document.getElementById('vis-dest-lng-hidden').value)||null;
-  visDestinos.push({cliente_nombre:nombre,domicilio:document.getElementById('vis-dest-domicilio').value.trim(),motivo:document.getElementById('vis-dest-motivo').value.trim(),lat,lng});
+  visDestinos.push({cliente_nombre:nombre,domicilio:document.getElementById('vis-dest-domicilio').value.trim(),motivo:document.getElementById('vis-dest-motivo').value.trim(),lat:null,lng:null});
   document.getElementById('vis-dest-buscar').value='';
   document.getElementById('vis-dest-nombre').value='';
   document.getElementById('vis-dest-id').value='';
   document.getElementById('vis-dest-domicilio').value='';
   document.getElementById('vis-dest-motivo').value='';
-  document.getElementById('vis-dest-lat-hidden').value='';
-  document.getElementById('vis-dest-lng-hidden').value='';
   document.getElementById('vis-dest-sugerencias').style.display='none';
   renderizarDestinosVisita();
-  recalcularKmVisita();
 }
 
 function quitarDestinoVisita(idx) { visDestinos.splice(idx,1); renderizarDestinosVisita(); }
@@ -2592,15 +2409,15 @@ async function guardarVisita() {
   const editId=document.getElementById('vis-edit-id').value;
   const modo=document.getElementById('vis-modo').value;
   const empId=modo==='admin'?(document.getElementById('vis-empleado-id')?.value||null):null;
-  // Empleado crea directamente como programada — el admin ve la visita en su tab y puede actuar si lo considera
-  const estadoInicial = 'programada';
+  // Empleado crea con estado pendiente_aprobacion; admin crea directamente como programada
+  const estadoInicial = modo==='empleado' ? 'pendiente_aprobacion' : 'programada';
   try {
     const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId};
     if (!editId) body.estado = estadoInicial;
     if (editId) { await api('/visitas/'+editId,{method:'PATCH',body:JSON.stringify(body)}); toast('Visita actualizada ✓','success'); }
     else {
       await api('/visitas',{method:'POST',body:JSON.stringify(body)});
-      toast('Visita programada ✓ — el admin fue notificado','success');
+      toast(modo==='empleado'?'Solicitud enviada — pendiente de aprobación ✓':'Visita programada ✓','success');
     }
     cerrarModal('modal-nueva-visita'); visDestinos=[];
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
@@ -2608,90 +2425,10 @@ async function guardarVisita() {
 }
 
 async function cambiarEstadoVisita(id, estado) {
-  if (estado === 'en_curso') {
-    abrirIniciarViaje(id);
-    return;
-  }
   try {
-    await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify({estado})});
-    toast('Estado actualizado ✓', 'success');
+    await api('/visitas/'+id,{method:'PATCH',body:JSON.stringify({estado})});
+    toast(estado==='en_curso'?'¡Viaje iniciado! Se registrará el recorrido.':'Estado actualizado ✓','success');
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message,'error'); }
-}
-
-function abrirIniciarViaje(visitaId) {
-  document.getElementById('iniciar-visita-id').value = visitaId;
-  document.getElementById('iniciar-lat').value = '';
-  document.getElementById('iniciar-lng').value = '';
-  document.getElementById('iniciar-viaje-info').style.display = 'none';
-  document.getElementById('btn-confirmar-inicio').disabled = true;
-  document.getElementById('btn-confirmar-inicio').textContent = '▶ Confirmar inicio';
-  // Buscar destinos de la visita para mostrarlos
-  const card = document.querySelector(`[onclick*="cambiarEstadoVisita(${visitaId}"]`)?.closest('.card') ||
-               document.querySelector(`[onclick*="abrirRendicion(${visitaId}"]`)?.closest('.card');
-  document.getElementById('iniciar-viaje-destinos').innerHTML = '';
-  abrirModal('modal-iniciar-viaje');
-  // Obtener GPS automáticamente al abrir
-  const estado = document.getElementById('iniciar-gps-estado');
-  estado.style.color = 'var(--text2)';
-  estado.textContent = '📍 Obteniendo tu ubicación...';
-  navigator.geolocation.getCurrentPosition(
-    pos => {
-      const lat = pos.coords.latitude, lng = pos.coords.longitude;
-      document.getElementById('iniciar-lat').value = lat;
-      document.getElementById('iniciar-lng').value = lng;
-      estado.style.color = 'var(--green)';
-      estado.textContent = '✓ Ubicación obtenida correctamente';
-      document.getElementById('iniciar-viaje-info').style.display = 'block';
-      document.getElementById('iniciar-viaje-coords').textContent =
-        'Lat: ' + lat.toFixed(6) + ' · Lng: ' + lng.toFixed(6) +
-        ' · ' + new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
-      document.getElementById('btn-confirmar-inicio').disabled = false;
-    },
-    err => {
-      estado.style.color = 'var(--orange)';
-      estado.textContent = '⚠ No se pudo obtener la ubicación automáticamente. Podés iniciar sin GPS y cargar los km manualmente al finalizar.';
-      document.getElementById('btn-confirmar-inicio').disabled = false;
-      document.getElementById('btn-confirmar-inicio').textContent = '▶ Iniciar de todos modos';
-    },
-    {timeout: 8000, enableHighAccuracy: true}
-  );
-}
-
-async function confirmarInicioViaje() {
-  const id = document.getElementById('iniciar-visita-id').value;
-  const lat = parseFloat(document.getElementById('iniciar-lat').value) || null;
-  const lng = parseFloat(document.getElementById('iniciar-lng').value) || null;
-  try {
-    const body = { estado: 'en_curso', hora_inicio_real: new Date().toISOString() };
-    if (lat) body.lat_inicio_real = lat;
-    if (lng) body.lng_inicio_real = lng;
-    await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify(body)});
-    cerrarModal('modal-iniciar-viaje');
-    toast('¡Viaje iniciado! El recorrido comenzó a registrarse.', 'success');
-    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message,'error'); }
-}
-
-async function iniciarViajeSinGPS() {
-  const id = document.getElementById('iniciar-visita-id').value;
-  try {
-    await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify({
-      estado: 'en_curso',
-      hora_inicio_real: new Date().toISOString()
-    })});
-    cerrarModal('modal-iniciar-viaje');
-    toast('Viaje iniciado. Recordá ingresar los km al rendir.', 'info');
-    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message,'error'); }
-}
-
-async function eliminarVisita(id) {
-  if (!confirm('¿Eliminar esta visita del historial? Esta acción no se puede deshacer.')) return;
-  try {
-    await api('/visitas/'+id, {method:'DELETE'});
-    toast('Visita eliminada','info');
-    await cargarVisitasAdmin();
   } catch(e) { toast(e.message,'error'); }
 }
 
@@ -2701,50 +2438,10 @@ async function cancelarVisita(id) {
 }
 
 // ── SUSPENDER / REPROGRAMAR VISITA ───────────────────────────────────────────
-function previsualizarFotoSuspension(input) {
-  const file = input.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    // Comprimir a max 800px / quality 0.7 para no mandar base64 enorme
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const MAX = 800;
-      let w = img.width, h = img.height;
-      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
-      if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const b64 = canvas.toDataURL('image/jpeg', 0.7);
-      document.getElementById('susp-foto-base64').value = b64;
-      document.getElementById('susp-foto-img').src = b64;
-      document.getElementById('susp-foto-preview').style.display = 'block';
-      document.getElementById('susp-foto-btn-area').style.display = 'none';
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function quitarFotoSuspension() {
-  document.getElementById('susp-foto-base64').value = '';
-  document.getElementById('susp-foto-img').src = '';
-  document.getElementById('susp-foto-preview').style.display = 'none';
-  document.getElementById('susp-foto-btn-area').style.display = 'block';
-  document.getElementById('susp-foto-input').value = '';
-}
-
-function abrirSuspenderVisita(id, estadoActual) {
+function abrirSuspenderVisita(id) {
   document.getElementById('susp-visita-id').value = id;
   document.getElementById('susp-detalle').value = '';
   document.getElementById('susp-nueva-fecha').value = '';
-  document.getElementById('susp-foto-base64').value = '';
-  document.getElementById('susp-foto-img').src = '';
-  document.getElementById('susp-foto-preview').style.display = 'none';
-  document.getElementById('susp-foto-btn-area').style.display = 'block';
-  if (document.getElementById('susp-foto-input')) document.getElementById('susp-foto-input').value = '';
-  const aviso = document.getElementById('susp-en-curso-aviso');
-  if (aviso) aviso.style.display = estadoActual === 'en_curso' ? 'block' : 'none';
   abrirModal('modal-suspender-visita');
 }
 
@@ -2753,14 +2450,11 @@ async function confirmarSuspension() {
   const tipo = document.getElementById('susp-motivo-tipo').value;
   const detalle = document.getElementById('susp-detalle').value.trim();
   const nuevaFecha = document.getElementById('susp-nueva-fecha').value;
-  const foto = document.getElementById('susp-foto-base64').value;
-  if (!detalle) { toast('Describí brevemente el motivo de la suspensión', 'error'); return; }
-  const textoMotivos = {clima:'Condiciones climáticas / estado de caminos',cliente:'Cliente canceló o no disponible',vehiculo:'Falla del vehículo o recurso',interno:'Motivo interno',otro:'Otro motivo'};
-  const motivo_suspension = textoMotivos[tipo] + ' — ' + detalle;
+  const textoMotivos = {clima:'Condiciones climáticas',cliente:'Cliente canceló o no disponible',interno:'Motivo interno',otro:'Otro motivo'};
+  const motivo_suspension = textoMotivos[tipo] + (detalle?' — '+detalle:'');
   try {
     const body = {estado:'suspendida', motivo_suspension};
     if (nuevaFecha) body.fecha_reprogramada = nuevaFecha;
-    if (foto) body.foto_evidencia_suspension = foto;
     await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify(body)});
     cerrarModal('modal-suspender-visita');
     toast('Visita suspendida'+(nuevaFecha?' — reprogramada para '+nuevaFecha.split('-').reverse().join('/'):''), 'info');
@@ -2768,359 +2462,47 @@ async function confirmarSuspension() {
   } catch(e) { toast(e.message,'error'); }
 }
 
-let _rendicionPuntos = [];
-
-function renderizarPuntosRendicion() {
-  const cont = document.getElementById('rendir-puntos-lista');
-  if (!_rendicionPuntos.length) { cont.innerHTML = ''; return; }
-  cont.innerHTML = _rendicionPuntos.map((p, i) =>
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 8px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:4px">' +
-    '<div><div style="font-size:12px;font-weight:600">📍 '+p.nombre+'</div>' +
-    '<div style="font-size:10px;color:var(--text3)">'+p.lat.toFixed(5)+', '+p.lng.toFixed(5)+' · '+new Date(p.hora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})+'</div></div>' +
-    '<button onclick="quitarPuntoRecorrido('+i+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0 4px">✕</button>' +
-    '</div>'
-  ).join('');
-}
-
-async function agregarPuntoRecorrido() {
-  const nombre = prompt('Nombre del lugar (ej: Puesto 1 - familia García, Galpón norte, Obrador lote 3):');
-  if (!nombre?.trim()) return;
-  const btn = event.target;
-  const textoOriginal = btn.textContent;
-  btn.textContent = '📍 Obteniendo GPS...';
-  btn.disabled = true;
-  try {
-    const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout:10000, enableHighAccuracy:true}));
-    _rendicionPuntos.push({
-      nombre: nombre.trim(),
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-      hora: new Date().toISOString(),
-      // Si es el primer punto y no hay hora_llegada_destino, usarlo para calcular tiempo de viaje
-      esPrimerPunto: _rendicionPuntos.length === 0
-    });
-    renderizarPuntosRendicion();
-    toast('Punto registrado ✓', 'success');
-  } catch {
-    toast('No se pudo obtener la ubicación GPS', 'error');
-  } finally {
-    btn.textContent = textoOriginal;
-    btn.disabled = false;
-  }
-}
-
-function quitarPuntoRecorrido(idx) {
-  _rendicionPuntos.splice(idx, 1);
-  renderizarPuntosRendicion();
-}
-
-function previsualizarFotoRendicion(input) {
-  const file = input.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const MAX = 900; let w = img.width, h = img.height;
-      if (w > MAX) { h = Math.round(h*MAX/w); w = MAX; }
-      if (h > MAX) { w = Math.round(w*MAX/h); h = MAX; }
-      canvas.width=w; canvas.height=h;
-      canvas.getContext('2d').drawImage(img,0,0,w,h);
-      const b64 = canvas.toDataURL('image/jpeg', 0.75);
-      document.getElementById('rendir-foto-base64').value = b64;
-      document.getElementById('rendir-foto-img').src = b64;
-      document.getElementById('rendir-foto-preview').style.display = 'block';
-      document.getElementById('rendir-foto-btn').style.display = 'none';
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
-}
-
-function quitarFotoRendicion() {
-  document.getElementById('rendir-foto-base64').value = '';
-  document.getElementById('rendir-foto-img').src = '';
-  document.getElementById('rendir-foto-preview').style.display = 'none';
-  document.getElementById('rendir-foto-btn').style.display = 'flex';
-  document.getElementById('rendir-foto-input').value = '';
-}
-
-function agregarGastoRendicion() {
-  const monto = parseFloat(document.getElementById('rendir-monto').value);
-  if (!monto || monto <= 0) { toast('Ingresá el monto del gasto', 'error'); return; }
-  const tipo = document.getElementById('rendir-tipo').value;
-  const desc = document.getElementById('rendir-desc').value.trim();
-  const foto = document.getElementById('rendir-foto-base64').value;
-  const iconos = {combustible:'⛽',peaje:'🛣',comida:'🍽',alojamiento:'🏨',estacionamiento:'🅿',otro:'📝'};
-  const labels = {combustible:'Combustible',peaje:'Peaje',comida:'Comida / viático',alojamiento:'Alojamiento',estacionamiento:'Estacionamiento',otro:'Otro'};
-  _rendicionGastos.push({tipo, descripcion: labels[tipo] + (desc?' — '+desc:''), monto, foto_comprobante: foto||null});
-  // Limpiar campos
-  document.getElementById('rendir-monto').value = '';
-  document.getElementById('rendir-desc').value = '';
-  quitarFotoRendicion();
-  renderizarGastosRendicion();
-}
-
-function quitarGastoRendicion(idx) {
-  _rendicionGastos.splice(idx, 1);
-  renderizarGastosRendicion();
-}
-
-function renderizarGastosRendicion() {
-  const cont = document.getElementById('rendir-gastos-lista');
-  const totalArea = document.getElementById('rendir-total-area');
-  if (!_rendicionGastos.length) { cont.innerHTML = ''; totalArea.style.display = 'none'; return; }
-  const total = _rendicionGastos.reduce((s,g) => s+g.monto, 0);
-  cont.innerHTML = _rendicionGastos.map((g,i) =>
-    '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:6px">' +
-    '<div style="flex:1"><div style="font-size:13px;font-weight:600">'+g.descripcion+'</div>' +
-    (g.foto_comprobante ? '<div style="font-size:11px;color:var(--accent);margin-top:2px">📎 Comprobante adjunto</div>' : '') +
-    '</div>' +
-    '<div style="display:flex;align-items:center;gap:10px"><span style="font-size:14px;font-weight:700;color:var(--green)">$'+g.monto.toFixed(0)+'</span>' +
-    '<button onclick="quitarGastoRendicion('+i+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0">✕</button></div>' +
-    '</div>'
-  ).join('');
-  document.getElementById('rendir-total-valor').textContent = '$' + total.toFixed(0);
-  totalArea.style.display = 'flex';
-}
-
-async function calcularKmRendicion() {
-  const info = document.getElementById('rendir-km-detalle');
-  const origenLat = parseFloat(document.getElementById('rendir-origen-lat').value);
-  const origenLng = parseFloat(document.getElementById('rendir-origen-lng').value);
-  info.style.display = 'block';
-  if (origenLat && origenLng) {
-    // Tenemos el punto de inicio real — obtener posición actual y calcular
-    info.textContent = '📍 Obteniendo tu ubicación actual...';
-    try {
-      const pos = await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,enableHighAccuracy:true}));
-      const lat = pos.coords.latitude, lng = pos.coords.longitude;
-      const kmVuelta = haversineKm(origenLat, origenLng, lat, lng);
-      // Estimar total: suma de tramos de ida + regreso
-      info.innerHTML = '✓ Desde punto de inicio hasta tu posición actual: <strong>~'+kmVuelta.toFixed(1)+' km</strong>.<br>Ajustá el valor si el recorrido real fue diferente.';
-      const kmActual = parseFloat(document.getElementById('rendir-km').value) || 0;
-      if (!kmActual) document.getElementById('rendir-km').value = (kmVuelta * 2).toFixed(1);
-    } catch {
-      info.textContent = '⚠ No se pudo obtener la ubicación. Ingresá los km manualmente.';
-    }
-  } else {
-    info.textContent = '⚠ No hay punto de inicio registrado para este viaje. Ingresá los km manualmente.';
-  }
-}
-
-function abrirRendicion(visitaId, destinos, latInicio, lngInicio) {
-  _rendicionGastos = [];
-  _rendicionDestinos = destinos.map(d => ({...d, lat_llegada: null, lng_llegada: null, hora_llegada: null, locacion_descripcion: ''}));
-  _rendicionPuntos = [];
-  document.getElementById('rendir-visita-id').value = visitaId;
-  document.getElementById('rendir-km').value = '';
-  document.getElementById('rendir-km-detalle').style.display = 'none';
-  document.getElementById('rendir-monto').value = '';
-  document.getElementById('rendir-desc').value = '';
-  document.getElementById('rendir-foto-base64').value = '';
-  document.getElementById('rendir-foto-img').src = '';
-  document.getElementById('rendir-foto-preview').style.display = 'none';
-  document.getElementById('rendir-foto-btn').style.display = 'flex';
-  if (document.getElementById('rendir-foto-input')) document.getElementById('rendir-foto-input').value = '';
-  renderizarGastosRendicion();
-  renderizarDestinosRendicion();
-  renderizarPuntosRendicion();
-  document.getElementById('rendir-origen-lat').value = latInicio || STATE.oficina_lat || -31.400379;
-  document.getElementById('rendir-origen-lng').value = lngInicio || STATE.oficina_lng || -58.014207;
+function abrirRendicion(visitaId, destinos) {
+  document.getElementById('rendir-visita-id').value=visitaId;
+  document.getElementById('rendir-km').value='';
+  document.getElementById('rendir-viatico').value='';
+  document.getElementById('rendir-desc').value='';
+  document.getElementById('rendir-destinos-lista').innerHTML=destinos.map((d,i)=>'<div style="font-size:12px;color:var(--text2);padding:3px 0">'+(i+1)+'. '+d.cliente_nombre+'</div>').join('');
   abrirModal('modal-rendir-visita');
 }
 
-function renderizarDestinosRendicion() {
-  const cont = document.getElementById('rendir-destinos-lista');
-  if (!_rendicionDestinos?.length) { cont.innerHTML = ''; return; }
-  cont.innerHTML = _rendicionDestinos.map((d, i) => {
-    const gpsOk = d.lat_llegada && d.lng_llegada;
-    return '<div style="padding:8px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:8px;border-left:3px solid '+(gpsOk?'var(--green)':'var(--border)'+'">')+
-      '<div style="font-size:13px;font-weight:600;margin-bottom:6px"><span style="color:var(--accent)">'+(i+1)+'.</span> '+d.cliente_nombre+'</div>'+
-      '<input type="text" placeholder="Locación específica (ej: Obrador norte, Puesto km 45...)" value="'+(d.locacion_descripcion||'')+'" oninput="_rendicionDestinos['+i+'].locacion_descripcion=this.value" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;font-size:12px;font-family:var(--font);margin-bottom:6px">'+
-      (gpsOk
-        ? '<div style="font-size:11px;color:var(--green)">✓ GPS registrado · '+d.lat_llegada.toFixed(5)+', '+d.lng_llegada.toFixed(5)+(d.hora_llegada?' · '+new Date(d.hora_llegada).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}):'')+' <button type="button" onclick="registrarLlegadaGPS('+i+')" style="font-size:10px;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;margin-left:6px">🔄 Actualizar</button></div>'
-        : '<button type="button" onclick="registrarLlegadaGPS('+i+')" style="font-size:12px;padding:5px 10px;background:var(--bg);border:1px solid var(--accent);border-radius:var(--radius-sm);color:var(--accent);cursor:pointer;display:flex;align-items:center;gap:6px">📍 Registrar ubicación GPS de llegada</button>'
-      )+
-    '</div>';
-  }).join('');
-}
-
-async function registrarLlegadaGPS(idx) {
-  const btn = event.target;
-  const textoOriginal = btn.textContent;
-  btn.textContent = '📍 Obteniendo...';
-  btn.disabled = true;
-  try {
-    const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout:10000, enableHighAccuracy:true}));
-    _rendicionDestinos[idx].lat_llegada = pos.coords.latitude;
-    _rendicionDestinos[idx].lng_llegada = pos.coords.longitude;
-    _rendicionDestinos[idx].hora_llegada = new Date().toISOString();
-    renderizarDestinosRendicion();
-    toast('Ubicación registrada ✓', 'success');
-  } catch {
-    btn.textContent = textoOriginal;
-    btn.disabled = false;
-    toast('No se pudo obtener la ubicación GPS', 'error');
-  }
-}
-
 async function guardarRendicion() {
-  const visitaId = document.getElementById('rendir-visita-id').value;
-  const km = parseFloat(document.getElementById('rendir-km').value) || 0;
-  // Si hay un gasto pendiente sin agregar, agregarlo automáticamente
-  const montoSuelto = parseFloat(document.getElementById('rendir-monto').value);
-  if (montoSuelto > 0) agregarGastoRendicion();
-  const totalGastado = _rendicionGastos.reduce((s,g) => s+g.monto, 0);
+  const visitaId=document.getElementById('rendir-visita-id').value;
+  const km=parseFloat(document.getElementById('rendir-km').value)||0;
+  const monto=parseFloat(document.getElementById('rendir-viatico').value)||0;
+  const desc=document.getElementById('rendir-desc').value.trim();
+  if (!monto) { toast('Ingresá el monto gastado','error'); return; }
+  if (!desc) { toast('Ingresá una descripción del gasto','error'); return; }
+  const file=document.getElementById('rendir-foto').files[0];
+  let fotoBase64=null;
+  if (file) { fotoBase64=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file);}); }
   try {
-    await api('/visitas/'+visitaId, {method:'PATCH', body:JSON.stringify({
-      km_reales: km,
-      viatico_real: totalGastado,
-      estado: 'completada'
-    })});
-    // Guardar coordenadas de llegada y locación por cada destino
-    for (const d of (_rendicionDestinos||[])) {
-      if (d.id && (d.lat_llegada || d.locacion_descripcion)) {
-        try {
-          await api('/visitas/'+visitaId+'/destinos/'+d.id, {method:'PATCH', body:JSON.stringify({
-            completado: true,
-            lat_llegada: d.lat_llegada || null,
-            lng_llegada: d.lng_llegada || null,
-            hora_llegada: d.hora_llegada || null,
-            locacion_descripcion: d.locacion_descripcion || null
-          })});
-        } catch {}
-      }
-    }
-    // Guardar cada gasto individualmente
-    for (const g of _rendicionGastos) {
-      await api('/visitas/'+visitaId+'/gastos', {method:'POST', body:JSON.stringify({
-        descripcion: g.descripcion,
-        monto: g.monto,
-        foto_comprobante: g.foto_comprobante
-      })});
-    }
-    // Guardar puntos GPS del recorrido
-    for (const p of _rendicionPuntos) {
-      try {
-        await api('/visitas/'+visitaId+'/puntos', {method:'POST', body:JSON.stringify({
-          nombre: p.nombre,
-          lat: p.lat,
-          lng: p.lng,
-          destino_id: (_rendicionDestinos[0]?.id) || null,
-          observaciones: null
-        })});
-      } catch {}
-    }
-    // Registrar hora_llegada_destino si hay puntos (primer punto = llegada)
-    if (_rendicionPuntos.length > 0 && _rendicionPuntos[0].hora) {
-      try {
-        await api('/visitas/'+visitaId, {method:'PATCH', body:JSON.stringify({
-          hora_llegada_destino: _rendicionPuntos[0].hora
-        })});
-      } catch {}
-    }
-    cerrarModal('modal-rendir-visita');
-    toast('Rendición guardada ✓', 'success');
+    await api('/visitas/'+visitaId,{method:'PATCH',body:JSON.stringify({km_reales:km,viatico_real:monto,estado:'completada'})});
+    await api('/visitas/'+visitaId+'/gastos',{method:'POST',body:JSON.stringify({descripcion:desc,monto,foto_comprobante:fotoBase64})});
+    cerrarModal('modal-rendir-visita'); toast('Rendición guardada ✓','success');
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message, 'error'); }
+  } catch(e) { toast(e.message,'error'); }
 }
 
 async function cargarMisVisitas() {
   const desde=document.getElementById('vis-emp-desde').value;
   const hasta=document.getElementById('vis-emp-hasta').value;
-  const mostrarInactivas=document.getElementById('vis-toggle-inactivas')?.checked||false;
   const cont=document.getElementById('lista-mis-visitas');
   if (!desde) { cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center">Seleccioná un período</p>'; return; }
   cont.innerHTML='<p style="color:var(--text3);text-align:center">Cargando...</p>';
   try {
     const visitas = await api('/visitas?desde='+desde+'&hasta='+(hasta||desde));
-    const INACTIVAS=['cancelada','rechazada','suspendida'];
-    const activas=visitas.filter(v=>!INACTIVAS.includes(v.estado));
-    const inactivas=visitas.filter(v=>INACTIVAS.includes(v.estado));
-    const mostradas=mostrarInactivas?visitas:activas;
     if (!visitas.length) { cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Sin visitas en el período</p>'; return; }
-    let html='';
-    if (mostradas.length) { html=mostradas.map(v=>renderTarjetaVisita(v,false)).join(''); }
-    else { html='<p style="color:var(--text3);font-size:13px;text-align:center;padding:12px">Sin visitas activas en el período</p>'; }
-    if (inactivas.length) {
-      const label=mostrarInactivas?'Ocultar canceladas/rechazadas':'Ver también canceladas/rechazadas ('+inactivas.length+')';
-      html+='<div style="margin-top:12px;padding:8px 10px;background:var(--bg3);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;color:var(--text2)">'+inactivas.length+' visita'+(inactivas.length>1?'s':'')+' cancelada'+(inactivas.length>1?'s/rechazadas':'/ rechazada')+' oculta'+(inactivas.length>1?'s':'')+' por defecto</span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--accent)"><input type="checkbox" id="vis-toggle-inactivas" '+(mostrarInactivas?'checked':'')+' onchange="cargarMisVisitas()" style="accent-color:var(--accent)">'+label+'</label></div>';
-    }
-    cont.innerHTML=html;
+    cont.innerHTML = visitas.map(v => renderTarjetaVisita(v,false)).join('');
   } catch { cont.innerHTML='<p style="color:var(--red);font-size:13px;text-align:center">Error cargando</p>'; }
 }
 
-function toggleOrigenVisita() {
-  recalcularKmVisita();
-}
-
-function haversineKm(lat1, lng1, lat2, lng2) {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function calcularKmConCoordenadas(origenLat, origenLng) {
-  const detalle = document.getElementById('vis-km-detalle');
-  const destsCongPS = visDestinos.filter(d => d.lat && d.lng);
-  if (!destsCongPS.length) {
-    detalle.style.display = 'block';
-    detalle.textContent = '⚠ Los destinos no tienen coordenadas GPS cargadas. Ingresá los km manualmente.';
-    return;
-  }
-  // Calcular tramos: origen → dest1 → dest2 → ... → origen
-  let puntos = [{lat: origenLat, lng: origenLng}, ...destsCongPS.map(d=>({lat:d.lat,lng:d.lng})), {lat: origenLat, lng: origenLng}];
-  let kmTotal = 0;
-  let tramos = [];
-  for (let i = 0; i < puntos.length - 1; i++) {
-    const km = haversineKm(puntos[i].lat, puntos[i].lng, puntos[i+1].lat, puntos[i+1].lng);
-    kmTotal += km;
-    tramos.push(km.toFixed(1));
-  }
-  const kmRedondeado = Math.round(kmTotal * 10) / 10;
-  document.getElementById('vis-km-est').value = kmRedondeado;
-  detalle.style.display = 'block';
-  const sinGPS = visDestinos.filter(d => !d.lat || !d.lng).map(d => d.cliente_nombre);
-  detalle.innerHTML = '✓ ' + tramos.join(' + ') + ' = <strong>' + kmRedondeado + ' km</strong> ida y vuelta'
-    + (sinGPS.length ? '<br>⚠ Sin GPS: ' + sinGPS.join(', ') : '');
-}
-
-async function calcularKmVisita() {
-  const origen = document.getElementById('vis-origen').value;
-  const detalle = document.getElementById('vis-km-detalle');
-  if (!visDestinos.length) { toast('Agregá al menos un destino primero', 'error'); return; }
-  if (origen === 'domicilio') {
-    detalle.style.display = 'block';
-    detalle.textContent = '📍 Obteniendo tu ubicación actual...';
-    try {
-      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, {timeout:10000, enableHighAccuracy:true}));
-      calcularKmConCoordenadas(pos.coords.latitude, pos.coords.longitude);
-    } catch {
-      detalle.textContent = '⚠ No se pudo obtener tu ubicación. Ingresá los km manualmente.';
-    }
-  } else {
-    // Desde oficina
-    const lat = STATE.oficina_lat || -31.400379;
-    const lng = STATE.oficina_lng || -58.014207;
-    calcularKmConCoordenadas(lat, lng);
-  }
-}
-
-function recalcularKmVisita() {
-  // Recalcula silenciosamente si ya había un cálculo previo visible
-  if (document.getElementById('vis-km-detalle')?.style.display === 'block') {
-    const origen = document.getElementById('vis-origen').value;
-    if (origen === 'oficina') {
-      const lat = STATE.oficina_lat || -31.400379;
-      const lng = STATE.oficina_lng || -58.014207;
-      calcularKmConCoordenadas(lat, lng);
-    }
-    // No recalcular automático desde domicilio — requiere GPS activo
-  }
-}
+function toggleOrigenVisita() {}
 function editarVisita(id) { toast('Función en desarrollo','info'); }
 </script>
 
@@ -3386,6 +2768,418 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
     if (emp.subtitulo_sistema) document.getElementById('login-sistema-subtitulo').textContent = emp.subtitulo_sistema;
   } catch {}
 })();
+</script>
+<!-- MODAL CONSTANCIA DE VISITA -->
+<div class="modal-overlay" id="modal-constancia" style="z-index:400;align-items:stretch">
+  <div style="background:var(--bg);width:100%;max-width:500px;margin:0 auto;display:flex;flex-direction:column;height:100vh;overflow:hidden">
+    <!-- Header -->
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0">
+      <button onclick="cerrarConstancia()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px">←</button>
+      <div style="flex:1">
+        <div style="font-size:15px;font-weight:700" id="const-header-titulo">Constancia de visita</div>
+        <div style="font-size:11px;color:var(--text2)" id="const-header-numero">VIS-2026-0001</div>
+      </div>
+      <button onclick="guardarConstanciaActual()" style="background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:var(--accent);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">💾 Guardar</button>
+    </div>
+    <!-- Pasos -->
+    <div style="padding:0 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0">
+      <div style="display:flex;gap:4px;overflow-x:auto;padding:10px 0;scrollbar-width:none" id="const-pasos-nav"></div>
+    </div>
+    <!-- Contenido del paso -->
+    <div style="flex:1;overflow-y:auto;padding:16px" id="const-paso-contenido"></div>
+    <!-- Footer navegación -->
+    <div style="background:var(--bg2);border-top:1px solid var(--border);padding:12px 16px;display:flex;gap:10px;flex-shrink:0">
+      <button class="btn btn-secondary" id="const-btn-anterior" onclick="constanciaPasoAnterior()" style="flex:1">← Anterior</button>
+      <button class="btn btn-primary" id="const-btn-siguiente" onclick="constanciaPasoSiguiente()" style="flex:1">Siguiente →</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FIRMA DIGITAL -->
+<div class="modal-overlay" id="modal-firma" style="z-index:500">
+  <div class="modal" style="max-height:95vh">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="firma-titulo">Firma digital</div>
+    <div class="form-group">
+      <label>Nombre y apellido</label>
+      <input type="text" id="firma-nombre" placeholder="Nombre completo">
+    </div>
+    <div class="form-group">
+      <label>Cargo / función</label>
+      <input type="text" id="firma-cargo" placeholder="Ej: Jefe de mantenimiento">
+    </div>
+    <div class="form-group" id="firma-grupo-matricula" style="display:none">
+      <label>Matrícula profesional</label>
+      <input type="text" id="firma-matricula" placeholder="Ej: Mat. N° 4872 — COPITEC">
+    </div>
+    <div class="form-group">
+      <label>Firma — dibujá en el recuadro</label>
+      <canvas id="firma-canvas" style="width:100%;height:160px;background:white;border:2px solid var(--border);border-radius:var(--radius-sm);cursor:crosshair;touch-action:none;display:block"></canvas>
+      <button onclick="limpiarFirmaCanvas()" style="background:none;border:none;color:var(--text2);font-size:12px;cursor:pointer;margin-top:6px">🗑 Limpiar firma</button>
+    </div>
+    <input type="hidden" id="firma-tipo">
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-firma')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarFirma()">Confirmar firma</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MÓDULO CONSTANCIAS ────────────────────────────────────────────────────────
+
+let CONST_STATE = {
+  constanciaId:null, visitaId:null, pasoActual:0, datos:{},
+  selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},
+  personal:[], equipos:[],
+  acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},
+  desvios:[], firmas:{}, itemsMenu:{}, offline:false, pendienteSync:false,
+};
+
+const CONST_PASOS = [
+  {id:'datos',label:'1. Datos',icono:'📋'},
+  {id:'tipo',label:'2. Tipo',icono:'🎯'},
+  {id:'personal',label:'3. Personal',icono:'👥'},
+  {id:'actividades',label:'4. Actividades',icono:'✅'},
+  {id:'acciones',label:'5. Acciones',icono:'📝'},
+  {id:'normativa',label:'6. Normativa',icono:'⚖'},
+  {id:'observaciones',label:'7. Obs.',icono:'💬'},
+  {id:'desvios',label:'8. Desvíos',icono:'⚠'},
+  {id:'firmas',label:'9. Firmas',icono:'✍'},
+];
+
+async function abrirConstancia(visitaId) {
+  CONST_STATE = {constanciaId:null,visitaId,pasoActual:0,datos:{},selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},personal:[],equipos:[],acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},desvios:{},firmas:{},itemsMenu:{},offline:false,pendienteSync:false};
+  CONST_STATE.desvios = [];
+  CONST_STATE.offline = !navigator.onLine;
+  try { CONST_STATE.itemsMenu = await api('/constancias/items'); } catch { CONST_STATE.itemsMenu = {}; }
+  try {
+    const data = await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:visitaId})});
+    CONST_STATE.constanciaId = data.constancia.id;
+    document.getElementById('const-header-numero').textContent = data.constancia.numero_informe || '';
+    if (data.existente) {
+      try { const c = await api('/constancias/'+CONST_STATE.constanciaId); cargarDatosConstanciaExistente(c); } catch {}
+    }
+  } catch {
+    CONST_STATE.constanciaId = 'offline_' + Date.now();
+    CONST_STATE.pendienteSync = true;
+    toast('Sin conexión — se guardará cuando haya señal', 'info', 4000);
+  }
+  try { const ft = await api('/constancias/firma-guardada'); if (ft) CONST_STATE.firmas.tecnico = ft; } catch {}
+  renderConstanciaPasos(); renderConstanciaPaso();
+  const modal = document.getElementById('modal-constancia');
+  modal.style.display = 'flex'; modal.classList.add('active');
+}
+
+function cargarDatosConstanciaExistente(c) {
+  if (c.establecimiento_sector) CONST_STATE.datos.establecimiento_sector = c.establecimiento_sector;
+  if (c.hora_inicio) CONST_STATE.datos.hora_inicio = c.hora_inicio;
+  if (c.hora_fin) CONST_STATE.datos.hora_fin = c.hora_fin;
+  if (c.gps_lat) { CONST_STATE.datos.gps_lat = c.gps_lat; CONST_STATE.datos.gps_lng = c.gps_lng; }
+  if (c.observaciones_generales) CONST_STATE.datos.observaciones_generales = c.observaciones_generales;
+  if (c.selecciones) c.selecciones.forEach(s => { if (!CONST_STATE.selecciones[s.categoria]) CONST_STATE.selecciones[s.categoria]=[]; CONST_STATE.selecciones[s.categoria].push({item_id:s.item_id,texto_libre:s.texto_libre,nivel_riesgo:s.nivel_riesgo,normativa_frente:s.normativa_frente}); });
+  if (c.personal?.length) CONST_STATE.personal = c.personal;
+  if (c.equipos?.length) CONST_STATE.equipos = c.equipos;
+  if (c.acciones) CONST_STATE.acciones = {...c.acciones};
+  if (c.desvios?.length) CONST_STATE.desvios = c.desvios;
+  if (c.firmas) c.firmas.forEach(f => { CONST_STATE.firmas[f.tipo] = f; });
+}
+
+function cerrarConstancia() {
+  document.getElementById('modal-constancia').classList.remove('active');
+  document.getElementById('modal-constancia').style.display = '';
+}
+
+function renderConstanciaPasos() {
+  document.getElementById('const-pasos-nav').innerHTML = CONST_PASOS.map((p,i) => {
+    const a = i===CONST_STATE.pasoActual;
+    return `<button onclick="irConstanciaPaso(${i})" style="flex-shrink:0;padding:6px 10px;border-radius:8px;border:1px solid ${a?'var(--accent)':'var(--border)'};background:${a?'rgba(0,212,255,0.15)':'var(--bg3)'};color:${a?'var(--accent)':'var(--text2)'};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">${p.icono} ${p.label}</button>`;
+  }).join('');
+}
+
+function irConstanciaPaso(n) { guardarDatosPasoActual(); CONST_STATE.pasoActual=n; renderConstanciaPasos(); renderConstanciaPaso(); }
+function constanciaPasoAnterior() { if(CONST_STATE.pasoActual===0) return; guardarDatosPasoActual(); CONST_STATE.pasoActual--; renderConstanciaPasos(); renderConstanciaPaso(); }
+function constanciaPasoSiguiente() { guardarDatosPasoActual(); if(CONST_STATE.pasoActual<CONST_PASOS.length-1){CONST_STATE.pasoActual++; renderConstanciaPasos(); renderConstanciaPaso();} else { finalizarConstancia(); } }
+
+function guardarDatosPasoActual() {
+  const paso = CONST_PASOS[CONST_STATE.pasoActual].id;
+  if (paso==='datos') { CONST_STATE.datos.establecimiento_sector=document.getElementById('ci-sector')?.value||''; CONST_STATE.datos.hora_inicio=document.getElementById('ci-hora-ini')?.value||''; CONST_STATE.datos.hora_fin=document.getElementById('ci-hora-fin')?.value||''; }
+  else if (paso==='observaciones') { CONST_STATE.datos.observaciones_generales=document.getElementById('ci-obs')?.value||''; }
+  else if (paso==='acciones') { CONST_STATE.acciones.verificaciones=document.getElementById('ci-verificaciones')?.value||''; CONST_STATE.acciones.indicaciones=document.getElementById('ci-indicaciones')?.value||''; CONST_STATE.acciones.charla=document.getElementById('ci-charla')?.value||''; CONST_STATE.acciones.documentacion=document.getElementById('ci-documentacion')?.value||''; }
+}
+
+function renderConstanciaPaso() {
+  const paso = CONST_PASOS[CONST_STATE.pasoActual].id;
+  document.getElementById('const-btn-anterior').style.display = CONST_STATE.pasoActual===0?'none':'flex';
+  document.getElementById('const-btn-siguiente').textContent = CONST_STATE.pasoActual===CONST_PASOS.length-1?'✓ Finalizar':'Siguiente →';
+  const renders = {datos:renderPasoDatos,tipo:renderPasoTipo,personal:renderPasoPersonal,actividades:renderPasoActividades,acciones:renderPasoAcciones,normativa:renderPasoNormativa,observaciones:renderPasoObservaciones,desvios:renderPasoDesvios,firmas:renderPasoFirmas};
+  document.getElementById('const-paso-contenido').innerHTML = renders[paso]?renders[paso]():'';
+  if (paso==='datos' && !CONST_STATE.datos.gps_lat) obtenerGPSConstancia();
+}
+
+function renderPasoDatos() {
+  const d=CONST_STATE.datos;
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">1. Datos de la visita</div>
+  <div class="form-group"><label>Establecimiento / Sector</label><input type="text" id="ci-sector" value="${d.establecimiento_sector||''}" placeholder="Ej: Planta Norte — Línea de producción"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora inicio</label><input type="time" id="ci-hora-ini" value="${d.hora_inicio||''}"></div><div class="form-group"><label>Hora fin</label><input type="time" id="ci-hora-fin" value="${d.hora_fin||''}"></div></div>
+  <div class="form-group"><label>Coordenadas GPS <button onclick="obtenerGPSConstancia()" class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px">📍 Obtener</button></label><div id="ci-gps-info" style="font-size:12px;color:${d.gps_lat?'var(--green)':'var(--text3)'}">${d.gps_lat?'✓ Lat: '+d.gps_lat+' / Lng: '+d.gps_lng+(d.gps_precision_m?' (±'+d.gps_precision_m+'m)':''):'No capturado aún'}</div></div>`;
+}
+
+function renderPasoTipo() {
+  const tipos=CONST_STATE.itemsMenu.tipo_visita||[], frentes=CONST_STATE.itemsMenu.frente_trabajo||[];
+  const sT=CONST_STATE.selecciones.tipo_visita||[], sF=CONST_STATE.selecciones.frente_trabajo||[];
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">2. Tipo de visita y frentes de trabajo</div>
+  <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Tipo de visita</div>
+  ${tipos.map(t=>`<label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" value="${t.id}" ${sT.find(s=>s.item_id==t.id)?'checked':''} onchange="toggleSeleccion('tipo_visita',${t.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px">${t.texto}</span></label>`).join('')}
+  <button onclick="agregarItemNuevo('tipo_visita')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-bottom:16px">+ Agregar tipo no listado</button>
+  <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Frentes de trabajo</div>
+  ${frentes.map(f=>{const sel=sF.find(s=>s.item_id==f.id); return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" value="${f.id}" ${sel?'checked':''} onchange="toggleSeleccion('frente_trabajo',${f.id},'',this.checked);renderConstanciaPaso()" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px;flex:1">${f.texto}</span></label>${sel?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select onchange="actualizarFrenteExtra(${f.id},'nivel_riesgo',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"><option value="">Nivel riesgo</option><option value="Bajo riesgo" ${sel.nivel_riesgo==='Bajo riesgo'?'selected':''}>🟢 Bajo</option><option value="Riesgo moderado" ${sel.nivel_riesgo==='Riesgo moderado'?'selected':''}>🟡 Moderado</option><option value="Alto riesgo" ${sel.nivel_riesgo==='Alto riesgo'?'selected':''}>🔴 Alto</option><option value="Riesgo crítico" ${sel.nivel_riesgo==='Riesgo crítico'?'selected':''}>⛔ Crítico</option></select><input type="text" placeholder="Normativa..." value="${sel.normativa_frente||''}" onchange="actualizarFrenteExtra(${f.id},'normativa_frente',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"></div>`:''}</div>`;}).join('')}
+  <button onclick="agregarItemNuevo('frente_trabajo')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:4px">+ Agregar frente no listado</button>`;
+}
+
+function renderPasoPersonal() {
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">3. Personal y equipos</div>
+  <div id="ci-personal-lista">${CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('')}</div>
+  <button onclick="agregarPersonal()" class="btn btn-secondary btn-sm" style="margin-bottom:20px">+ Agregar persona</button>
+  <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Vehículos / Equipos</div>
+  <div id="ci-equipos-lista">${CONST_STATE.equipos.map((e,i)=>renderFilaEquipo(e,i)).join('')}</div>
+  <button onclick="agregarEquipo()" class="btn btn-secondary btn-sm">+ Agregar equipo/vehículo</button>`;
+}
+
+function renderFilaPersonal(p,i) {
+  return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:12px;font-weight:600;color:var(--text2)">Persona ${i+1}</span><button onclick="quitarPersonal(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button></div>
+  <input type="text" placeholder="Nombre y apellido" value="${p.nombre_apellido||''}" oninput="actualizarPersonal(${i},'nombre_apellido',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:13px;margin-bottom:6px">
+  <input type="text" placeholder="Función / cargo" value="${p.funcion_cargo||''}" oninput="actualizarPersonal(${i},'funcion_cargo',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:13px;margin-bottom:6px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><input type="text" placeholder="Habilitación" value="${p.habilitacion||''}" oninput="actualizarPersonal(${i},'habilitacion',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px"><select onchange="actualizarPersonal(${i},'estado_habilitacion',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px"><option value="conforme" ${p.estado_habilitacion==='conforme'?'selected':''}>✓ Conforme</option><option value="observacion" ${p.estado_habilitacion==='observacion'?'selected':''}>⚠ Observación</option><option value="en_tramite" ${p.estado_habilitacion==='en_tramite'?'selected':''}>📋 En trámite</option></select></div></div>`;
+}
+
+function renderFilaEquipo(e,i) {
+  return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:12px;font-weight:600;color:var(--text2)">Equipo ${i+1}</span><button onclick="quitarEquipo(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button></div>
+  <input type="text" placeholder="Descripción (ej: Camión hidrogrúa — Pat. AB123)" value="${e.descripcion||''}" oninput="actualizarEquipo(${i},'descripcion',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:13px;margin-bottom:6px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"><div><label style="font-size:11px;color:var(--text2)">Ítems totales</label><input type="number" value="${e.items_total||0}" oninput="actualizarEquipo(${i},'items_total',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:13px"></div><div><label style="font-size:11px;color:var(--text2)">Conformes</label><input type="number" value="${e.items_conformes||0}" oninput="actualizarEquipo(${i},'items_conformes',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:13px"></div></div>
+  <button onclick="editarChecklistEquipo(${i})" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer;width:100%">✏ Editar ítems del checklist (${(e.detalle||[]).length} cargados)</button></div>`;
+}
+
+function renderPasoActividades() {
+  const acts=CONST_STATE.itemsMenu.actividad||[], sA=CONST_STATE.selecciones.actividad||[];
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">4. Actividades realizadas</div>
+  ${acts.map(a=>`<label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" value="${a.id}" ${sA.find(s=>s.item_id==a.id)?'checked':''} onchange="toggleSeleccion('actividad',${a.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--green)"><span style="font-size:13px">${a.texto}</span></label>`).join('')}
+  <button onclick="agregarItemNuevo('actividad')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar actividad no listada</button>`;
+}
+
+function renderPasoAcciones() {
+  const a=CONST_STATE.acciones;
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">5. Acciones del asesor</div>
+  <div class="form-group"><label>Verificaciones realizadas</label><textarea id="ci-verificaciones" placeholder="Describirlas brevemente..." style="min-height:80px">${a.verificaciones||''}</textarea></div>
+  <div class="form-group"><label>Indicaciones y correcciones impartidas</label><textarea id="ci-indicaciones" placeholder="Qué se indicó corregir..." style="min-height:80px">${a.indicaciones||''}</textarea></div>
+  <div class="form-group"><label>Charla / capacitación en el frente</label><textarea id="ci-charla" placeholder="Tema, duración, norma de referencia..." style="min-height:60px">${a.charla||''}</textarea></div>
+  <div class="form-group"><label>Documentación revisada</label><textarea id="ci-documentacion" placeholder="Qué documentación se revisó..." style="min-height:60px">${a.documentacion||''}</textarea></div>`;
+}
+
+function renderPasoNormativa() {
+  const normas=CONST_STATE.itemsMenu.normativa||[], sN=CONST_STATE.selecciones.normativa||[];
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">6. Marco normativo aplicado</div>
+  ${normas.map(n=>`<label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" value="${n.id}" ${sN.find(s=>s.item_id==n.id)?'checked':''} onchange="toggleSeleccion('normativa',${n.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--yellow)"><span style="font-size:13px">${n.texto}</span></label>`).join('')}
+  <button onclick="agregarItemNuevo('normativa')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar normativa no listada</button>`;
+}
+
+function renderPasoObservaciones() {
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">7. Observaciones generales</div>
+  <div class="form-group"><textarea id="ci-obs" placeholder="Situación general observada, acuerdos, próximos pasos..." style="min-height:220px">${CONST_STATE.datos.observaciones_generales||''}</textarea></div>`;
+}
+
+function renderPasoDesvios() {
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">8. Desvíos detectados</div>
+  <div id="ci-desvios-lista">${CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('')}</div>
+  <button onclick="agregarDesvio()" class="btn btn-secondary btn-sm" style="margin-top:4px">+ Agregar desvío</button>`;
+}
+
+function renderFilaDesvio(d,i) {
+  return `<div style="background:var(--bg3);border:1px solid ${d.severidad==='ALTA'?'rgba(255,82,82,0.4)':d.severidad==='MEDIA'?'rgba(255,215,64,0.3)':'var(--border)'};border-radius:8px;padding:12px;margin-bottom:10px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:13px;font-weight:700">Desvío N° ${i+1}</span><button onclick="quitarDesvio(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button></div>
+  <input type="text" placeholder="Título del desvío" value="${d.titulo||''}" oninput="actualizarDesvio(${i},'titulo',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:13px;margin-bottom:8px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+    <select onchange="actualizarDesvio(${i},'severidad',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px"><option value="BAJA" ${d.severidad==='BAJA'?'selected':''}>🟢 Baja</option><option value="MEDIA" ${d.severidad==='MEDIA'?'selected':''}>🟡 Media</option><option value="ALTA" ${d.severidad==='ALTA'?'selected':''}>🔴 Alta</option></select>
+    <select onchange="actualizarDesvio(${i},'estado',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px"><option value="pendiente" ${d.estado==='pendiente'?'selected':''}>⏳ Pendiente</option><option value="resuelto_lugar" ${d.estado==='resuelto_lugar'?'selected':''}>✅ Resuelto</option><option value="en_gestion" ${d.estado==='en_gestion'?'selected':''}>🔄 En gestión</option></select>
+  </div>
+  <input type="text" placeholder="Normativa incumplida" value="${d.normativa_incumplida||''}" oninput="actualizarDesvio(${i},'normativa_incumplida',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;margin-bottom:6px">
+  <textarea placeholder="Descripción del desvío..." oninput="actualizarDesvio(${i},'descripcion',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;min-height:60px;resize:vertical;margin-bottom:6px">${d.descripcion||''}</textarea>
+  <textarea placeholder="Acción correctiva requerida..." oninput="actualizarDesvio(${i},'accion_correctiva',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;min-height:50px;resize:vertical;margin-bottom:6px">${d.accion_correctiva||''}</textarea>
+  <input type="text" placeholder="Plazo de corrección" value="${d.plazo||''}" oninput="actualizarDesvio(${i},'plazo',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;margin-bottom:8px">
+  <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Fotos evidencia (máx. 2)</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div>${d.foto_1?`<img src="${d.foto_1}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;margin-bottom:4px">`:''}<label style="display:block;background:var(--bg);border:1px dashed var(--border);border-radius:6px;padding:8px;text-align:center;font-size:11px;color:var(--text2);cursor:pointer">📷 Foto 1<input type="file" accept="image/*" capture="environment" style="display:none" onchange="subirFotoDesvio(${i},1,this)"></label></div>
+    <div>${d.foto_2?`<img src="${d.foto_2}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;margin-bottom:4px">`:''}<label style="display:block;background:var(--bg);border:1px dashed var(--border);border-radius:6px;padding:8px;text-align:center;font-size:11px;color:var(--text2);cursor:pointer">📷 Foto 2<input type="file" accept="image/*" capture="environment" style="display:none" onchange="subirFotoDesvio(${i},2,this)"></label></div>
+  </div></div>`;
+}
+
+function renderPasoFirmas() {
+  const fT=CONST_STATE.firmas.tecnico, fE=CONST_STATE.firmas.responsable_exit, fC=CONST_STATE.firmas.cliente;
+  const bloque = (tipo,titulo,sub,f) => `<div style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">${titulo}</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">${sub}</div>${f?`<img src="${f.firma_svg}" style="width:100%;height:70px;object-fit:contain;background:white;border-radius:6px;margin-bottom:6px"><div style="font-size:12px;font-weight:600">${f.nombre_apellido||''}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.matricula?' — '+f.matricula:''}</div><button onclick="abrirFirma('${tipo}')" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;margin-top:6px">✏ Actualizar</button>`:`<button onclick="abrirFirma('${tipo}')" class="btn btn-primary" style="width:100%">✍ Firmar</button>`}</div>`;
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">9. Firmas</div>
+  ${bloque('cliente','Responsable del cliente','Firma del representante de la empresa visitada',fC)}
+  ${bloque('tecnico','Asesor EXIT S.A.','Tu firma como técnico/asesor',fT)}
+  ${bloque('responsable_exit','Responsable del servicio EXIT S.A.','Firma del responsable del servicio',fE)}`;
+}
+
+async function obtenerGPSConstancia() {
+  const info=document.getElementById('ci-gps-info');
+  if(info) info.textContent='📍 Obteniendo...';
+  try {
+    const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,enableHighAccuracy:true}));
+    CONST_STATE.datos.gps_lat=parseFloat(pos.coords.latitude.toFixed(7));
+    CONST_STATE.datos.gps_lng=parseFloat(pos.coords.longitude.toFixed(7));
+    CONST_STATE.datos.gps_precision_m=Math.round(pos.coords.accuracy);
+    CONST_STATE.datos.gps_hora=new Date().toISOString();
+    if(info){info.style.color='var(--green)';info.textContent='✓ Lat: '+CONST_STATE.datos.gps_lat+' / Lng: '+CONST_STATE.datos.gps_lng+' (±'+CONST_STATE.datos.gps_precision_m+'m)';}
+  } catch { if(info){info.style.color='var(--text3)';info.textContent='⚠ No se pudo obtener GPS';} }
+}
+
+function toggleSeleccion(categoria,itemId,texto,checked) {
+  if(!CONST_STATE.selecciones[categoria]) CONST_STATE.selecciones[categoria]=[];
+  if(checked){if(!CONST_STATE.selecciones[categoria].find(s=>s.item_id==itemId)) CONST_STATE.selecciones[categoria].push({item_id:itemId,texto_libre:null,nivel_riesgo:null,normativa_frente:null});}
+  else{CONST_STATE.selecciones[categoria]=CONST_STATE.selecciones[categoria].filter(s=>s.item_id!=itemId);}
+}
+
+function actualizarFrenteExtra(itemId,campo,valor){const sel=CONST_STATE.selecciones.frente_trabajo?.find(s=>s.item_id==itemId);if(sel)sel[campo]=valor;}
+
+async function agregarItemNuevo(categoria) {
+  const texto=prompt('Escribí el nuevo ítem:');
+  if(!texto||!texto.trim()) return;
+  try {
+    const data=await api('/constancias/items',{method:'POST',body:JSON.stringify({categoria,texto:texto.trim()})});
+    if(data.item){
+      if(!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria]=[];
+      if(!CONST_STATE.itemsMenu[categoria].find(i=>i.id==data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
+      toggleSeleccion(categoria,data.item.id,'',true);
+      renderConstanciaPaso();
+      toast('Ítem agregado al menú ✓','success');
+    }
+  } catch { toast('Error al agregar ítem','error'); }
+}
+
+function agregarPersonal(){CONST_STATE.personal.push({nombre_apellido:'',funcion_cargo:'',habilitacion:'',estado_habilitacion:'conforme'});document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
+function quitarPersonal(i){CONST_STATE.personal.splice(i,1);document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
+function actualizarPersonal(i,campo,valor){CONST_STATE.personal[i][campo]=valor;}
+function agregarEquipo(){CONST_STATE.equipos.push({descripcion:'',items_total:0,items_conformes:0,detalle:[]});document.getElementById('ci-equipos-lista').innerHTML=CONST_STATE.equipos.map((e,i)=>renderFilaEquipo(e,i)).join('');}
+function quitarEquipo(i){CONST_STATE.equipos.splice(i,1);document.getElementById('ci-equipos-lista').innerHTML=CONST_STATE.equipos.map((e,i)=>renderFilaEquipo(e,i)).join('');}
+function actualizarEquipo(i,campo,valor){CONST_STATE.equipos[i][campo]=campo.includes('items')?parseInt(valor)||0:valor;}
+
+function editarChecklistEquipo(i) {
+  const e=CONST_STATE.equipos[i];
+  const items=e.detalle||[];
+  const texto=prompt('Ítems del checklist\n✓ = conforme  ✗ = no conforme\n\n'+items.map(it=>(it.conforme?'✓ ':'✗ ')+it.item).join('\n')+'\n\nUno por línea. Empezá con ✓ o ✗');
+  if(texto===null) return;
+  e.detalle=texto.split('\n').filter(l=>l.trim()).map(l=>({item:l.replace(/^[✓✗]\s*/,'').trim(),conforme:l.trim().startsWith('✓')}));
+  e.items_total=e.detalle.length; e.items_conformes=e.detalle.filter(it=>it.conforme).length;
+  document.getElementById('ci-equipos-lista').innerHTML=CONST_STATE.equipos.map((eq,idx)=>renderFilaEquipo(eq,idx)).join('');
+}
+
+function agregarDesvio(){CONST_STATE.desvios.push({titulo:'',severidad:'MEDIA',estado:'pendiente',normativa_incumplida:'',descripcion:'',accion_correctiva:'',plazo:'',foto_1:null,foto_2:null});document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');}
+function quitarDesvio(i){CONST_STATE.desvios.splice(i,1);document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');}
+function actualizarDesvio(i,campo,valor){CONST_STATE.desvios[i][campo]=valor;}
+
+async function subirFotoDesvio(idx,nro,input) {
+  const file=input.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=e=>{CONST_STATE.desvios[idx]['foto_'+nro]=e.target.result;document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');};
+  reader.readAsDataURL(file);
+}
+
+async function guardarConstanciaActual() {
+  guardarDatosPasoActual();
+  const id=CONST_STATE.constanciaId;
+  if(String(id).startsWith('offline_')){localStorage.setItem('constancia_pendiente_'+id,JSON.stringify(CONST_STATE));toast('Guardado localmente','info');return;}
+  try {
+    await api('/constancias/'+id+'/guardar-completo',{method:'POST',body:JSON.stringify({datos:CONST_STATE.datos,selecciones:CONST_STATE.selecciones,personal:CONST_STATE.personal,equipos:CONST_STATE.equipos,acciones:CONST_STATE.acciones,desvios:CONST_STATE.desvios})});
+    toast('Guardado ✓','success',1500);
+  } catch { toast('Error al guardar','error'); }
+}
+
+// ── FIRMA DIGITAL ─────────────────────────────────────────────────
+let _firmaCanvas=null,_firmaCtx=null,_firmaDibujando=false;
+
+function abrirFirma(tipo) {
+  const titulos={cliente:'Firma — Responsable del cliente',tecnico:'Firma — Asesor EXIT S.A.',responsable_exit:'Firma — Responsable del servicio EXIT S.A.'};
+  document.getElementById('firma-titulo').textContent=titulos[tipo]||'Firma digital';
+  document.getElementById('firma-tipo').value=tipo;
+  document.getElementById('firma-grupo-matricula').style.display=tipo!=='cliente'?'block':'none';
+  const ex=CONST_STATE.firmas[tipo];
+  document.getElementById('firma-nombre').value=ex?.nombre_apellido||'';
+  document.getElementById('firma-cargo').value=ex?.cargo||'';
+  document.getElementById('firma-matricula').value=ex?.matricula||'';
+  document.getElementById('modal-firma').classList.add('active');
+  setTimeout(()=>inicializarFirmaCanvas(),100);
+}
+
+function inicializarFirmaCanvas() {
+  const canvas=document.getElementById('firma-canvas');
+  if(!canvas) return;
+  const rect=canvas.getBoundingClientRect();
+  canvas.width=rect.width*window.devicePixelRatio;
+  canvas.height=rect.height*window.devicePixelRatio;
+  _firmaCtx=canvas.getContext('2d');
+  _firmaCtx.scale(window.devicePixelRatio,window.devicePixelRatio);
+  _firmaCtx.fillStyle='white';
+  _firmaCtx.fillRect(0,0,rect.width,rect.height);
+  _firmaCtx.strokeStyle='#000'; _firmaCtx.lineWidth=2; _firmaCtx.lineCap='round'; _firmaCtx.lineJoin='round';
+  _firmaCanvas=canvas;
+  const tipo=document.getElementById('firma-tipo').value;
+  const ex=CONST_STATE.firmas[tipo];
+  if(ex?.firma_svg?.startsWith('data:image')){const img=new Image();img.onload=()=>{const r=canvas.getBoundingClientRect();_firmaCtx.drawImage(img,0,0,r.width,r.height);};img.src=ex.firma_svg;}
+  const getPos=(e)=>{const r=canvas.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};};
+  canvas.onmousedown=canvas.ontouchstart=(e)=>{e.preventDefault();_firmaDibujando=true;const p=getPos(e);_firmaCtx.beginPath();_firmaCtx.moveTo(p.x,p.y);};
+  canvas.onmousemove=canvas.ontouchmove=(e)=>{e.preventDefault();if(!_firmaDibujando)return;const p=getPos(e);_firmaCtx.lineTo(p.x,p.y);_firmaCtx.stroke();};
+  canvas.onmouseup=canvas.onmouseleave=canvas.ontouchend=()=>{_firmaDibujando=false;};
+}
+
+function limpiarFirmaCanvas() {
+  if(_firmaCtx&&_firmaCanvas){const r=_firmaCanvas.getBoundingClientRect();_firmaCtx.fillStyle='white';_firmaCtx.fillRect(0,0,r.width,r.height);}
+}
+
+async function confirmarFirma() {
+  const tipo=document.getElementById('firma-tipo').value;
+  const nombre=document.getElementById('firma-nombre').value.trim();
+  const cargo=document.getElementById('firma-cargo').value.trim();
+  const matricula=document.getElementById('firma-matricula').value.trim();
+  if(!nombre||!cargo) return toast('Completá nombre y cargo','error');
+  if(!_firmaCanvas) return toast('Error con el canvas','error');
+  const firma_svg=_firmaCanvas.toDataURL('image/png');
+  CONST_STATE.firmas[tipo]={nombre_apellido:nombre,cargo,matricula,firma_svg,tipo};
+  try {
+    const id=CONST_STATE.constanciaId;
+    if(!String(id).startsWith('offline_')) await api('/constancias/'+id+'/firmas',{method:'POST',body:JSON.stringify({tipo,nombre_apellido:nombre,cargo,matricula,firma_svg})});
+  } catch {}
+  cerrarModal('modal-firma');
+  renderConstanciaPaso();
+  toast('Firma guardada ✓','success');
+}
+
+async function finalizarConstancia() {
+  guardarDatosPasoActual();
+  await guardarConstanciaActual();
+  try {
+    const id=CONST_STATE.constanciaId;
+    if(!String(id).startsWith('offline_')) await api('/constancias/'+id,{method:'PATCH',body:JSON.stringify({estado:'completada'})});
+  } catch {}
+  cerrarConstancia();
+  toast('Constancia completada ✓','success');
+  if(STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
+}
+
+window.addEventListener('online',async()=>{
+  const keys=Object.keys(localStorage).filter(k=>k.startsWith('constancia_pendiente_'));
+  for(const key of keys){
+    try{
+      const st=JSON.parse(localStorage.getItem(key));
+      const data=await api('/constancias',{method:'POST',body:JSON.stringify({visita_id:st.visitaId})});
+      const id=data.constancia.id;
+      await api('/constancias/'+id+'/guardar-completo',{method:'POST',body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
+      localStorage.removeItem(key);
+      toast('Constancia sincronizada ✓','success');
+    }catch{}
+  }
+});
 </script>
 </body>
 </html>
