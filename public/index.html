@@ -2779,7 +2779,7 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
         <div style="font-size:15px;font-weight:700" id="const-header-titulo">Constancia de visita</div>
         <div style="font-size:11px;color:var(--text2)" id="const-header-numero">VIS-2026-0001</div>
       </div>
-      <button onclick="guardarConstanciaActual()" style="background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:var(--accent);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">💾 Guardar</button>
+      <button onclick="guardarConstanciaActual(true)" style="background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:var(--accent);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">💾 Guardar</button>
     </div>
     <!-- Pasos -->
     <div style="padding:0 16px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0">
@@ -2897,9 +2897,9 @@ function renderConstanciaPasos() {
   }).join('');
 }
 
-function irConstanciaPaso(n) { guardarDatosPasoActual(); CONST_STATE.pasoActual=n; renderConstanciaPasos(); renderConstanciaPaso(); }
-function constanciaPasoAnterior() { if(CONST_STATE.pasoActual===0) return; guardarDatosPasoActual(); CONST_STATE.pasoActual--; renderConstanciaPasos(); renderConstanciaPaso(); }
-function constanciaPasoSiguiente() { guardarDatosPasoActual(); if(CONST_STATE.pasoActual<CONST_PASOS.length-1){CONST_STATE.pasoActual++; renderConstanciaPasos(); renderConstanciaPaso();} else { finalizarConstancia(); } }
+function irConstanciaPaso(n) { guardarDatosPasoActual(); guardarConstanciaActual(); CONST_STATE.pasoActual=n; renderConstanciaPasos(); renderConstanciaPaso(); }
+function constanciaPasoAnterior() { if(CONST_STATE.pasoActual===0) return; guardarDatosPasoActual(); guardarConstanciaActual(); CONST_STATE.pasoActual--; renderConstanciaPasos(); renderConstanciaPaso(); }
+function constanciaPasoSiguiente() { guardarDatosPasoActual(); guardarConstanciaActual(); if(CONST_STATE.pasoActual<CONST_PASOS.length-1){CONST_STATE.pasoActual++; renderConstanciaPasos(); renderConstanciaPaso();} else { finalizarConstancia(); } }
 
 function guardarDatosPasoActual() {
   const paso = CONST_PASOS[CONST_STATE.pasoActual].id;
@@ -3086,14 +3086,14 @@ async function subirFotoDesvio(idx,nro,input) {
   reader.readAsDataURL(file);
 }
 
-async function guardarConstanciaActual() {
+async function guardarConstanciaActual(mostrarToast=false) {
   guardarDatosPasoActual();
   const id=CONST_STATE.constanciaId;
-  if(String(id).startsWith('offline_')){localStorage.setItem('constancia_pendiente_'+id,JSON.stringify(CONST_STATE));toast('Guardado localmente','info');return;}
+  if(String(id).startsWith('offline_')){localStorage.setItem('constancia_pendiente_'+id,JSON.stringify(CONST_STATE));if(mostrarToast)toast('Guardado localmente','info');return;}
   try {
     await api('/constancias/'+id+'/guardar-completo',{method:'POST',body:JSON.stringify({datos:CONST_STATE.datos,selecciones:CONST_STATE.selecciones,personal:CONST_STATE.personal,equipos:CONST_STATE.equipos,acciones:CONST_STATE.acciones,desvios:CONST_STATE.desvios})});
-    toast('Guardado ✓','success',1500);
-  } catch { toast('Error al guardar','error'); }
+    if(mostrarToast) toast('Guardado ✓','success',1500);
+  } catch { if(mostrarToast) toast('Error al guardar','error'); }
 }
 
 // ── FIRMA DIGITAL ─────────────────────────────────────────────────
