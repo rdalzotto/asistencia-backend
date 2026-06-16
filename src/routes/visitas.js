@@ -139,7 +139,10 @@ router.patch('/:id', auth, async (req, res) => {
   const { estado, km_reales, viatico_real, observaciones,
           motivo_suspension, motivo_rechazo, fecha_reprogramada,
           foto_evidencia_suspension,
-          lat_inicio_real, lng_inicio_real, hora_inicio_real } = req.body;
+          lat_inicio_real, lng_inicio_real, hora_inicio_real,
+          suspendido_por, contacto_cliente_suspension, visita_reprogramacion_id,
+          fecha, hora_estimada_salida, origen, km_estimados, viatico_estimado,
+          empleado_id, destinos, recursos_ids } = req.body;
   const sets = [];
   const params = [req.params.id, req.user.empleadorId];
   if (estado)                        { params.push(estado);                     sets.push(`estado = $${params.length}`); }
@@ -153,17 +156,59 @@ router.patch('/:id', auth, async (req, res) => {
   if (lat_inicio_real != null)       { params.push(lat_inicio_real);            sets.push(`lat_inicio_real = $${params.length}`); }
   if (lng_inicio_real != null)       { params.push(lng_inicio_real);            sets.push(`lng_inicio_real = $${params.length}`); }
   if (hora_inicio_real != null)      { params.push(hora_inicio_real);           sets.push(`hora_inicio_real = $${params.length}`); }
-  if (!sets.length) return res.status(400).json({ error: 'Nada que actualizar' });
+  if (suspendido_por != null)        { params.push(suspendido_por);             sets.push(`suspendido_por = $${params.length}`); }
+  if (contacto_cliente_suspension != null) { params.push(contacto_cliente_suspension); sets.push(`contacto_cliente_suspension = $${params.length}`); }
+  if (visita_reprogramacion_id != null) { params.push(visita_reprogramacion_id); sets.push(`visita_reprogramacion_id = $${params.length}`); }
+  if (fecha)                         { params.push(fecha);                      sets.push(`fecha = $${params.length}`); }
+  if (hora_estimada_salida != null)  { params.push(hora_estimada_salida);       sets.push(`hora_estimada_salida = $${params.length}`); }
+  if (origen)                        { params.push(origen);                    sets.push(`origen = $${params.length}`); }
+  if (km_estimados != null)          { params.push(km_estimados);               sets.push(`km_estimados = $${params.length}`); }
+  if (viatico_estimado != null)      { params.push(viatico_estimado);           sets.push(`viatico_estimado = $${params.length}`); }
+  if (empleado_id != null)           { params.push(empleado_id);                sets.push(`empleado_id = $${params.length}`); }
+  // Si el estado cambia a algo distinto de 'suspendida', limpiar los datos de la suspensión anterior
+  // para que no quede un mensaje viejo pegado en una visita que ya no está suspendida
+  if (estado && estado !== 'suspendida') {
+    sets.push(`motivo_suspension = NULL`, `suspendido_por = NULL`, `contacto_cliente_suspension = NULL`);
+  }
+  if (!sets.length && !destinos && !recursos_ids) return res.status(400).json({ error: 'Nada que actualizar' });
+
+  const client = await db.connect();
   try {
-    // Si se suspende una visita en_curso, cerrar movimiento remoto abierto
-    const { rows: [visitaActual] } = await db.query(
+    await client.query('BEGIN');
+    const { rows: [visitaActual] } = await client.query(
       `SELECT estado, empleado_id FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
       [req.params.id, req.user.empleadorId]
     );
-    const { rows: [v] } = await db.query(
-      `UPDATE public.visitas SET ${sets.join(',')} WHERE id = $1 AND empleador_id = $2 RETURNING *`, params);
+    if (!visitaActual) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Visita no encontrada' }); }
+
+    let v = visitaActual;
+    if (sets.length) {
+      const { rows: [actualizada] } = await client.query(
+        `UPDATE public.visitas SET ${sets.join(',')} WHERE id = $1 AND empleador_id = $2 RETURNING *`, params);
+      v = actualizada;
+    }
+
+    // Si se editan destinos, reemplazar todos (borrar e insertar de nuevo en el mismo orden)
+    if (destinos && Array.isArray(destinos)) {
+      await client.query(`DELETE FROM public.visita_destinos WHERE visita_id = $1`, [req.params.id]);
+      for (let i = 0; i < destinos.length; i++) {
+        const d = destinos[i];
+        await client.query(`
+          INSERT INTO public.visita_destinos (visita_id, orden, cliente_nombre, domicilio, lat, lng, motivo)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `, [req.params.id, i+1, d.cliente_nombre, d.domicilio||null, d.lat||null, d.lng||null, d.motivo||null]);
+      }
+    }
+    // Si se editan recursos, reemplazar todos
+    if (recursos_ids && Array.isArray(recursos_ids)) {
+      await client.query(`DELETE FROM public.visita_recursos WHERE visita_id = $1`, [req.params.id]);
+      for (const rid of recursos_ids) {
+        await client.query(`INSERT INTO public.visita_recursos (visita_id, recurso_id) VALUES ($1,$2)`, [req.params.id, rid]);
+      }
+    }
+
     if (estado === 'suspendida' && visitaActual?.estado === 'en_curso' && visitaActual?.empleado_id) {
-      await db.query(`
+      await client.query(`
         UPDATE public.movimientos
         SET validado = TRUE, validado_en = NOW(),
             observacion_admin = 'Validado automáticamente por suspensión de visita en curso'
@@ -176,8 +221,7 @@ router.patch('/:id', auth, async (req, res) => {
       try {
         const minutos = Math.round((new Date(v.hora_llegada_destino) - new Date(v.hora_inicio_real)) / 60000);
         if (minutos > 0 && minutos < 600) { // entre 0 y 10 horas = viaje válido
-          // Buscar el destino_externo principal de esta visita
-          const { rows: destRows } = await db.query(`
+          const { rows: destRows } = await client.query(`
             SELECT vd.id, de.id as destino_externo_id, de.tiempo_viaje_estimado_min
             FROM public.visita_destinos vd
             LEFT JOIN public.destinos_externos de ON de.nombre = vd.cliente_nombre AND de.empleador_id = $2
@@ -185,20 +229,29 @@ router.patch('/:id', auth, async (req, res) => {
           `, [req.params.id, req.user.empleadorId]);
           if (destRows[0]?.destino_externo_id) {
             const anterior = destRows[0].tiempo_viaje_estimado_min;
-            // Promedio ponderado: 70% histórico + 30% nuevo viaje
             const nuevo = anterior ? Math.round(anterior * 0.7 + minutos * 0.3) : minutos;
-            await db.query(
+            await client.query(
               `UPDATE public.destinos_externos SET tiempo_viaje_estimado_min = $1 WHERE id = $2`,
               [nuevo, destRows[0].destino_externo_id]);
           }
         }
       } catch {} // No crítico — si falla no interrumpe la rendición
     }
-    res.json(v);
+    await client.query('COMMIT');
+
+    const { rows: [completa] } = await db.query(`
+      SELECT v.*, e.nombre as emp_nombre, e.apellido as emp_apellido,
+        (SELECT json_agg(vd ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as destinos,
+        (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
+         FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos
+      FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id WHERE v.id = $1
+    `, [req.params.id]);
+    res.json(completa);
   } catch (e) {
+    await client.query('ROLLBACK');
     console.error('[VISITAS PATCH]', e.message);
     res.status(500).json({ error: 'Error interno' });
-  }
+  } finally { client.release(); }
 });
 
 // ── DELETE /visitas/:id ───────────────────────────────────────
@@ -208,6 +261,86 @@ router.delete('/:id', auth, async (req, res) => {
       [req.params.id, req.user.empleadorId]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── POST /visitas/:id/suspender ────────────────────────────────
+// Marca la visita como suspendida, registrando quién decidió (cliente/exit) y el contacto si aplica.
+// Si se envía fecha_reprogramada, crea una visita NUEVA para esa fecha (mismos destinos/recursos/empleado)
+// y vincula ambas visitas entre sí para trazabilidad del historial.
+router.post('/:id/suspender', auth, async (req, res) => {
+  const { motivo_suspension, suspendido_por, contacto_cliente_suspension, fecha_reprogramada } = req.body;
+  if (!motivo_suspension) return res.status(400).json({ error: 'Motivo de suspensión requerido' });
+  if (suspendido_por === 'cliente' && !contacto_cliente_suspension)
+    return res.status(400).json({ error: 'Indicá el nombre del contacto del cliente' });
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [original] } = await client.query(
+      `SELECT * FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
+      [req.params.id, req.user.empleadorId]
+    );
+    if (!original) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Visita no encontrada' }); }
+
+    let nuevaVisitaId = null;
+    if (fecha_reprogramada) {
+      const { rows: [nueva] } = await client.query(`
+        INSERT INTO public.visitas
+          (empleador_id, empleado_id, fecha, hora_estimada_salida, origen,
+           origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones, estado)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'programada') RETURNING id
+      `, [original.empleador_id, original.empleado_id, fecha_reprogramada, original.hora_estimada_salida,
+          original.origen, original.origen_lat, original.origen_lng,
+          original.km_estimados, original.viatico_estimado,
+          'Reprogramada desde visita #' + original.id]);
+      nuevaVisitaId = nueva.id;
+
+      const { rows: destinos } = await client.query(
+        `SELECT * FROM public.visita_destinos WHERE visita_id = $1 ORDER BY orden`, [original.id]);
+      for (const d of destinos) {
+        await client.query(`
+          INSERT INTO public.visita_destinos (visita_id, orden, cliente_nombre, domicilio, lat, lng, motivo)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `, [nuevaVisitaId, d.orden, d.cliente_nombre, d.domicilio, d.lat, d.lng, d.motivo]);
+      }
+      const { rows: recursos } = await client.query(
+        `SELECT recurso_id FROM public.visita_recursos WHERE visita_id = $1`, [original.id]);
+      for (const r of recursos) {
+        await client.query(
+          `INSERT INTO public.visita_recursos (visita_id, recurso_id) VALUES ($1,$2)`,
+          [nuevaVisitaId, r.recurso_id]);
+      }
+    }
+
+    const { rows: [actualizada] } = await client.query(`
+      UPDATE public.visitas SET
+        estado = 'suspendida',
+        motivo_suspension = $1,
+        suspendido_por = $2,
+        contacto_cliente_suspension = $3,
+        fecha_reprogramada = $4,
+        visita_reprogramacion_id = $5
+      WHERE id = $6 AND empleador_id = $7 RETURNING *
+    `, [motivo_suspension, suspendido_por || null, contacto_cliente_suspension || null,
+        fecha_reprogramada || null, nuevaVisitaId, req.params.id, req.user.empleadorId]);
+
+    // Si se suspende una visita en_curso, cerrar movimiento remoto abierto (igual que el PATCH normal)
+    if (original.estado === 'en_curso' && original.empleado_id) {
+      await client.query(`
+        UPDATE public.movimientos
+        SET validado = TRUE, validado_en = NOW(),
+            observacion_admin = 'Validado automáticamente por suspensión de visita en curso'
+        WHERE empleado_id = $1 AND empleador_id = $2
+          AND es_remoto = TRUE AND validado = FALSE AND fecha = CURRENT_DATE
+      `, [original.empleado_id, req.user.empleadorId]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ visita: actualizada, nueva_visita_id: nuevaVisitaId });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('[VISITAS SUSPENDER]', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  } finally { client.release(); }
 });
 
 // ── DELETE /visitas/:id/destinos/:did ─────────────────────────
