@@ -2427,7 +2427,8 @@ async function abrirModalNuevaVisita() {
   document.getElementById('vis-modo').value='admin';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
   document.getElementById('vis-fecha').value=new Date().toISOString().split('T')[0];
-  document.getElementById('vis-hora-salida').value='';
+  document.getElementById('vis-fecha').min=new Date().toISOString().split('T')[0];
+  document.getElementById('vis-hora-salida').value=new Date().toTimeString().slice(0,5);
   document.getElementById('vis-origen').value='oficina';
   document.getElementById('vis-km-est').value='';
   document.getElementById('vis-viatico-est').value='';
@@ -2452,7 +2453,8 @@ async function abrirModalNuevaVisitaEmp() {
   document.getElementById('vis-modo').value='empleado';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
   document.getElementById('vis-fecha').value=new Date().toISOString().split('T')[0];
-  document.getElementById('vis-hora-salida').value='';
+  document.getElementById('vis-fecha').min=new Date().toISOString().split('T')[0];
+  document.getElementById('vis-hora-salida').value=new Date().toTimeString().slice(0,5);
   document.getElementById('vis-origen').value='oficina';
   document.getElementById('vis-km-est').value='';
   document.getElementById('vis-viatico-est').value='';
@@ -2464,10 +2466,7 @@ async function abrirModalNuevaVisitaEmp() {
   btn.textContent = 'Guardar visita';
   try { await cargarCheckboxRecursos('vis-recursos-checks'); } catch {}
   try { await cargarDestinosCache(); } catch {}
-  // Forzar apertura con z-index superior al panel
-  const modal = document.getElementById('modal-nueva-visita');
-  modal.style.zIndex = '400';
-  modal.style.display = 'flex';
+  abrirModal('modal-nueva-visita');
 }
 
 let _destinosCache=[];
@@ -2533,6 +2532,20 @@ async function guardarVisita() {
   if (!visDestinos.length) { toast('Agregá al menos un cliente','error'); return; }
   const fecha=document.getElementById('vis-fecha').value;
   if (!fecha) { toast('Seleccioná una fecha','error'); return; }
+  const horaSalida=document.getElementById('vis-hora-salida').value;
+  const editIdCheck=document.getElementById('vis-edit-id').value;
+  // No permitir programar visitas en el pasado: la fecha (y si es hoy y es una visita nueva, también la hora) debe ser presente o futura
+  const ahora = new Date();
+  const hoyStr = ahora.toISOString().split('T')[0];
+  if (fecha < hoyStr) {
+    toast('La fecha de la visita no puede ser anterior a hoy','error'); return;
+  }
+  if (!editIdCheck && fecha === hoyStr && horaSalida) {
+    const horaActualStr = ahora.toTimeString().slice(0,5);
+    if (horaSalida < horaActualStr) {
+      toast('La hora de salida no puede ser anterior a la hora actual','error'); return;
+    }
+  }
   const recursosIds=getCheckboxSeleccionados('vis-recursos-checks');
   const editId=document.getElementById('vis-edit-id').value;
   const modo=document.getElementById('vis-modo').value;
@@ -2667,6 +2680,7 @@ async function editarVisita(id) {
     document.getElementById('vis-modo').value = STATE.rol==='admin' ? 'admin' : 'empleado';
     document.getElementById('modal-visita-titulo').textContent = 'Editar visita';
     document.getElementById('vis-fecha').value = String(v.fecha).slice(0,10);
+    document.getElementById('vis-fecha').min = new Date().toISOString().split('T')[0];
     document.getElementById('vis-hora-salida').value = v.hora_estimada_salida ? String(v.hora_estimada_salida).slice(0,5) : '';
     document.getElementById('vis-origen').value = v.origen || 'oficina';
     document.getElementById('vis-km-est').value = v.km_estimados || '';
