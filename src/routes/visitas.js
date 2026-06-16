@@ -33,7 +33,7 @@ router.get('/reporte', auth, soloAdmin, async (req, res) => {
 
 // ── GET /visitas ──────────────────────────────────────────────
 router.get('/', auth, async (req, res) => {
-  const { desde, hasta, empleado_id } = req.query;
+  const { desde, hasta, empleado_id, visto_admin } = req.query;
   const params = [req.user.empleadorId];
   let where = 'WHERE v.empleador_id = $1';
   if (req.user.rol === 'empleado') {
@@ -45,6 +45,7 @@ router.get('/', auth, async (req, res) => {
   }
   if (desde) { params.push(desde); where += ` AND v.fecha >= $${params.length}`; }
   if (hasta) { params.push(hasta); where += ` AND v.fecha <= $${params.length}`; }
+  if (visto_admin === 'false') { where += ` AND v.visto_admin = FALSE`; }
   try {
     const { rows } = await db.query(`
       SELECT v.*, e.nombre as emp_nombre, e.apellido as emp_apellido, e.legajo,
@@ -98,14 +99,15 @@ router.post('/', auth, async (req, res) => {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    const vistoAdmin = req.user.rol === 'admin'; // El admin no necesita avisarse a sí mismo
     const { rows: [v] } = await client.query(`
       INSERT INTO public.visitas
         (empleador_id, empleado_id, fecha, hora_estimada_salida, origen,
-         origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones, estado)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *
+         origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones, estado, visto_admin)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *
     `, [req.user.empleadorId, empleadoId, fecha, hora_estimada_salida || null,
         origen || 'oficina', origen_lat || null, origen_lng || null,
-        km_estimados || 0, viatico_estimado || 0, observaciones || null, estadoFinal]);
+        km_estimados || 0, viatico_estimado || 0, observaciones || null, estadoFinal, vistoAdmin]);
     for (let i = 0; i < destinos.length; i++) {
       const d = destinos[i];
       await client.query(`
@@ -258,6 +260,17 @@ router.patch('/:id', auth, async (req, res) => {
 router.delete('/:id', auth, async (req, res) => {
   try {
     await db.query(`DELETE FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
+      [req.params.id, req.user.empleadorId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── PATCH /visitas/:id/marcar-visto ────────────────────────────
+// El admin marca que ya tomó conocimiento de una visita cargada por un empleado.
+// Es solo informativo: no cambia el estado operativo de la visita.
+router.patch('/:id/marcar-visto', auth, soloAdmin, async (req, res) => {
+  try {
+    await db.query(`UPDATE public.visitas SET visto_admin = TRUE WHERE id = $1 AND empleador_id = $2`,
       [req.params.id, req.user.empleadorId]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error interno' }); }
