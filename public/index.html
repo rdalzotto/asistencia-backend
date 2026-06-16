@@ -231,6 +231,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="card-title">Hoy</div>
       <div id="movimientos-hoy"><p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Sin movimientos registrados</p></div>
     </div>
+    <div class="card">
+      <div class="card-title">👥 Equipo</div>
+      <div id="lista-equipo-estado"><p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Cargando...</p></div>
+    </div>
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-val" id="stat-horas-hoy">0h</div><div class="stat-lbl">Horas hoy</div></div>
       <div class="stat-card"><div class="stat-val" id="stat-tardanzas">0</div><div class="stat-lbl">Tardanzas mes</div></div>
@@ -363,6 +367,16 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
           <button class="btn btn-secondary btn-sm" onclick="cargarVisitasAdmin()">Buscar</button>
         </div>
         <div class="form-group" style="margin-top:10px;margin-bottom:0"><label>Empleado</label><select id="vis-filtro-empleado"><option value="">Todos</option></select></div>
+        <div class="form-group" style="margin-top:10px;margin-bottom:0"><label>Estado</label><select id="vis-filtro-estado" onchange="cargarVisitasAdmin()">
+          <option value="activas" selected>Activas (oculta suspendidas/rechazadas/canceladas)</option>
+          <option value="todas">Todas</option>
+          <option value="programada">Programada</option>
+          <option value="en_curso">En curso</option>
+          <option value="completada">Completada</option>
+          <option value="suspendida">Suspendida</option>
+          <option value="rechazada">Rechazada</option>
+          <option value="cancelada">Cancelada</option>
+        </select></div>
       </div>
       <div class="card" id="card-resumen-visitas">
         <div class="card-title">📊 Resumen del período</div>
@@ -1004,7 +1018,29 @@ async function cargarDashboardEmpleado() {
       document.getElementById('emp-saludo').textContent = saludo + ', ' + STATE.nombre;
       document.getElementById('emp-avatar').textContent = STATE.nombre.charAt(0).toUpperCase();
     }
+    cargarEquipoEstado();
   } catch(e) { console.error(e); }
+}
+
+async function cargarEquipoEstado() {
+  const cont = document.getElementById('lista-equipo-estado');
+  if (!cont) return;
+  try {
+    const equipo = await api('/config/equipo-estado');
+    if (!equipo.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Sin datos del equipo</p>'; return; }
+    const colEstado = {en_oficina:'badge-green',en_externo:'badge-orange',en_almuerzo:'badge-yellow',ausente:'badge-red',retirado:'badge-gray',remoto_pendiente:'badge-blue'};
+    const lblEstado = {en_oficina:'En oficina',en_externo:'En externo',en_almuerzo:'Almorzando',ausente:'Ausente',retirado:'Retirado',remoto_pendiente:'Remoto'};
+    cont.innerHTML = equipo.map(e => `
+      <div class="emp-item">
+        <div class="avatar">${(e.nombre||'?').charAt(0)}</div>
+        <div class="emp-info">
+          <div class="emp-nombre">${e.nombre||''} ${e.apellido||''}</div>
+          <div class="emp-detalle">${e.ultima_hora ? new Date(e.ultima_hora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '--'}</div>
+        </div>
+        <span class="badge ${colEstado[e.estado]||'badge-gray'}">${lblEstado[e.estado]||e.estado}</span>
+      </div>
+    `).join('');
+  } catch { cont.innerHTML = '<p style="color:var(--red);font-size:13px;text-align:center;padding:16px 0">Error cargando equipo</p>'; }
 }
 
 function detectarProximoTipo(movs) {
@@ -1402,7 +1438,9 @@ async function cargarDashboardAdmin() {
     document.getElementById('dash-externos').textContent = externos;
     document.getElementById('dash-ausentes').textContent = ausentes;
     document.getElementById('dash-pendientes').textContent = pendTotal;
-    if (pendTotal>0) { const nb=document.getElementById('notif-count'); nb.textContent=pendTotal; nb.style.display='flex'; }
+    const nb=document.getElementById('notif-count');
+    if (pendTotal>0) { nb.textContent=pendTotal; nb.style.display='flex'; }
+    else { nb.style.display='none'; }
     const cont = document.getElementById('lista-estado-personal');
     if (!emps.length) { cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin empleados registrados</p>'; }
     else {
@@ -1623,7 +1661,7 @@ async function resolverSolicitud(id, estado) {
 }
 
 async function resolverAusencia(id, estado) {
-  try { await api('/licencias/ausencia/'+id, {method:'PATCH', body:JSON.stringify({estado})}); toast(estado==='aprobada'?'Aprobada ✓':'Rechazada',estado==='aprobada'?'success':'info'); cargarPendientesAdmin(); }
+  try { await api('/licencias/ausencia/'+id, {method:'PATCH', body:JSON.stringify({estado})}); toast(estado==='aprobada'?'Aprobada ✓':'Rechazada',estado==='aprobada'?'success':'info'); cargarPendientesAdmin(); cargarDashboardAdmin(); }
   catch(e) { toast(e.message,'error'); }
 }
 </script>
@@ -2256,12 +2294,18 @@ async function cargarVisitasAdmin() {
   const desde=document.getElementById('vis-filtro-desde').value;
   const hasta=document.getElementById('vis-filtro-hasta').value;
   const empId=document.getElementById('vis-filtro-empleado').value;
+  const filtroEstado=document.getElementById('vis-filtro-estado')?.value||'activas';
   const cont=document.getElementById('lista-visitas-admin');
   cont.innerHTML='<p style="color:var(--text3);text-align:center;padding:16px">Cargando...</p>';
   try {
     let url='/visitas?desde='+desde+'&hasta='+hasta;
     if (empId) url+='&empleado_id='+empId;
-    const visitas = await api(url);
+    let visitas = await api(url);
+    if (filtroEstado==='activas') {
+      visitas = visitas.filter(v => !['suspendida','rechazada','cancelada'].includes(v.estado));
+    } else if (filtroEstado!=='todas') {
+      visitas = visitas.filter(v => v.estado===filtroEstado);
+    }
     const totalKm=visitas.reduce((s,v)=>s+parseFloat(v.km_reales||v.km_estimados||0),0);
     const totalVia=visitas.reduce((s,v)=>s+parseFloat(v.viatico_real||v.viatico_estimado||0),0);
     document.getElementById('vis-total-visitas').textContent=visitas.length;
@@ -2391,6 +2435,8 @@ function renderizarDestinosVisita() {
 }
 
 async function guardarVisita() {
+  const btn = document.getElementById('btn-guardar-visita');
+  if (btn.disabled) return; // Evita doble envío por doble-click o doble-tap
   // Si hay un cliente escrito pero no agregado aún, lo agrega automáticamente
   const nombrePendiente = document.getElementById('vis-dest-nombre').value.trim() || document.getElementById('vis-dest-buscar').value.trim();
   if (nombrePendiente && !visDestinos.find(d => d.cliente_nombre === nombrePendiente)) {
@@ -2411,6 +2457,9 @@ async function guardarVisita() {
   const empId=modo==='admin'?(document.getElementById('vis-empleado-id')?.value||null):null;
   // Empleado crea con estado pendiente_aprobacion; admin crea directamente como programada
   const estadoInicial = modo==='empleado' ? 'pendiente_aprobacion' : 'programada';
+  btn.disabled = true;
+  const textoOriginal = btn.textContent;
+  btn.textContent = 'Guardando...';
   try {
     const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId};
     if (!editId) body.estado = estadoInicial;
@@ -2422,6 +2471,7 @@ async function guardarVisita() {
     cerrarModal('modal-nueva-visita'); visDestinos=[];
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
   } catch(e) { toast(e.message,'error'); }
+  finally { btn.disabled = false; btn.textContent = textoOriginal; }
 }
 
 async function cambiarEstadoVisita(id, estado) {
