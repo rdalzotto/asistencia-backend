@@ -892,7 +892,11 @@ function mostrarScreen(id) {
 }
 
 function cerrarModal(id) {
-  document.getElementById(id).classList.remove('active');
+  const modal = document.getElementById(id);
+  modal.classList.remove('active');
+  // Limpia estilos en línea forzados al abrir (ej: modal de visita en modo empleado), si quedaron pegados
+  modal.style.display = '';
+  modal.style.zIndex = '';
   if (STATE.camStream) { STATE.camStream.getTracks().forEach(t => t.stop()); STATE.camStream = null; }
   document.getElementById('cameraPreview').style.display = 'none';
 }
