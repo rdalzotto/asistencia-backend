@@ -71,6 +71,10 @@ router.post('/', auth, async (req, res) => {
           km_estimados, viatico_estimado, observaciones, destinos, recursos_ids, estado } = req.body;
   if (!fecha || !destinos?.length)
     return res.status(400).json({ error: 'Fecha y al menos un destino son requeridos' });
+  // No permitir crear visitas con fecha anterior a hoy (validación de respaldo a la del frontend)
+  const hoyServidor = new Date().toISOString().split('T')[0];
+  if (fecha < hoyServidor)
+    return res.status(400).json({ error: 'La fecha de la visita no puede ser anterior a hoy' });
   const empleadoId = req.user.rol === 'admin' ? (req.body.empleado_id || null) : req.user.empleadoId;
   const estadoFinal = estado || 'programada';
   // Anti-duplicado: si en los últimos 15 segundos ya se creó una visita idéntica
