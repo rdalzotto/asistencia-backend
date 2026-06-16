@@ -641,7 +641,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
     <!-- Aviso para empleado: la visita queda pendiente de aprobación -->
     <div id="vis-aviso-aprobacion" style="display:none;margin-top:12px;background:rgba(180,100,255,0.1);border:1px solid rgba(180,100,255,0.3);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:#b464ff">
-      📋 Esta visita será visada por el administrador. Podés completar todos los datos y guardarla — el admin la revisará y confirmará.
+      📋 Esta visita queda programada de inmediato. El administrador recibe un aviso informativo, pero no necesita aprobarla para que puedas iniciarla.
     </div>
   </div>
 </div>
@@ -684,16 +684,27 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Suspender / Reprogramar visita</div>
+    <div class="form-group"><label>¿Quién decidió suspender?</label>
+      <select id="susp-quien" onchange="toggleContactoClienteSusp()">
+        <option value="cliente">📞 El cliente</option>
+        <option value="exit">🏢 EXIT S.A. (nosotros)</option>
+      </select>
+    </div>
+    <div class="form-group" id="susp-grupo-contacto">
+      <label>Nombre del contacto del cliente</label>
+      <input type="text" id="susp-contacto-cliente" placeholder="Quién decidió la suspensión del lado del cliente">
+    </div>
     <div class="form-group"><label>Motivo de suspensión</label>
       <select id="susp-motivo-tipo">
         <option value="clima">🌧 Condiciones climáticas</option>
         <option value="cliente">📞 Cliente canceló o no disponible</option>
-        <option value="interno">🏢 Motivo interno</option>
+        <option value="interno">🏢 Motivo interno (vehículo, imprevisto, etc.)</option>
         <option value="otro">📝 Otro motivo</option>
       </select>
     </div>
     <div class="form-group"><label>Detalle (opcional)</label><textarea id="susp-detalle" placeholder="Descripción adicional..." style="min-height:60px"></textarea></div>
-    <div class="form-group"><label>Nueva fecha (si se reprograma)</label><input type="date" id="susp-nueva-fecha"></div>
+    <div class="form-group"><label>Fecha de reprogramación (opcional)</label><input type="date" id="susp-nueva-fecha"></div>
+    <div style="font-size:12px;color:var(--text2);margin:-8px 0 12px;line-height:1.4">Si elegís una fecha, se va a crear una visita nueva para esa fecha y esta quedará registrada como suspendida, vinculada a la nueva.</div>
     <input type="hidden" id="susp-visita-id">
     <div style="display:flex;gap:10px;margin-top:16px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-suspender-visita')">Cancelar</button>
@@ -2323,8 +2334,75 @@ function renderTarjetaVisita(v, esAdmin) {
   const totalGastos=gastos.reduce((s,g)=>s+parseFloat(g.monto||0),0);
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
+  const puedeSuspender = v.estado==='programada' || v.estado==='en_curso';
+  const puedeEditarOEliminar = ['programada','en_curso'].includes(v.estado);
   const puedeConstancia = ['en_curso','completada','programada'].includes(v.estado);
-  return '<div class="card" style="margin-bottom:12px;border-left:3px solid '+(colores[v.estado]||'var(--border)')+'"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px"><div><div style="font-size:13px;font-weight:600">'+String(v.fecha).slice(0,10).split('-').reverse().join('/')+(v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):'')+'</div>'+(esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':'')+'<div style="font-size:12px;color:var(--text2)">Sale desde: '+(v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina')+'</div></div><span style="font-size:11px;font-weight:600;color:'+(colores[v.estado]||'var(--text3)')+'">● '+(labels[v.estado]||v.estado)+'</span></div>'+destinos.map((d,i)=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">'+(i+1)+'.</span><span style="flex:1">'+d.cliente_nombre+(d.domicilio?' — '+d.domicilio:'')+(d.motivo?' · '+d.motivo:'')+'</span></div>').join('')+(recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':'')+'<div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">'+(v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':'')+(v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':'')+(v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':'')+(totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':'')+'</div>'+(v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':'')+(v.motivo_suspension?'<div style="font-size:12px;color:var(--orange);margin-bottom:6px;background:rgba(255,145,0,0.08);padding:6px 8px;border-radius:6px">⏸ Suspendida: '+v.motivo_suspension+'</div>':'')+'<div style="display:flex;gap:8px;flex-wrap:wrap">'+(puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':'')+(v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':'')+(esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':'')+(v.estado==='programada'?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':'')+(v.estado!=='completada'&&v.estado!=='cancelada'&&v.estado!=='rechazada'&&!esPendiente?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':'')+(puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+','+JSON.stringify({destinos:v.destinos||[],hora_estimada_salida:v.hora_estimada_salida||null,emp_nombre:v.emp_nombre||'',emp_apellido:v.emp_apellido||''}).replace(/"/g,'&quot;')+')">📋 Constancia</button>':'')+'</div></div>';
+
+  let bloqueSuspension = '';
+  if (v.estado==='suspendida') {
+    const quien = v.suspendido_por==='cliente' ? '📞 Suspendida por el cliente' : v.suspendido_por==='exit' ? '🏢 Suspendida por EXIT S.A.' : '⏸ Suspendida';
+    const contacto = v.contacto_cliente_suspension ? ' — Contacto: '+v.contacto_cliente_suspension : '';
+    const reprog = v.visita_reprogramacion_id ? '<div style="margin-top:6px"><button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="irAVisitaVinculada('+v.visita_reprogramacion_id+')">→ Ver visita reprogramada</button></div>' : (v.fecha_reprogramada ? '<div style="font-size:11px;color:var(--text3);margin-top:4px">Reprogramación pendiente para '+String(v.fecha_reprogramada).slice(0,10).split('-').reverse().join('/')+'</div>' : '');
+    bloqueSuspension = `<div style="font-size:12px;color:var(--orange);margin-bottom:6px;background:rgba(255,145,0,0.08);padding:8px;border-radius:6px">${quien}${contacto}<div style="margin-top:4px">${v.motivo_suspension||''}</div>${reprog}</div>`;
+  }
+  const origenReprogramacion = v.observaciones && v.observaciones.startsWith('Reprogramada desde visita #')
+    ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">↩ ${v.observaciones} <button onclick="irAVisitaVinculada(${v.observaciones.replace(/\D/g,'')})" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:11px;text-decoration:underline">ver original</button></div>`
+    : '';
+
+  return `<div class="card" data-visita-id="${v.id}" style="margin-bottom:12px;border-left:3px solid ${colores[v.estado]||'var(--border)'}">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+      <div>
+        <div style="font-size:13px;font-weight:600">${String(v.fecha).slice(0,10).split('-').reverse().join('/')}${v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):''}</div>
+        ${esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':''}
+        <div style="font-size:12px;color:var(--text2)">Sale desde: ${v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina'}</div>
+      </div>
+      <span style="font-size:11px;font-weight:600;color:${colores[v.estado]||'var(--text3)'}">● ${labels[v.estado]||v.estado}</span>
+    </div>
+    ${origenReprogramacion}
+    ${destinos.map((d,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">${i+1}.</span><span style="flex:1">${d.cliente_nombre}${d.domicilio?' — '+d.domicilio:''}${d.motivo?' · '+d.motivo:''}</span></div>`).join('')}
+    ${recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':''}
+    <div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">
+      ${v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':''}
+      ${v.km_reales?'<span style="color:var(--green)">🛣 Real: '+v.km_reales+' km</span>':''}
+      ${v.viatico_estimado?'<span>💵 Est: $'+v.viatico_estimado+'</span>':''}
+      ${totalGastos?'<span style="color:var(--green)">💵 Real: $'+totalGastos.toFixed(0)+'</span>':''}
+    </div>
+    ${v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':''}
+    ${bloqueSuspension}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':''}
+      ${v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':''}
+      ${esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':''}
+      ${puedeSuspender?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':''}
+      ${puedeEditarOEliminar?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':''}
+      ${v.estado==='programada'?'<button class="btn btn-sm btn-danger" onclick="eliminarVisitaProgramada('+v.id+')">🗑 Eliminar</button>':''}
+      ${puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+','+JSON.stringify({destinos:v.destinos||[],hora_estimada_salida:v.hora_estimada_salida||null,emp_nombre:v.emp_nombre||'',emp_apellido:v.emp_apellido||''}).replace(/"/g,'&quot;')+')">📋 Constancia</button>':''}
+    </div>
+  </div>`;
+}
+
+async function eliminarVisitaProgramada(id) {
+  if (!confirm('¿Eliminar esta visita programada? Esta acción no se puede deshacer.')) return;
+  try {
+    await api('/visitas/'+id, {method:'DELETE'});
+    toast('Visita eliminada','info');
+    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function irAVisitaVinculada(id) {
+  if (STATE.rol==='admin') {
+    const sel = document.getElementById('vis-filtro-estado');
+    if (sel) sel.value = 'todas';
+    await cargarVisitasAdmin();
+  } else {
+    await cargarMisVisitas();
+  }
+  setTimeout(() => {
+    const el = document.querySelector('[data-visita-id="'+id+'"]');
+    if (el) { el.scrollIntoView({behavior:'smooth',block:'center'}); el.style.boxShadow='0 0 0 2px var(--accent)'; setTimeout(()=>el.style.boxShadow='',2000); }
+    else toast('Visita #'+id+' — buscala en el listado con filtro Todas','info');
+  }, 400);
 }
 
 async function cargarReporteVisitas() {
@@ -2455,8 +2533,9 @@ async function guardarVisita() {
   const editId=document.getElementById('vis-edit-id').value;
   const modo=document.getElementById('vis-modo').value;
   const empId=modo==='admin'?(document.getElementById('vis-empleado-id')?.value||null):null;
-  // Empleado crea con estado pendiente_aprobacion; admin crea directamente como programada
-  const estadoInicial = modo==='empleado' ? 'pendiente_aprobacion' : 'programada';
+  // Las visitas se crean siempre como 'programada', sea quien sea quien las cree.
+  // El admin recibe un aviso informativo (visado) pero no bloquea el avance de la visita.
+  const estadoInicial = 'programada';
   btn.disabled = true;
   const textoOriginal = btn.textContent;
   btn.textContent = 'Guardando...';
@@ -2466,7 +2545,7 @@ async function guardarVisita() {
     if (editId) { await api('/visitas/'+editId,{method:'PATCH',body:JSON.stringify(body)}); toast('Visita actualizada ✓','success'); }
     else {
       await api('/visitas',{method:'POST',body:JSON.stringify(body)});
-      toast(modo==='empleado'?'Solicitud enviada — pendiente de aprobación ✓':'Visita programada ✓','success');
+      toast(modo==='empleado'?'Visita programada ✓ — el admin recibe un aviso informativo':'Visita programada ✓','success');
     }
     cerrarModal('modal-nueva-visita'); visDestinos=[];
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
@@ -2492,7 +2571,15 @@ function abrirSuspenderVisita(id) {
   document.getElementById('susp-visita-id').value = id;
   document.getElementById('susp-detalle').value = '';
   document.getElementById('susp-nueva-fecha').value = '';
+  document.getElementById('susp-quien').value = 'cliente';
+  document.getElementById('susp-contacto-cliente').value = '';
+  toggleContactoClienteSusp();
   abrirModal('modal-suspender-visita');
+}
+
+function toggleContactoClienteSusp() {
+  const quien = document.getElementById('susp-quien').value;
+  document.getElementById('susp-grupo-contacto').style.display = quien==='cliente' ? 'block' : 'none';
 }
 
 async function confirmarSuspension() {
@@ -2500,17 +2587,25 @@ async function confirmarSuspension() {
   const tipo = document.getElementById('susp-motivo-tipo').value;
   const detalle = document.getElementById('susp-detalle').value.trim();
   const nuevaFecha = document.getElementById('susp-nueva-fecha').value;
-  const textoMotivos = {clima:'Condiciones climáticas',cliente:'Cliente canceló o no disponible',interno:'Motivo interno',otro:'Otro motivo'};
+  const quien = document.getElementById('susp-quien').value;
+  const contacto = document.getElementById('susp-contacto-cliente').value.trim();
+  if (quien==='cliente' && !contacto) { toast('Indicá el nombre del contacto del cliente','error'); return; }
+  const textoMotivos = {clima:'Condiciones climáticas',cliente:'Cliente canceló o no disponible',interno:'Motivo interno (vehículo, imprevisto, etc.)',otro:'Otro motivo'};
   const motivo_suspension = textoMotivos[tipo] + (detalle?' — '+detalle:'');
   try {
-    const body = {estado:'suspendida', motivo_suspension};
-    if (nuevaFecha) body.fecha_reprogramada = nuevaFecha;
-    await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify(body)});
+    const body = {
+      motivo_suspension,
+      suspendido_por: quien,
+      contacto_cliente_suspension: quien==='cliente' ? contacto : null,
+      fecha_reprogramada: nuevaFecha || null
+    };
+    await api('/visitas/'+id+'/suspender', {method:'POST', body:JSON.stringify(body)});
     cerrarModal('modal-suspender-visita');
-    toast('Visita suspendida'+(nuevaFecha?' — reprogramada para '+nuevaFecha.split('-').reverse().join('/'):''), 'info');
+    toast('Visita suspendida'+(nuevaFecha?' — se creó la visita reprogramada para '+nuevaFecha.split('-').reverse().join('/'):''), 'info');
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
   } catch(e) { toast(e.message,'error'); }
 }
+
 
 function abrirRendicion(visitaId, destinos) {
   document.getElementById('rendir-visita-id').value=visitaId;
@@ -2553,7 +2648,53 @@ async function cargarMisVisitas() {
 }
 
 function toggleOrigenVisita() {}
-function editarVisita(id) { toast('Función en desarrollo','info'); }
+async function editarVisita(id) {
+  try {
+    // Buscamos la visita en un rango amplio para asegurarnos de encontrarla aunque no esté en el filtro de fechas activo
+    const hoy = new Date(); const desde = new Date(hoy); desde.setMonth(desde.getMonth()-3);
+    const hasta = new Date(hoy); hasta.setMonth(hasta.getMonth()+3);
+    const url = '/visitas?desde='+desde.toISOString().split('T')[0]+'&hasta='+hasta.toISOString().split('T')[0];
+    const visitas = await api(url);
+    const v = visitas.find(x => x.id === id);
+    if (!v) { toast('No se encontró la visita','error'); return; }
+
+    visDestinos = (v.destinos||[]).map(d => ({cliente_nombre:d.cliente_nombre, domicilio:d.domicilio||'', motivo:d.motivo||'', lat:d.lat||null, lng:d.lng||null}));
+    document.getElementById('vis-edit-id').value = id;
+    document.getElementById('vis-modo').value = STATE.rol==='admin' ? 'admin' : 'empleado';
+    document.getElementById('modal-visita-titulo').textContent = 'Editar visita';
+    document.getElementById('vis-fecha').value = String(v.fecha).slice(0,10);
+    document.getElementById('vis-hora-salida').value = v.hora_estimada_salida ? String(v.hora_estimada_salida).slice(0,5) : '';
+    document.getElementById('vis-origen').value = v.origen || 'oficina';
+    document.getElementById('vis-km-est').value = v.km_estimados || '';
+    document.getElementById('vis-viatico-est').value = v.viatico_estimado || '';
+    document.getElementById('vis-obs').value = v.observaciones || '';
+    document.getElementById('vis-aviso-aprobacion').style.display = 'none';
+    renderizarDestinosVisita();
+
+    if (STATE.rol==='admin') {
+      document.getElementById('grupo-empleado-visita').style.display = 'block';
+      const emps = await api('/config/empleados');
+      document.getElementById('vis-empleado-id').innerHTML = emps.map(e=>'<option value="'+e.id+'">'+e.nombre+' '+e.apellido+'</option>').join('');
+      if (v.empleado_id) document.getElementById('vis-empleado-id').value = v.empleado_id;
+    } else {
+      document.getElementById('grupo-empleado-visita').style.display = 'none';
+    }
+
+    await cargarCheckboxRecursos('vis-recursos-checks');
+    const idsRecursos = (v.recursos||[]).map(r => r.recurso_id);
+    document.querySelectorAll('#vis-recursos-checks input[type=checkbox]').forEach(cb => {
+      cb.checked = idsRecursos.includes(parseInt(cb.value));
+    });
+    await cargarDestinosCache();
+
+    const btn = document.getElementById('btn-guardar-visita');
+    btn.textContent = 'Guardar cambios';
+
+    const modal = document.getElementById('modal-nueva-visita');
+    if (STATE.rol!=='admin') modal.style.zIndex = '400';
+    abrirModal('modal-nueva-visita');
+  } catch(e) { toast('Error al cargar la visita para editar','error'); }
+}
 </script>
 
 <script>
