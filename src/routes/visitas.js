@@ -72,6 +72,29 @@ router.post('/', auth, async (req, res) => {
     return res.status(400).json({ error: 'Fecha y al menos un destino son requeridos' });
   const empleadoId = req.user.rol === 'admin' ? (req.body.empleado_id || null) : req.user.empleadoId;
   const estadoFinal = estado || 'programada';
+  // Anti-duplicado: si en los últimos 15 segundos ya se creó una visita idéntica
+  // (mismo empleado, fecha, hora y primer destino), no crear otra — probablemente doble-tap/doble-submit
+  try {
+    const { rows: dup } = await db.query(`
+      SELECT v.id FROM public.visitas v
+      JOIN public.visita_destinos vd ON vd.visita_id = v.id AND vd.orden = 1
+      WHERE v.empleador_id = $1 AND v.empleado_id = $2 AND v.fecha = $3
+        AND COALESCE(v.hora_estimada_salida::text,'') = COALESCE($4::text,'')
+        AND vd.cliente_nombre = $5
+        AND v.creado_en > NOW() - INTERVAL '15 seconds'
+      LIMIT 1
+    `, [req.user.empleadorId, empleadoId, fecha, hora_estimada_salida || null, destinos[0].cliente_nombre]);
+    if (dup.length) {
+      const { rows: [visitaExistente] } = await db.query(`
+        SELECT v.*, e.nombre as emp_nombre, e.apellido as emp_apellido,
+          (SELECT json_agg(vd ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as destinos,
+          (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
+           FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos
+        FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id WHERE v.id = $1
+      `, [dup[0].id]);
+      return res.json(visitaExistente); // Devuelve la visita ya creada en lugar de duplicarla
+    }
+  } catch (e) { console.error('[VISITAS DUP CHECK]', e.message); } // Si falla la verificación, continúa normalmente
   const client = await db.connect();
   try {
     await client.query('BEGIN');
