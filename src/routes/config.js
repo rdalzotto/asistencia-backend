@@ -504,4 +504,19 @@ router.get('/dashboard', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// GET /config/equipo-estado — estado de presencia de todo el equipo, visible para cualquier empleado autenticado
+router.get('/equipo-estado', auth, async (req, res) => {
+  try {
+    const empleadorId = await getEmpleadorId(req);
+    const { rows } = await db.query(
+      'SELECT empleado_id, nombre, apellido, estado, ultima_hora FROM public.v_estado_empleados WHERE empleador_id = $1 ORDER BY nombre',
+      [empleadorId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[CFG] Equipo estado error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;
