@@ -635,6 +635,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="form-group"><label>Hora estimada de salida</label><input type="time" id="vis-hora-salida" onchange="validarFechaHoraVisita()"></div>
     </div>
     <div id="vis-fecha-aviso" style="display:none;color:var(--red);font-size:12px;margin-top:-6px;margin-bottom:10px"></div>
+    <div class="form-group"><label>Hora estimada de regreso (opcional)</label><input type="time" id="vis-hora-regreso"></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:-10px;margin-bottom:10px">Completarla activa el chequeo automático de disponibilidad de los recursos que reserves más abajo</div>
     <div class="form-group"><label>Sale desde</label><select id="vis-origen" onchange="toggleOrigenVisita()"><option value="oficina">🏢 Oficina</option><option value="domicilio">🏠 Domicilio</option></select></div>
     <div class="form-group">
       <label>Cliente(s) a visitar — agregá uno o más en orden de visita</label>
@@ -1190,7 +1192,7 @@ function navEmpleado(sec, el) {
   else if (sec === 'perfil') { cargarMiPerfil(); abrirModal('panel-perfil'); }
   else if (sec === 'visitas') {
     const hoy = fechaLocalHoy();
-    document.getElementById('vis-emp-desde').value = hoy;
+    document.getElementById('vis-emp-desde').value = hoy.slice(0,8)+'01';
     document.getElementById('vis-emp-hasta').value = hoy;
     cargarMisVisitas(); abrirModal('panel-visitas-emp');
   }
@@ -2338,8 +2340,8 @@ async function cerrarAlertaChequeo(chequeado) {
 let visDestinos = [];
 
 async function cargarTabVisitas() {
-  const hoy = fechaLocalHoy();
-  document.getElementById('vis-filtro-desde').value = hoy;
+  const hoy = new Date().toISOString().split('T')[0];
+  document.getElementById('vis-filtro-desde').value = hoy.slice(0,8)+'01';
   document.getElementById('vis-filtro-hasta').value = hoy;
   try {
     const emps = await api('/config/empleados');
@@ -2514,7 +2516,7 @@ function renderTarjetaVisita(v, esAdmin) {
   return `<div class="card" data-visita-id="${v.id}" style="margin-bottom:12px;border-left:3px solid ${colores[v.estado]||'var(--border)'}">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
       <div>
-        <div style="font-size:13px;font-weight:600">${String(v.fecha).slice(0,10).split('-').reverse().join('/')}${v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):''}</div>
+        <div style="font-size:13px;font-weight:600">${String(v.fecha).slice(0,10).split('-').reverse().join('/')}${v.hora_estimada_salida?' · '+String(v.hora_estimada_salida).slice(0,5):''}${v.hora_estimada_regreso?' a '+String(v.hora_estimada_regreso).slice(0,5):''}</div>
         ${esAdmin?'<div style="font-size:12px;color:var(--accent)">👤 '+v.emp_nombre+' '+v.emp_apellido+'</div>':''}
         <div style="font-size:12px;color:var(--text2)">Sale desde: ${v.origen==='domicilio'?'🏠 Domicilio':'🏢 Oficina'}</div>
       </div>
@@ -2587,6 +2589,7 @@ async function abrirModalNuevaVisita() {
   document.getElementById('vis-fecha').value=fechaLocalHoy();
   document.getElementById('vis-fecha').min=fechaLocalHoy();
   document.getElementById('vis-hora-salida').value=horaLocalAhora();
+  document.getElementById('vis-hora-regreso').value='';
   document.getElementById('vis-fecha').style.borderColor='';
   document.getElementById('vis-hora-salida').style.borderColor='';
   document.getElementById('vis-fecha-aviso').style.display='none';
@@ -2616,6 +2619,7 @@ async function abrirModalNuevaVisitaEmp() {
   document.getElementById('vis-fecha').value=fechaLocalHoy();
   document.getElementById('vis-fecha').min=fechaLocalHoy();
   document.getElementById('vis-hora-salida').value=horaLocalAhora();
+  document.getElementById('vis-hora-regreso').value='';
   document.getElementById('vis-fecha').style.borderColor='';
   document.getElementById('vis-hora-salida').style.borderColor='';
   document.getElementById('vis-fecha-aviso').style.display='none';
@@ -2745,7 +2749,7 @@ async function guardarVisita() {
   const textoOriginal = btn.textContent;
   btn.textContent = 'Guardando...';
   try {
-    const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId};
+    const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,hora_estimada_regreso:document.getElementById('vis-hora-regreso').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId};
     if (!editId) body.estado = estadoInicial;
     if (editId) { await api('/visitas/'+editId,{method:'PATCH',body:JSON.stringify(body)}); toast('Visita actualizada ✓','success'); }
     else {
@@ -2925,6 +2929,7 @@ async function editarVisita(id) {
     document.getElementById('vis-hora-salida').style.borderColor = '';
     document.getElementById('vis-fecha-aviso').style.display = 'none';
     document.getElementById('vis-hora-salida').value = v.hora_estimada_salida ? String(v.hora_estimada_salida).slice(0,5) : '';
+    document.getElementById('vis-hora-regreso').value = v.hora_estimada_regreso ? String(v.hora_estimada_regreso).slice(0,5) : '';
     document.getElementById('vis-origen').value = v.origen || 'oficina';
     document.getElementById('vis-km-est').value = v.km_estimados || '';
     document.getElementById('vis-viatico-est').value = v.viatico_estimado || '';
