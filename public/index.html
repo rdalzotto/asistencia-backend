@@ -377,6 +377,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
           <option value="rechazada">Rechazada</option>
           <option value="cancelada">Cancelada</option>
         </select></div>
+        <div class="form-group" style="margin-top:10px;margin-bottom:0"><label>Buscar por cliente/destino</label><input type="text" id="vis-filtro-cliente" placeholder="Nombre del cliente o destino..." oninput="debounceFiltroCliente()"></div>
+        <div id="vis-filtro-cliente-aviso" style="display:none;font-size:11px;color:var(--text3);margin-top:6px">Mostrando historial completo (se ignora el rango de fechas mientras buscás por cliente)</div>
       </div>
       <div style="display:flex;gap:8px;margin:12px 0">
         <button class="btn btn-sm btn-primary" id="btn-vis-vista-lista-admin" onclick="cambiarVistaVisitasAdmin('lista')">📋 Lista</button>
@@ -2352,13 +2354,22 @@ async function cargarVisitasAdmin() {
   const hasta=document.getElementById('vis-filtro-hasta').value;
   const empId=document.getElementById('vis-filtro-empleado').value;
   const filtroEstado=document.getElementById('vis-filtro-estado')?.value||'activas';
+  const filtroCliente=document.getElementById('vis-filtro-cliente')?.value.trim().toLowerCase()||'';
   const cont=document.getElementById('lista-visitas-admin');
+  document.getElementById('vis-filtro-cliente-aviso').style.display = filtroCliente ? 'block' : 'none';
   cont.innerHTML='<p style="color:var(--text3);text-align:center;padding:16px">Cargando...</p>';
   try {
-    let url='/visitas?desde='+desde+'&hasta='+hasta;
-    if (empId) url+='&empleado_id='+empId;
-    let visitas = await api(url);
-    if (filtroEstado==='activas') {
+    // Si hay búsqueda por cliente, se ignora el rango de fechas para poder ver TODO el historial de ese cliente
+    // (programadas, completadas, suspendidas, canceladas — sin importar cuándo fueron)
+    let url = filtroCliente ? '/visitas?' : ('/visitas?desde='+desde+'&hasta='+hasta+'&');
+    if (empId) url+='empleado_id='+empId;
+    let visitas = await api(url.replace(/[?&]$/,''));
+    if (filtroCliente) {
+      visitas = visitas.filter(v => (v.destinos||[]).some(d => (d.cliente_nombre||'').toLowerCase().includes(filtroCliente)));
+      if (filtroEstado!=='todas' && filtroEstado!=='activas') {
+        visitas = visitas.filter(v => v.estado===filtroEstado);
+      }
+    } else if (filtroEstado==='activas') {
       visitas = visitas.filter(v => !['suspendida','rechazada','cancelada'].includes(v.estado));
     } else if (filtroEstado!=='todas') {
       visitas = visitas.filter(v => v.estado===filtroEstado);
@@ -2368,9 +2379,19 @@ async function cargarVisitasAdmin() {
     document.getElementById('vis-total-visitas').textContent=visitas.length;
     document.getElementById('vis-total-km').textContent=totalKm.toFixed(1);
     document.getElementById('vis-total-viaticos').textContent='$'+totalVia.toFixed(0);
-    if (!visitas.length) { cont.innerHTML='<p style="color:var(--text3);text-align:center;padding:16px">Sin visitas en el período</p>'; return; }
+    if (!visitas.length) { cont.innerHTML='<p style="color:var(--text3);text-align:center;padding:16px">Sin visitas '+(filtroCliente?'para ese cliente':'en el período')+'</p>'; return; }
     cont.innerHTML = visitas.map(v => renderTarjetaVisita(v,true)).join('');
   } catch { cont.innerHTML='<p style="color:var(--red);text-align:center;padding:16px">Error cargando visitas</p>'; }
+}
+
+let _debounceFiltroCliente = null;
+function debounceFiltroCliente() {
+  clearTimeout(_debounceFiltroCliente);
+  _debounceFiltroCliente = setTimeout(() => {
+    const enCalendario = document.getElementById('vis-admin-vista-calendario').style.display !== 'none';
+    if (enCalendario) cambiarVistaVisitasAdmin('lista'); // la búsqueda por cliente es de la vista lista
+    else cargarVisitasAdmin();
+  }, 350);
 }
 
 // ── CALENDARIO DE VISITAS (admin y empleado comparten el motor de grilla) ──────
