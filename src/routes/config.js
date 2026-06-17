@@ -29,7 +29,7 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
   const {
     razon_social, nombre_fantasia, cuit, domicilio, localidad, provincia,
     codigo_postal, telefono, email, actividad, nro_inscripcion,
-    logo_url, color_primario, color_secundario, nombre_sistema,
+    logo_url, color_primario, color_secundario, nombre_sistema, subtitulo_sistema,
     oficina_lat, oficina_lng, oficina_radio_m,
     emails_admin, convenio_id,
   } = req.body;
@@ -60,14 +60,15 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
         oficina_radio_m    = COALESCE($18, oficina_radio_m),
         emails_admin       = COALESCE($19, emails_admin),
         convenio_id        = COALESCE($20, convenio_id),
+        subtitulo_sistema  = COALESCE($21, subtitulo_sistema),
         actualizado_en     = NOW()
-      WHERE id = $21 RETURNING *
+      WHERE id = $22 RETURNING *
     `, [
       razon_social, nombre_fantasia, cuit, domicilio, localidad, provincia,
       codigo_postal, telefono, email, actividad, nro_inscripcion,
       logo_url, color_primario, color_secundario, nombre_sistema,
       oficina_lat, oficina_lng, oficina_radio_m,
-      emails_admin, convenio_id,
+      emails_admin, convenio_id, subtitulo_sistema,
       empleadorId,
     ]);
     res.json(emp || {});
