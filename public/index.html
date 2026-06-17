@@ -608,9 +608,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="modal-title" id="modal-visita-titulo">Programar visita</div>
     <div class="form-group" id="grupo-empleado-visita" style="display:none"><label>Empleado</label><select id="vis-empleado-id"></select></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="form-group"><label>Fecha</label><input type="date" id="vis-fecha"></div>
-      <div class="form-group"><label>Hora estimada de salida</label><input type="time" id="vis-hora-salida"></div>
+      <div class="form-group"><label>Fecha</label><input type="date" id="vis-fecha" onchange="validarFechaHoraVisita()"></div>
+      <div class="form-group"><label>Hora estimada de salida</label><input type="time" id="vis-hora-salida" onchange="validarFechaHoraVisita()"></div>
     </div>
+    <div id="vis-fecha-aviso" style="display:none;color:var(--red);font-size:12px;margin-top:-6px;margin-bottom:10px"></div>
     <div class="form-group"><label>Sale desde</label><select id="vis-origen" onchange="toggleOrigenVisita()"><option value="oficina">🏢 Oficina</option><option value="domicilio">🏠 Domicilio</option></select></div>
     <div class="form-group">
       <label>Cliente(s) a visitar — agregá uno o más en orden de visita</label>
@@ -2339,7 +2340,7 @@ function renderTarjetaVisita(v, esAdmin) {
   const puedeIniciar = v.estado==='programada';
   const esPendiente = v.estado==='pendiente_aprobacion';
   const puedeSuspender = v.estado==='programada' || v.estado==='en_curso';
-  const puedeEditarOEliminar = ['programada','en_curso'].includes(v.estado);
+  const puedeEditarOEliminar = ['programada','en_curso'].includes(v.estado) && String(v.fecha).slice(0,10) >= fechaLocalHoy();
   const puedeConstancia = ['en_curso','completada','programada'].includes(v.estado);
 
   let bloqueSuspension = '';
@@ -2426,9 +2427,12 @@ async function abrirModalNuevaVisita() {
   document.getElementById('vis-edit-id').value='';
   document.getElementById('vis-modo').value='admin';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
-  document.getElementById('vis-fecha').value=new Date().toISOString().split('T')[0];
-  document.getElementById('vis-fecha').min=new Date().toISOString().split('T')[0];
-  document.getElementById('vis-hora-salida').value=new Date().toTimeString().slice(0,5);
+  document.getElementById('vis-fecha').value=fechaLocalHoy();
+  document.getElementById('vis-fecha').min=fechaLocalHoy();
+  document.getElementById('vis-hora-salida').value=horaLocalAhora();
+  document.getElementById('vis-fecha').style.borderColor='';
+  document.getElementById('vis-hora-salida').style.borderColor='';
+  document.getElementById('vis-fecha-aviso').style.display='none';
   document.getElementById('vis-origen').value='oficina';
   document.getElementById('vis-km-est').value='';
   document.getElementById('vis-viatico-est').value='';
@@ -2452,9 +2456,12 @@ async function abrirModalNuevaVisitaEmp() {
   document.getElementById('vis-edit-id').value='';
   document.getElementById('vis-modo').value='empleado';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
-  document.getElementById('vis-fecha').value=new Date().toISOString().split('T')[0];
-  document.getElementById('vis-fecha').min=new Date().toISOString().split('T')[0];
-  document.getElementById('vis-hora-salida').value=new Date().toTimeString().slice(0,5);
+  document.getElementById('vis-fecha').value=fechaLocalHoy();
+  document.getElementById('vis-fecha').min=fechaLocalHoy();
+  document.getElementById('vis-hora-salida').value=horaLocalAhora();
+  document.getElementById('vis-fecha').style.borderColor='';
+  document.getElementById('vis-hora-salida').style.borderColor='';
+  document.getElementById('vis-fecha-aviso').style.display='none';
   document.getElementById('vis-origen').value='oficina';
   document.getElementById('vis-km-est').value='';
   document.getElementById('vis-viatico-est').value='';
@@ -2515,6 +2522,39 @@ function renderizarDestinosVisita() {
   cont.innerHTML=visDestinos.map((d,i)=>'<div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:6px"><div><div style="font-size:13px;font-weight:600">'+(i+1)+'. '+d.cliente_nombre+'</div>'+(d.domicilio?'<div style="font-size:11px;color:var(--text2)">'+d.domicilio+'</div>':'')+(d.motivo?'<div style="font-size:11px;color:var(--text3)">'+d.motivo+'</div>':'')+'</div><button onclick="quitarDestinoVisita('+i+')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px">✕</button></div>').join('');
 }
 
+// ── HELPERS DE FECHA/HORA LOCAL (evitar bugs de zona horaria con toISOString, que usa UTC) ──
+function fechaLocalHoy() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function horaLocalAhora() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+// Valida en vivo (se llama en cada onchange de fecha/hora, y también antes de guardar).
+// Marca en rojo el campo inválido y muestra el aviso. Devuelve true si todo está OK.
+function validarFechaHoraVisita() {
+  const fechaInput = document.getElementById('vis-fecha');
+  const horaInput = document.getElementById('vis-hora-salida');
+  const aviso = document.getElementById('vis-fecha-aviso');
+  const esEdicion = !!document.getElementById('vis-edit-id').value;
+  const fecha = fechaInput.value;
+  const hora = horaInput.value;
+  const hoy = fechaLocalHoy();
+  fechaInput.style.borderColor = '';
+  horaInput.style.borderColor = '';
+  let mensaje = '';
+  if (fecha && fecha < hoy) {
+    fechaInput.style.borderColor = 'var(--red)';
+    mensaje = 'La fecha no puede ser anterior a hoy';
+  } else if (!esEdicion && fecha === hoy && hora && hora < horaLocalAhora()) {
+    horaInput.style.borderColor = 'var(--red)';
+    mensaje = 'La hora no puede ser anterior a la hora actual';
+  }
+  if (aviso) { aviso.textContent = mensaje; aviso.style.display = mensaje ? 'block' : 'none'; }
+  return !mensaje;
+}
+
 async function guardarVisita() {
   const btn = document.getElementById('btn-guardar-visita');
   if (btn.disabled) return; // Evita doble envío por doble-click o doble-tap
@@ -2533,18 +2573,9 @@ async function guardarVisita() {
   const fecha=document.getElementById('vis-fecha').value;
   if (!fecha) { toast('Seleccioná una fecha','error'); return; }
   const horaSalida=document.getElementById('vis-hora-salida').value;
-  const editIdCheck=document.getElementById('vis-edit-id').value;
-  // No permitir programar visitas en el pasado: la fecha (y si es hoy y es una visita nueva, también la hora) debe ser presente o futura
-  const ahora = new Date();
-  const hoyStr = ahora.toISOString().split('T')[0];
-  if (fecha < hoyStr) {
-    toast('La fecha de la visita no puede ser anterior a hoy','error'); return;
-  }
-  if (!editIdCheck && fecha === hoyStr && horaSalida) {
-    const horaActualStr = ahora.toTimeString().slice(0,5);
-    if (horaSalida < horaActualStr) {
-      toast('La hora de salida no puede ser anterior a la hora actual','error'); return;
-    }
+  // Validación de fecha/hora pasada (misma lógica que la validación en vivo, con hora LOCAL del dispositivo)
+  if (!validarFechaHoraVisita()) {
+    toast(document.getElementById('vis-fecha-aviso').textContent || 'Revisá la fecha y hora','error'); return;
   }
   const recursosIds=getCheckboxSeleccionados('vis-recursos-checks');
   const editId=document.getElementById('vis-edit-id').value;
@@ -2674,13 +2705,19 @@ async function editarVisita(id) {
     const visitas = await api(url);
     const v = visitas.find(x => x.id === id);
     if (!v) { toast('No se encontró la visita','error'); return; }
+    if (String(v.fecha).slice(0,10) < fechaLocalHoy()) {
+      toast('No se puede editar una visita cuya fecha ya pasó','error'); return;
+    }
 
     visDestinos = (v.destinos||[]).map(d => ({cliente_nombre:d.cliente_nombre, domicilio:d.domicilio||'', motivo:d.motivo||'', lat:d.lat||null, lng:d.lng||null}));
     document.getElementById('vis-edit-id').value = id;
     document.getElementById('vis-modo').value = STATE.rol==='admin' ? 'admin' : 'empleado';
     document.getElementById('modal-visita-titulo').textContent = 'Editar visita';
     document.getElementById('vis-fecha').value = String(v.fecha).slice(0,10);
-    document.getElementById('vis-fecha').min = new Date().toISOString().split('T')[0];
+    document.getElementById('vis-fecha').min = fechaLocalHoy();
+    document.getElementById('vis-fecha').style.borderColor = '';
+    document.getElementById('vis-hora-salida').style.borderColor = '';
+    document.getElementById('vis-fecha-aviso').style.display = 'none';
     document.getElementById('vis-hora-salida').value = v.hora_estimada_salida ? String(v.hora_estimada_salida).slice(0,5) : '';
     document.getElementById('vis-origen').value = v.origen || 'oficina';
     document.getElementById('vis-km-est').value = v.km_estimados || '';
