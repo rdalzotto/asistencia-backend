@@ -2,6 +2,17 @@ const router = require('express').Router();
 const db     = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 
+// ── HELPERS DE FECHA/HORA ARGENTINA (el servidor en Railway corre en UTC; no usar new Date() directo) ──
+// Argentina es UTC-3 todo el año (sin horario de verano), así que restamos 3hs al UTC del servidor.
+function fechaHoyArgentina() {
+  const ahoraArg = new Date(Date.now() - 3*60*60*1000);
+  return ahoraArg.toISOString().split('T')[0];
+}
+function horaAhoraArgentina() {
+  const ahoraArg = new Date(Date.now() - 3*60*60*1000);
+  return ahoraArg.toISOString().split('T')[1].slice(0,5);
+}
+
 // ── GET /visitas/reporte ──────────────────────────────────────
 router.get('/reporte', auth, soloAdmin, async (req, res) => {
   const { desde, hasta } = req.query;
@@ -72,9 +83,13 @@ router.post('/', auth, async (req, res) => {
   if (!fecha || !destinos?.length)
     return res.status(400).json({ error: 'Fecha y al menos un destino son requeridos' });
   // No permitir crear visitas con fecha anterior a hoy (validación de respaldo a la del frontend)
-  const hoyServidor = new Date().toISOString().split('T')[0];
-  if (fecha < hoyServidor)
+  // Usa hora ARGENTINA, no la hora del servidor (Railway corre en UTC — comparar con UTC directo
+  // generaba bloqueos falsos durante la noche, cuando en Argentina todavía es "hoy" pero en UTC ya es "mañana")
+  const hoyArg = fechaHoyArgentina();
+  if (fecha < hoyArg)
     return res.status(400).json({ error: 'La fecha de la visita no puede ser anterior a hoy' });
+  if (fecha === hoyArg && hora_estimada_salida && hora_estimada_salida < horaAhoraArgentina())
+    return res.status(400).json({ error: 'La hora de salida no puede ser anterior a la hora actual' });
   const empleadoId = req.user.rol === 'admin' ? (req.body.empleado_id || null) : req.user.empleadoId;
   const estadoFinal = estado || 'programada';
   // Anti-duplicado: si en los últimos 15 segundos ya se creó una visita idéntica
@@ -182,10 +197,20 @@ router.patch('/:id', auth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { rows: [visitaActual] } = await client.query(
-      `SELECT estado, empleado_id FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
+      `SELECT estado, empleado_id, fecha FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
       [req.params.id, req.user.empleadorId]
     );
     if (!visitaActual) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Visita no encontrada' }); }
+
+    // Bloqueo de edición de detalles de visitas con fecha pasada (defensa de respaldo a la del frontend).
+    // Solo aplica cuando se están editando datos de planificación (fecha/destinos/horarios/recursos/km/viático),
+    // no cuando es solo un cambio de estado (suspender, completar, cancelar, etc.) que sí debe poder hacerse después.
+    const esEdicionDeDetalle = fecha != null || destinos != null || hora_estimada_salida != null ||
+      km_estimados != null || viatico_estimado != null || recursos_ids != null || empleado_id != null;
+    if (esEdicionDeDetalle && String(visitaActual.fecha).slice(0,10) < fechaHoyArgentina()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No se puede editar una visita cuya fecha ya pasó' });
+    }
 
     let v = visitaActual;
     if (sets.length) {
