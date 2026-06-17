@@ -13,6 +13,50 @@ function horaAhoraArgentina() {
   return ahoraArg.toISOString().split('T')[1].slice(0,5);
 }
 
+// ── DETECCIÓN DE CONFLICTO DE RECURSOS ENTRE VISITAS ───────────────────────────
+// Chequea si alguno de los recursos pedidos para una visita (en el rango hora_salida → hora_regreso de esa fecha)
+// ya está comprometido por: a) otra visita con esos mismos recursos en un horario que se superpone,
+// o b) una reserva directa en la tabla `reservas` (sistema de reservas de recursos, separado de visitas).
+// Si no hay hora_desde u hora_hasta no se puede determinar el rango, así que no bloquea (se omite el chequeo).
+async function buscarConflictoRecursos(queryable, empleadorId, recursosIds, fecha, horaDesde, horaHasta, visitaIdExcluir) {
+  if (!recursosIds?.length || !horaDesde || !horaHasta) return null;
+  const idExcluir = visitaIdExcluir || 0;
+  const { rows: confVisitas } = await queryable.query(`
+    SELECT r.nombre as recurso_nombre, v.hora_estimada_salida, v.hora_estimada_regreso, e.nombre, e.apellido
+    FROM public.visita_recursos vr
+    JOIN public.visitas v ON v.id = vr.visita_id
+    JOIN public.recursos r ON r.id = vr.recurso_id
+    JOIN public.empleados e ON e.id = v.empleado_id
+    WHERE vr.recurso_id = ANY($1::int[])
+      AND v.empleador_id = $2
+      AND v.fecha = $3
+      AND v.id != $4
+      AND v.estado NOT IN ('cancelada','rechazada','suspendida')
+      AND v.hora_estimada_salida IS NOT NULL AND v.hora_estimada_regreso IS NOT NULL
+      AND v.hora_estimada_salida < $6 AND v.hora_estimada_regreso > $5
+    LIMIT 1
+  `, [recursosIds, empleadorId, fecha, idExcluir, horaDesde, horaHasta]);
+  if (confVisitas.length) {
+    const c = confVisitas[0];
+    return `El recurso "${c.recurso_nombre}" ya está reservado por ${c.nombre} ${c.apellido} para otra visita de ${String(c.hora_estimada_salida).slice(0,5)} a ${String(c.hora_estimada_regreso).slice(0,5)}`;
+  }
+  const { rows: confReservas } = await queryable.query(`
+    SELECT r.nombre as recurso_nombre, rv.hora_desde, rv.hora_hasta, rv.quien
+    FROM public.reservas rv
+    JOIN public.recursos r ON r.id = rv.recurso_id
+    WHERE rv.recurso_id = ANY($1::int[])
+      AND rv.empleador_id = $2
+      AND rv.fecha_desde <= $3 AND rv.fecha_hasta >= $3
+      AND rv.hora_desde < $5 AND rv.hora_hasta > $4
+    LIMIT 1
+  `, [recursosIds, empleadorId, fecha, horaDesde, horaHasta]);
+  if (confReservas.length) {
+    const c = confReservas[0];
+    return `El recurso "${c.recurso_nombre}" ya está reservado por ${c.quien} de ${String(c.hora_desde).slice(0,5)} a ${String(c.hora_hasta).slice(0,5)}`;
+  }
+  return null;
+}
+
 // ── GET /visitas/reporte ──────────────────────────────────────
 router.get('/reporte', auth, soloAdmin, async (req, res) => {
   const { desde, hasta } = req.query;
@@ -78,7 +122,7 @@ router.get('/', auth, async (req, res) => {
 
 // ── POST /visitas ─────────────────────────────────────────────
 router.post('/', auth, async (req, res) => {
-  const { fecha, hora_estimada_salida, origen, origen_lat, origen_lng,
+  const { fecha, hora_estimada_salida, hora_estimada_regreso, origen, origen_lat, origen_lng,
           km_estimados, viatico_estimado, observaciones, destinos, recursos_ids, estado } = req.body;
   if (!fecha || !destinos?.length)
     return res.status(400).json({ error: 'Fecha y al menos un destino son requeridos' });
@@ -118,13 +162,21 @@ router.post('/', auth, async (req, res) => {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    // Chequeo de conflicto de recursos: si se pidió algún recurso y hay rango horario completo (salida→regreso),
+    // verificar que ninguna otra visita ni reserva directa ya lo tenga comprometido ese día en ese horario.
+    if (recursos_ids?.length) {
+      const msjConflicto = await buscarConflictoRecursos(
+        client, req.user.empleadorId, recursos_ids, fecha, hora_estimada_salida, hora_estimada_regreso, 0
+      );
+      if (msjConflicto) { await client.query('ROLLBACK'); return res.status(409).json({ error: msjConflicto }); }
+    }
     const vistoAdmin = req.user.rol === 'admin'; // El admin no necesita avisarse a sí mismo
     const { rows: [v] } = await client.query(`
       INSERT INTO public.visitas
-        (empleador_id, empleado_id, fecha, hora_estimada_salida, origen,
+        (empleador_id, empleado_id, fecha, hora_estimada_salida, hora_estimada_regreso, origen,
          origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones, estado, visto_admin)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *
-    `, [req.user.empleadorId, empleadoId, fecha, hora_estimada_salida || null,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *
+    `, [req.user.empleadorId, empleadoId, fecha, hora_estimada_salida || null, hora_estimada_regreso || null,
         origen || 'oficina', origen_lat || null, origen_lng || null,
         km_estimados || 0, viatico_estimado || 0, observaciones || null, estadoFinal, vistoAdmin]);
     for (let i = 0; i < destinos.length; i++) {
@@ -162,7 +214,7 @@ router.patch('/:id', auth, async (req, res) => {
           foto_evidencia_suspension,
           lat_inicio_real, lng_inicio_real, hora_inicio_real,
           suspendido_por, contacto_cliente_suspension, visita_reprogramacion_id,
-          fecha, hora_estimada_salida, origen, km_estimados, viatico_estimado,
+          fecha, hora_estimada_salida, hora_estimada_regreso, origen, km_estimados, viatico_estimado,
           empleado_id, destinos, recursos_ids } = req.body;
   const sets = [];
   const params = [req.params.id, req.user.empleadorId];
@@ -182,6 +234,7 @@ router.patch('/:id', auth, async (req, res) => {
   if (visita_reprogramacion_id != null) { params.push(visita_reprogramacion_id); sets.push(`visita_reprogramacion_id = $${params.length}`); }
   if (fecha)                         { params.push(fecha);                      sets.push(`fecha = $${params.length}`); }
   if (hora_estimada_salida != null)  { params.push(hora_estimada_salida);       sets.push(`hora_estimada_salida = $${params.length}`); }
+  if (hora_estimada_regreso != null) { params.push(hora_estimada_regreso);      sets.push(`hora_estimada_regreso = $${params.length}`); }
   if (origen)                        { params.push(origen);                    sets.push(`origen = $${params.length}`); }
   if (km_estimados != null)          { params.push(km_estimados);               sets.push(`km_estimados = $${params.length}`); }
   if (viatico_estimado != null)      { params.push(viatico_estimado);           sets.push(`viatico_estimado = $${params.length}`); }
@@ -197,7 +250,7 @@ router.patch('/:id', auth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const { rows: [visitaActual] } = await client.query(
-      `SELECT estado, empleado_id, fecha FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
+      `SELECT estado, empleado_id, fecha, hora_estimada_salida, hora_estimada_regreso FROM public.visitas WHERE id = $1 AND empleador_id = $2`,
       [req.params.id, req.user.empleadorId]
     );
     if (!visitaActual) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Visita no encontrada' }); }
@@ -210,6 +263,18 @@ router.patch('/:id', auth, async (req, res) => {
     if (esEdicionDeDetalle && String(visitaActual.fecha).slice(0,10) < fechaHoyArgentina()) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'No se puede editar una visita cuya fecha ya pasó' });
+    }
+
+    // Chequeo de conflicto de recursos: solo cuando se está (re)asignando recursos a la visita.
+    // Usa fecha/horarios nuevos si vienen en el body, o los que ya tenía la visita si no se están cambiando.
+    if (recursos_ids && Array.isArray(recursos_ids) && recursos_ids.length) {
+      const fechaCheq = String(fecha || visitaActual.fecha).slice(0,10);
+      const horaDesdeCheq = hora_estimada_salida != null ? hora_estimada_salida : visitaActual.hora_estimada_salida;
+      const horaHastaCheq = hora_estimada_regreso != null ? hora_estimada_regreso : visitaActual.hora_estimada_regreso;
+      const msjConflicto = await buscarConflictoRecursos(
+        client, req.user.empleadorId, recursos_ids, fechaCheq, horaDesdeCheq, horaHastaCheq, req.params.id
+      );
+      if (msjConflicto) { await client.query('ROLLBACK'); return res.status(409).json({ error: msjConflicto }); }
     }
 
     let v = visitaActual;
