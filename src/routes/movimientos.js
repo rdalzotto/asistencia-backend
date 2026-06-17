@@ -33,29 +33,45 @@ router.post('/registrar', auth, async (req, res) => {
     const hoy     = new Date().toISOString().split('T')[0];
     const feriado = await jornada.esFeriado(hoy);
 
+    // ─ Normalizar lat/lng: tratamos undefined, null y string vacío como "sin GPS" (NULL real en la base,
+    // nunca NaN). parseFloat(null) da NaN en JS, por eso antes quedaba guardado "NaN" en vez de NULL. ─
+    const latNum = (lat !== undefined && lat !== null && lat !== '') ? parseFloat(lat) : NaN;
+    const lngNum = (lng !== undefined && lng !== null && lng !== '') ? parseFloat(lng) : NaN;
+    const latVal = Number.isFinite(latNum) ? latNum : null;
+    const lngVal = Number.isFinite(lngNum) ? lngNum : null;
+    const tieneGps = latVal !== null && lngVal !== null;
+
     // ─ Verificar GPS (solo para movimientos de oficina, no remotos) ─
     let gpsValido = true;
     let distanciaM = null;
+    let observacionAuto = null;
 
-    if (!es_remoto && lat && lng && ['ingreso','egreso','salida_almuerzo','regreso_almuerzo'].includes(tipo)) {
-      const { rows: [emp] } = await client.query(
-        'SELECT oficina_lat, oficina_lng, oficina_radio_m FROM public.empleadores WHERE id = $1',
-        [req.user.empleadorId]
-      );
-      if (emp && emp.oficina_lat != null && emp.oficina_lng != null) {
-        distanciaM = Math.round(calcularDistancia(
-          parseFloat(lat),
-          parseFloat(lng),
-          parseFloat(emp.oficina_lat),
-          parseFloat(emp.oficina_lng)
-        ));
-        const radioPermitido = parseInt(emp.oficina_radio_m) || 300;
-        gpsValido = distanciaM <= radioPermitido;
-        if (!gpsValido)
-          return res.status(400).json({
-            error: `GPS fuera del área permitida (${distanciaM}m de distancia)`,
-            distanciaM,
-          });
+    if (!es_remoto && ['ingreso','egreso','salida_almuerzo','regreso_almuerzo'].includes(tipo)) {
+      if (!tieneGps) {
+        // Sin señal GPS al fichar: no bloqueamos el fichaje (el empleado podría estar realmente en la
+        // oficina y solo falló el GPS del teléfono), pero tampoco lo damos por válido en silencio —
+        // queda marcado para que el admin lo revise y decida.
+        gpsValido = false;
+        observacionAuto = 'Sin señal GPS al fichar — pendiente de validación manual';
+      } else {
+        const { rows: [emp] } = await client.query(
+          'SELECT oficina_lat, oficina_lng, oficina_radio_m FROM public.empleadores WHERE id = $1',
+          [req.user.empleadorId]
+        );
+        if (emp && emp.oficina_lat != null && emp.oficina_lng != null) {
+          distanciaM = Math.round(calcularDistancia(
+            latVal, lngVal,
+            parseFloat(emp.oficina_lat),
+            parseFloat(emp.oficina_lng)
+          ));
+          const radioPermitido = parseInt(emp.oficina_radio_m) || 300;
+          gpsValido = distanciaM <= radioPermitido;
+          if (!gpsValido)
+            return res.status(400).json({
+              error: `GPS fuera del área permitida (${distanciaM}m de distancia)`,
+              distanciaM,
+            });
+        }
       }
     }
 
@@ -78,7 +94,7 @@ router.post('/registrar', auth, async (req, res) => {
     // ─ Hash SHA-256 (Ley 25.506) ─
     const hashData = {
       tipo, empleadoId, empleadorId: req.user.empleadorId,
-      hora: new Date().toISOString(), lat, lng,
+      hora: new Date().toISOString(), lat: latVal, lng: lngVal,
     };
     const hash = jornada.generarHash(hashData);
 
@@ -93,7 +109,7 @@ router.post('/registrar', auth, async (req, res) => {
         es_tardanza, minutos_tardanza,
         es_feriado,
         consentimiento_extra, consentimiento_hora,
-        validado, hash_sha256
+        validado, hash_sha256, observacion_admin
       ) VALUES (
         $1,$2,$3,CURRENT_DATE,NOW(),
         $4,$5,$6,$7,
@@ -103,12 +119,11 @@ router.post('/registrar', auth, async (req, res) => {
         $16,$17,
         $18,
         $19, CASE WHEN $19 THEN NOW() ELSE NULL END,
-        $20,$21
+        $20,$21,$22
       ) RETURNING *
     `, [
       empleadoId, req.user.empleadorId, tipo,
-      lat !== undefined ? parseFloat(lat) : null,
-      lng !== undefined ? parseFloat(lng) : null,
+      latVal, lngVal,
       gpsValido, distanciaM,
       es_remoto || false,
       domicilio_partida_lat !== undefined ? parseFloat(domicilio_partida_lat) : null,
@@ -120,8 +135,9 @@ router.post('/registrar', auth, async (req, res) => {
       esTardanza, minutosTardanza,
       feriado,
       consentimiento_extra || null,
-      es_remoto ? false : true,
+      es_remoto ? false : gpsValido,
       hash,
+      observacionAuto,
     ]);
 
     // ─ Actualizar banco de horas ─
@@ -236,6 +252,8 @@ router.get('/historial', auth, async (req, res) => {
 });
 
 // ─── POST /movimientos/validar-remoto (admin) ─────────────────────────────────
+// A pesar del nombre (histórico), este endpoint hoy valida CUALQUIER movimiento pendiente
+// de revisión humana: jornadas remotas, o fichajes de oficina sin señal GPS.
 router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
   const { id } = req.params;
   const { aprobado, observacion } = req.body;
@@ -247,9 +265,9 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
         validado_por = $2,
         validado_en = NOW(),
         observacion_admin = $3
-      WHERE id = $4 AND es_remoto = TRUE
+      WHERE id = $4 AND empleador_id = $5 AND (es_remoto = TRUE OR gps_valido = FALSE)
       RETURNING *
-    `, [aprobado !== false, req.user.id, observacion || null, id]);
+    `, [aprobado !== false, req.user.id, observacion || null, id, req.user.empleadorId]);
 
     if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
 
@@ -277,7 +295,7 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
       FROM public.movimientos m
       JOIN public.empleados e ON e.id = m.empleado_id
       WHERE m.empleador_id = $1
-        AND m.es_remoto = TRUE
+        AND (m.es_remoto = TRUE OR m.gps_valido = FALSE)
         AND m.validado = FALSE
         AND m.hora >= NOW() - INTERVAL '48 hours'
       ORDER BY m.hora DESC
