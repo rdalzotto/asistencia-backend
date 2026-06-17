@@ -303,7 +303,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <div id="lista-vacaciones-mes"></div>
       </div>
       <div class="card" id="card-remotos" style="display:none">
-        <div class="card-title" style="color:var(--orange)">⚠ Jornadas remotas — validar</div>
+        <div class="card-title" style="color:var(--orange)">⚠ Movimientos pendientes de validar</div>
         <div id="lista-remotos"></div>
       </div>
     </div>
@@ -1369,10 +1369,13 @@ async function confirmarMovimiento() {
     const body = {tipo, lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:esRemoto};
     if (tipo === 'salida_externa') { body.categoria_salida_id = catId||null; body.destino_id = destId||null; body.destino_descripcion = desc||null; }
     if (esRemoto) { body.domicilio_partida_lat = STATE.gpsCoords?.lat; body.domicilio_partida_lng = STATE.gpsCoords?.lng; }
-    await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
+    const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
     mostrarExito(tipo);
+    if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
+      setTimeout(() => toast('Se registró sin señal GPS — quedará pendiente de validación del admin', 'info', 5000), 800);
+    }
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
     }
@@ -1522,8 +1525,8 @@ async function cargarDashboardAdmin() {
       document.getElementById('card-remotos').style.display = 'block';
       document.getElementById('lista-remotos').innerHTML = data.pendientes_remoto.map(m => `
         <div style="padding:12px 0;border-bottom:1px solid var(--border)">
-          <div style="font-size:14px;font-weight:600">${m.nombre} ${m.apellido}</div>
-          <div style="font-size:12px;color:var(--text2)">${new Date(m.hora).toLocaleString('es-AR')}</div>
+          <div style="font-size:14px;font-weight:600">${m.nombre} ${m.apellido} <span style="font-size:11px;font-weight:600;color:${m.es_remoto?'var(--accent)':'var(--orange)'}">${m.es_remoto?'· 💻 Remoto':'· 📍 Sin GPS'}</span></div>
+          <div style="font-size:12px;color:var(--text2)">${new Date(m.hora).toLocaleString('es-AR')}${!m.es_remoto?' · '+(m.tipo||''):''}</div>
           <div style="display:flex;gap:8px;margin-top:8px">
             <button class="btn btn-sm btn-success" onclick="validarRemoto('${m.id}',true)">✓ Validar</button>
             <button class="btn btn-sm btn-danger" onclick="validarRemoto('${m.id}',false)">✗ Rechazar</button>
