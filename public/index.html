@@ -1190,7 +1190,7 @@ function navEmpleado(sec, el) {
   else if (sec === 'perfil') { cargarMiPerfil(); abrirModal('panel-perfil'); }
   else if (sec === 'visitas') {
     const hoy = fechaLocalHoy();
-    document.getElementById('vis-emp-desde').value = hoy.slice(0,8)+'01';
+    document.getElementById('vis-emp-desde').value = hoy;
     document.getElementById('vis-emp-hasta').value = hoy;
     cargarMisVisitas(); abrirModal('panel-visitas-emp');
   }
@@ -2338,8 +2338,8 @@ async function cerrarAlertaChequeo(chequeado) {
 let visDestinos = [];
 
 async function cargarTabVisitas() {
-  const hoy = new Date().toISOString().split('T')[0];
-  document.getElementById('vis-filtro-desde').value = hoy.slice(0,8)+'01';
+  const hoy = fechaLocalHoy();
+  document.getElementById('vis-filtro-desde').value = hoy;
   document.getElementById('vis-filtro-hasta').value = hoy;
   try {
     const emps = await api('/config/empleados');
