@@ -3263,9 +3263,19 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
   <div class="modal" style="max-height:95vh">
     <div class="modal-handle"></div>
     <div class="modal-title" id="firma-titulo">Firma digital</div>
+    <div class="form-group" id="firma-grupo-responsables" style="display:none">
+      <label>Responsable conocido</label>
+      <select id="firma-responsables-select" onchange="seleccionarResponsableConocido(this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:10px;font-size:14px;width:100%">
+        <option value="">— Seleccioná o ingresá uno nuevo —</option>
+      </select>
+    </div>
     <div class="form-group">
       <label>Nombre y apellido</label>
       <input type="text" id="firma-nombre" placeholder="Nombre completo">
+    </div>
+    <div class="form-group" id="firma-grupo-dni" style="display:none">
+      <label>DNI</label>
+      <input type="text" id="firma-dni" placeholder="Sin puntos">
     </div>
     <div class="form-group">
       <label>Cargo / función</label>
@@ -3637,17 +3647,51 @@ async function guardarConstanciaActual(mostrarToast=false) {
 // ── FIRMA DIGITAL ─────────────────────────────────────────────────
 let _firmaCanvas=null,_firmaCtx=null,_firmaDibujando=false;
 
-function abrirFirma(tipo) {
+async function abrirFirma(tipo) {
   const titulos={cliente:'Firma — Responsable del cliente',tecnico:'Firma — Asesor EXIT S.A.',responsable_exit:'Firma — Responsable del servicio EXIT S.A.'};
   document.getElementById('firma-titulo').textContent=titulos[tipo]||'Firma digital';
   document.getElementById('firma-tipo').value=tipo;
-  document.getElementById('firma-grupo-matricula').style.display=tipo!=='cliente'?'block':'none';
+  const esCliente = tipo === 'cliente';
+  document.getElementById('firma-grupo-matricula').style.display=esCliente?'none':'block';
+  document.getElementById('firma-grupo-dni').style.display=esCliente?'block':'none';
   const ex=CONST_STATE.firmas[tipo];
   document.getElementById('firma-nombre').value=ex?.nombre_apellido||'';
   document.getElementById('firma-cargo').value=ex?.cargo||'';
+  document.getElementById('firma-dni').value=ex?.dni||'';
   document.getElementById('firma-matricula').value=ex?.matricula||'';
+  // Cargar responsables conocidos si es firma de cliente
+  const grpResp = document.getElementById('firma-grupo-responsables');
+  const sel = document.getElementById('firma-responsables-select');
+  if (esCliente) {
+    const destinos = CONST_STATE.destinosVisita || [];
+    const destinoId = destinos.length === 1 ? destinos[0].destino_id : (destinos[0]?.destino_id || null);
+    CONST_STATE._firmaDestinoId = destinoId;
+    if (destinoId) {
+      try {
+        const lista = await api('/constancias/responsables-destino?destino_id=' + destinoId);
+        sel.innerHTML = '<option value="">— Seleccioná o ingresá uno nuevo —</option>';
+        lista.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = JSON.stringify(r);
+          opt.textContent = r.nombre_apellido + (r.cargo ? ' — ' + r.cargo : '') + (r.dni ? ' (DNI: ' + r.dni + ')' : '');
+          sel.appendChild(opt);
+        });
+        grpResp.style.display = lista.length ? 'block' : 'none';
+      } catch { grpResp.style.display = 'none'; }
+    } else { grpResp.style.display = 'none'; }
+  } else { grpResp.style.display = 'none'; }
   document.getElementById('modal-firma').classList.add('active');
   setTimeout(()=>inicializarFirmaCanvas(),100);
+}
+
+function seleccionarResponsableConocido(val) {
+  if (!val) return;
+  try {
+    const r = JSON.parse(val);
+    document.getElementById('firma-nombre').value = r.nombre_apellido || '';
+    document.getElementById('firma-cargo').value = r.cargo || '';
+    document.getElementById('firma-dni').value = r.dni || '';
+  } catch {}
 }
 
 function inicializarFirmaCanvas() {
@@ -3680,17 +3724,20 @@ async function confirmarFirma() {
   const nombre=document.getElementById('firma-nombre').value.trim();
   const cargo=document.getElementById('firma-cargo').value.trim();
   const matricula=document.getElementById('firma-matricula').value.trim();
+  const dni=document.getElementById('firma-dni').value.trim();
   if(!nombre||!cargo) return toast('Completá nombre y cargo','error');
   if(!_firmaCanvas) return toast('Error con el canvas','error');
   const firma_svg=_firmaCanvas.toDataURL('image/png');
-  CONST_STATE.firmas[tipo]={nombre_apellido:nombre,cargo,matricula,firma_svg,tipo};
+  CONST_STATE.firmas[tipo]={nombre_apellido:nombre,cargo,matricula,dni,firma_svg,tipo};
   try {
     const id=CONST_STATE.constanciaId;
-    if(!String(id).startsWith('offline_')) await api('/constancias/'+id+'/firmas',{method:'POST',body:JSON.stringify({tipo,nombre_apellido:nombre,cargo,matricula,firma_svg})});
+    const body={tipo,nombre_apellido:nombre,cargo,matricula,firma_svg};
+    if(tipo==='cliente'){body.dni=dni||null;body.destino_id=CONST_STATE._firmaDestinoId||null;}
+    if(!String(id).startsWith('offline_')) await api('/constancias/'+id+'/firmas',{method:'POST',body:JSON.stringify(body)});
   } catch {}
   cerrarModal('modal-firma');
   renderConstanciaPaso();
-  toast('Firma guardada ✓','success');
+  toast('Firma guardada \u2713','success');
 }
 
 async function finalizarConstancia() {
