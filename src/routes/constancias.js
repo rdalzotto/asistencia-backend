@@ -102,6 +102,45 @@ router.post('/firma-guardada', auth, async (req, res) => {
   }
 });
 
+// ── RESPONSABLES DE DESTINO ──────────────────────────────────────
+router.get('/responsables-destino', auth, async (req, res) => {
+  const { destino_id } = req.query;
+  if (!destino_id) return res.status(400).json({ error: 'destino_id requerido' });
+  try {
+    const { rows } = await db.query(`
+      SELECT id, nombre_apellido, cargo, dni
+      FROM public.responsables_destino
+      WHERE destino_id = $1 AND empleador_id = $2 AND activo = true
+      ORDER BY creado_en DESC
+    `, [destino_id, req.user.empleadorId]);
+    res.json(rows);
+  } catch (err) {
+    console.error('[CONST] responsables-destino error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.post('/responsables-destino', auth, async (req, res) => {
+  const { destino_id, nombre_apellido, cargo, dni } = req.body;
+  if (!destino_id || !nombre_apellido) return res.status(400).json({ error: 'Datos incompletos' });
+  try {
+    // Evitar duplicados exactos (mismo nombre+dni en el mismo destino)
+    const { rows: exist } = await db.query(`
+      SELECT id FROM public.responsables_destino
+      WHERE destino_id = $1 AND empleador_id = $2 AND lower(nombre_apellido) = lower($3) AND (dni = $4 OR ($4 IS NULL AND dni IS NULL))
+    `, [destino_id, req.user.empleadorId, nombre_apellido, dni || null]);
+    if (exist.length) return res.json({ ok: true, responsable: exist[0], existente: true });
+    const { rows: [r] } = await db.query(`
+      INSERT INTO public.responsables_destino (destino_id, empleador_id, nombre_apellido, cargo, dni)
+      VALUES ($1, $2, $3, $4, $5) RETURNING *
+    `, [destino_id, req.user.empleadorId, nombre_apellido, cargo || null, dni || null]);
+    res.json({ ok: true, responsable: r });
+  } catch (err) {
+    console.error('[CONST] crear responsable error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 router.get('/', auth, async (req, res) => {
   const { visita_id, estado } = req.query;
   const params = [req.user.empleadorId];
@@ -271,7 +310,7 @@ router.post('/:id/desvios', auth, async (req, res) => {
 });
 
 router.post('/:id/firmas', auth, async (req, res) => {
-  const { tipo, nombre_apellido, cargo, matricula, firma_svg } = req.body;
+  const { tipo, nombre_apellido, cargo, matricula, firma_svg, dni, destino_id } = req.body;
   if (!tipo || !firma_svg) return res.status(400).json({ error: 'Datos incompletos' });
   try {
     await db.query(`DELETE FROM public.constancia_firmas WHERE constancia_id = $1 AND tipo = $2`, [req.params.id, tipo]);
@@ -281,6 +320,17 @@ router.post('/:id/firmas', auth, async (req, res) => {
       await db.query(`DELETE FROM public.firmas_guardadas WHERE usuario_id = $1`, [req.user.id]);
       await db.query(`INSERT INTO public.firmas_guardadas (usuario_id, empleador_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [req.user.id, req.user.empleadorId, tipo, nombre_apellido, cargo, matricula||null, firma_svg]);
+    }
+    // Si es firma de cliente y viene destino_id, guardar/actualizar responsable
+    if (tipo === 'cliente' && destino_id && nombre_apellido) {
+      const { rows: exist } = await db.query(`
+        SELECT id FROM public.responsables_destino
+        WHERE destino_id = $1 AND empleador_id = $2 AND lower(nombre_apellido) = lower($3) AND (dni = $4 OR ($4 IS NULL AND dni IS NULL))
+      `, [destino_id, req.user.empleadorId, nombre_apellido, dni || null]);
+      if (!exist.length) {
+        await db.query(`INSERT INTO public.responsables_destino (destino_id, empleador_id, nombre_apellido, cargo, dni) VALUES ($1,$2,$3,$4,$5)`,
+          [destino_id, req.user.empleadorId, nombre_apellido, cargo||null, dni||null]);
+      }
     }
     res.json({ ok: true, firma });
   } catch (err) {
