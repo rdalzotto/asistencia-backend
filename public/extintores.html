@@ -953,6 +953,42 @@ const DEFAULT_DESVIOS = [
   'Carga vencida','Prueba hidráulica vencida','Sin acceso / bloqueado','Altura de montaje incorrecta',
 ];
 
+// ── Código de colores marbete IRAM 3517-2 (Tabla 1) ─────────────────────────
+// El color corresponde al último dígito del año de servicio. La serie se repite.
+// Para CO₂: el marbete solo se reemplaza cada 5 años con la prueba hidráulica.
+const MARBETE_POR_DIGITO = {
+  '0': { nombre:'Marrón claro',  hex:'#A0522D' },
+  '1': { nombre:'Negro',         hex:'#212121' },
+  '2': { nombre:'Amarillo',      hex:'#FDD835' },
+  '3': { nombre:'Celeste',       hex:'#29B6F6' },
+  '4': { nombre:'Verde oscuro',  hex:'#2E7D32' },
+  '5': { nombre:'Azul',          hex:'#1565C0' },
+  '6': { nombre:'Lila',          hex:'#9C27B0' },
+  '7': { nombre:'Blanco',        hex:'#F5F5F5' },
+  '8': { nombre:'Verde claro',   hex:'#66BB6A' },
+  '9': { nombre:'Naranja',       hex:'#EF6C00' },
+};
+// Lista completa para el selector (dígito → color → año tipo de ejemplo)
+const COLORES_MARBETE = Object.entries(MARBETE_POR_DIGITO).map(([d, c]) => ({
+  valor: c.nombre.toLowerCase().replace(' ', '-'),
+  nombre: c.nombre,
+  digito: d,
+  hex: c.hex,
+  label: `${c.nombre} (años terminados en ${d})`,
+}));
+// Helper: color del marbete vigente para el año actual
+function marbeteAnioActual() {
+  const digito = String(new Date().getFullYear()).slice(-1);
+  return MARBETE_POR_DIGITO[digito];
+}
+// Helper: obtener hex a partir del valor guardado
+function hexMarbete(valor) {
+  if (!valor) return '#BDBDBD';
+  const entry = COLORES_MARBETE.find(c => c.valor === valor);
+  return entry ? entry.hex : '#BDBDBD';
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 let APP = {
   desviosMaestros: [...DEFAULT_DESVIOS],
   auditorias: [],        // loaded from API
@@ -1137,7 +1173,7 @@ function initNewAudit() {
 
 function addExtinguisherObj(num) {
   const ext = { num, clase:'ABC', capacidad:'10', ubicacion:'', nroSerie:'', anioFab:'',
-    proxServicio:'', pruebahid:'', marbete:'azul', checks:{}, desvios:{}, fotoPuesto:null };
+    proxServicio:'', pruebahid:'', marbete: COLORES_MARBETE.find(c=>c.digito===String(new Date().getFullYear()).slice(-1))?.valor || '', checks:{}, desvios:{}, fotoPuesto:null };
   CHECK_ITEMS.forEach(c=>{ ext.checks[c.id]='ok'; });
   APP.currentAudit.extintores.push(ext);
 }
@@ -1543,7 +1579,8 @@ async function generateReport() {
 
       doc.setFillColor(245,245,245); doc.rect(margin,y-3,W-margin*2,8,'F');
       doc.setFont(undefined,'bold'); doc.setFontSize(8.5); doc.setTextColor(...DARK);
-      doc.text('Extintor Nº'+String(ext.num).padStart(2,'0')+' — '+ext.clase+' '+ext.capacidad+'kg — '+ext.ubicacion,margin+1,y+1);
+      const marbeteDesc = ext.marbete ? (COLORES_MARBETE.find(c=>c.valor===ext.marbete)?.label || ext.marbete) : '—';
+      doc.text('Extintor Nº'+String(ext.num).padStart(2,'0')+' — '+ext.clase+' '+ext.capacidad+'kg — Marbete: '+marbeteDesc+' — '+ext.ubicacion,margin+1,y+1);
       doc.setFont(undefined,'bold'); doc.setFontSize(8); doc.setTextColor(...statusColor);
       doc.text(nokItems.length===0?'✓ CONFORME':'✗ '+nokItems.length+' DESVÍO/S',W-margin-1,y+1,{align:'right'});
       y+=9;
@@ -1661,7 +1698,17 @@ function renderExtBody(ext,idx) {
   <div class="field-row3">
     <div class="field"><label>Clase</label><select oninput="updateExt(${idx},'clase',this.value)">${['ABC','BC','CO2','HCFC','Agua'].map(c=>`<option ${ext.clase===c?'selected':''}>${c}</option>`).join('')}</select></div>
     <div class="field"><label>Cap.(kg)</label><select oninput="updateExt(${idx},'capacidad',this.value)">${['2','4','5','6','10','12','25','50'].map(c=>`<option ${ext.capacidad===c?'selected':''}>${c}</option>`).join('')}</select></div>
-    <div class="field"><label>Marbete</label><select oninput="updateExt(${idx},'marbete',this.value)">${['azul','rojo','verde','amarillo','sin marbete'].map(c=>`<option ${ext.marbete===c?'selected':''}>${c}</option>`).join('')}</select></div>
+  </div>
+  <div class="field">
+    <label>Marbete (IRAM 3517-2 — color por año de servicio)</label>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div id="msw-${idx}" style="width:22px;height:22px;border-radius:50%;border:2px solid #888;flex-shrink:0;background:${hexMarbete(ext.marbete)};"></div>
+      <select style="flex:1;" oninput="updateExt(${idx},'marbete',this.value);document.getElementById('msw-${idx}').style.background=hexMarbete(this.value)">
+        <option value="">— Seleccionar —</option>
+        ${COLORES_MARBETE.map(c=>`<option value="${c.valor}" ${ext.marbete===c.valor?'selected':''}>${c.label}</option>`).join('')}
+        <option value="sin-marbete" ${ext.marbete==='sin-marbete'?'selected':''}>Sin marbete / CO₂ (cada 5 años)</option>
+      </select>
+    </div>
   </div>
   <div class="field"><label>Ubicación</label><input type="text" value="${ext.ubicacion||''}" placeholder="Ej: Hall principal" oninput="updateExt(${idx},'ubicacion',this.value)"></div>
   <div class="field-row">
