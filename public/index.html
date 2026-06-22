@@ -1016,7 +1016,7 @@ async function doLogin() {
     const data = await api('/auth/login', {method:'POST', body:JSON.stringify({email, password:pass})});
     STATE.token = data.token; STATE.rol = data.rol;
     STATE.empleadoId = data.empleadoId; STATE.empleadorId = data.empleadorId;
-    STATE.nombre = data.nombre;
+    STATE.nombre = data.nombre; STATE.apellido = data.apellido || '';
     localStorage.setItem('ar_token', data.token);
     localStorage.setItem('ar_rol', data.rol);
     if (!data.onboarding) { mostrarScreen('onboarding'); return; }
@@ -1060,6 +1060,7 @@ async function irADashboard(rol) {
     STATE.empleadoId = me.empleado?.id || null;
     STATE.empleadorId = me.usuario.empleador_id;
     STATE.nombre = me.empleado ? me.empleado.nombre : 'Admin';
+    STATE.apellido = me.empleado ? (me.empleado.apellido || '') : '';
     irADashboard(rol);
   } catch { doLogout(); }
 })();
@@ -2272,13 +2273,16 @@ async function cargarMisMovsAdmin() {
   } catch { cont.innerHTML = '<p style="color:var(--text3);text-align:center;padding:8px">Sin registros hoy</p>'; }
 }
 
+let _cargandoRecursos = false;
 async function cargarRecursosAdmin() {
+  if (_cargandoRecursos) return;
+  _cargandoRecursos = true;
   const cont = document.getElementById('lista-recursos-admin');
-  if (!cont) return;
+  if (!cont) { _cargandoRecursos = false; return; }
   const iconos = {vehiculo:'🚗',didactico:'📽',instrumental:'🔧',otro:'📦'};
   try {
     const recursos = await api('/recursos');
-    if (!recursos.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Sin recursos cargados aún</p>'; return; }
+    if (!recursos.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Sin recursos cargados aún</p>'; _cargandoRecursos = false; return; }
     let advertenciasMap = {};
     try {
       const advs = await api('/recursos/advertencias');
@@ -2289,6 +2293,7 @@ async function cargarRecursosAdmin() {
       return '<div style="padding:10px;border:1px solid '+(tieneAdv?'var(--orange)':'var(--border)')+';border-radius:var(--radius-sm);margin-bottom:8px;background:'+(tieneAdv?'rgba(255,145,0,0.05)':'')+'"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2)">'+r.descripcion+'</div>':'')+'</div>'+(tieneAdv?'<span class="badge badge-orange">⚠ '+advertenciasMap[r.id]+' advertencia'+(advertenciasMap[r.id]>1?'s':'')+'</span>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\')" style="color:var(--orange)">⚠ Reportar</button>'+(tieneAdv?'<button class="btn btn-sm btn-secondary" onclick="verAdvertencias('+r.id+')">Ver avisos</button>':'')+'<button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>';
     }).join('');
   } catch { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Error cargando recursos</p>'; }
+  finally { _cargandoRecursos = false; }
 }
 
 async function cargarReservasHoy() {
@@ -3553,6 +3558,23 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
   </div>
 </div>
 
+<!-- MODAL NUEVO ÍTEM CONSTANCIA -->
+<div class="modal-overlay" id="modal-item-nuevo" style="z-index:600">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modal-item-titulo">Agregar ítem</div>
+    <div class="form-group">
+      <label>Descripción del ítem</label>
+      <input type="text" id="modal-item-texto" placeholder="Escribí el nuevo ítem..." style="font-size:15px">
+    </div>
+    <input type="hidden" id="modal-item-categoria">
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-item-nuevo')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarItemNuevo()" style="flex:1">Agregar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── MÓDULO CONSTANCIAS ────────────────────────────────────────────────────────
 
@@ -3827,19 +3849,30 @@ function toggleSeleccion(categoria,itemId,texto,checked) {
 
 function actualizarFrenteExtra(itemId,campo,valor){const sel=CONST_STATE.selecciones.frente_trabajo?.find(s=>s.item_id==itemId);if(sel)sel[campo]=valor;}
 
-async function agregarItemNuevo(categoria) {
-  const texto=prompt('Escribí el nuevo ítem:');
-  if(!texto||!texto.trim()) return;
+function agregarItemNuevo(categoria) {
+  const titulos = {tipo_visita:'Agregar tipo de visita',frente_trabajo:'Agregar frente de trabajo',actividad:'Agregar actividad',normativa:'Agregar normativa'};
+  document.getElementById('modal-item-titulo').textContent = titulos[categoria] || 'Agregar ítem';
+  document.getElementById('modal-item-categoria').value = categoria;
+  document.getElementById('modal-item-texto').value = '';
+  document.getElementById('modal-item-nuevo').classList.add('active');
+  setTimeout(() => document.getElementById('modal-item-texto').focus(), 150);
+}
+
+async function confirmarItemNuevo() {
+  const categoria = document.getElementById('modal-item-categoria').value;
+  const texto = document.getElementById('modal-item-texto').value.trim();
+  if (!texto) return toast('Escribí el nombre del ítem', 'error');
+  cerrarModal('modal-item-nuevo');
   try {
-    const data=await api('/constancias/items',{method:'POST',body:JSON.stringify({categoria,texto:texto.trim()})});
-    if(data.item){
-      if(!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria]=[];
-      if(!CONST_STATE.itemsMenu[categoria].find(i=>i.id==data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
-      toggleSeleccion(categoria,data.item.id,'',true);
+    const data = await api('/constancias/items', {method:'POST', body:JSON.stringify({categoria, texto})});
+    if (data.item) {
+      if (!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria] = [];
+      if (!CONST_STATE.itemsMenu[categoria].find(i => i.id == data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
+      toggleSeleccion(categoria, data.item.id, '', true);
       renderConstanciaPaso();
-      toast('Ítem agregado al menú ✓','success');
+      toast('Ítem agregado ✓', 'success');
     }
-  } catch { toast('Error al agregar ítem','error'); }
+  } catch { toast('Error al agregar ítem', 'error'); }
 }
 
 function agregarPersonal(){CONST_STATE.personal.push({nombre_apellido:'',funcion_cargo:'',habilitacion:'',estado_habilitacion:'conforme'});document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
@@ -3910,10 +3943,25 @@ async function abrirFirma(tipo) {
   document.getElementById('firma-grupo-matricula').style.display=esCliente?'none':'block';
   document.getElementById('firma-grupo-dni').style.display=esCliente?'block':'none';
   const ex=CONST_STATE.firmas[tipo];
-  document.getElementById('firma-nombre').value=ex?.nombre_apellido||'';
-  document.getElementById('firma-cargo').value=ex?.cargo||'';
-  document.getElementById('firma-dni').value=ex?.dni||'';
-  document.getElementById('firma-matricula').value=ex?.matricula||'';
+  // Pre-completar con firma guardada, o con datos del usuario logueado si es técnico/responsable EXIT
+  if (ex?.nombre_apellido) {
+    document.getElementById('firma-nombre').value=ex.nombre_apellido;
+    document.getElementById('firma-cargo').value=ex.cargo||'';
+    document.getElementById('firma-dni').value=ex.dni||'';
+    document.getElementById('firma-matricula').value=ex.matricula||'';
+  } else if (!esCliente) {
+    // Pre-completar con datos del usuario logueado
+    const nombreCompleto = (STATE.nombre||'') + (STATE.apellido ? ' '+STATE.apellido : '');
+    document.getElementById('firma-nombre').value = nombreCompleto.trim();
+    document.getElementById('firma-cargo').value = STATE.cargo || (tipo === 'tecnico' ? 'Asesor técnico' : 'Responsable del servicio');
+    document.getElementById('firma-matricula').value = STATE.matricula || '';
+    document.getElementById('firma-dni').value = '';
+  } else {
+    document.getElementById('firma-nombre').value='';
+    document.getElementById('firma-cargo').value='';
+    document.getElementById('firma-dni').value='';
+    document.getElementById('firma-matricula').value='';
+  }
   // Cargar responsables conocidos si es firma de cliente
   const grpResp = document.getElementById('firma-grupo-responsables');
   const sel = document.getElementById('firma-responsables-select');
@@ -3936,7 +3984,8 @@ async function abrirFirma(tipo) {
     } else { grpResp.style.display = 'none'; }
   } else { grpResp.style.display = 'none'; }
   document.getElementById('modal-firma').classList.add('active');
-  setTimeout(()=>inicializarFirmaCanvas(),100);
+  // Esperar a que el modal esté visible antes de inicializar el canvas
+  setTimeout(()=>{ _firmaCanvas=null; _firmaCtx=null; inicializarFirmaCanvas(); }, 200);
 }
 
 function seleccionarResponsableConocido(val) {
@@ -4002,9 +4051,119 @@ async function finalizarConstancia() {
     const id=CONST_STATE.constanciaId;
     if(!String(id).startsWith('offline_')) await api('/constancias/'+id,{method:'PATCH',body:JSON.stringify({estado:'completada'})});
   } catch {}
+  // Mostrar modal de vista previa y compartir
+  mostrarVistaPreviewConstancia();
+}
+
+function mostrarVistaPreviewConstancia() {
+  const html = generarHTMLConstancia();
+  const existing = document.getElementById('modal-constancia-preview');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-constancia-preview';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:700;display:flex;flex-direction:column;';
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <button onclick="cerrarPreviewConstancia()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer">←</button>
+      <div style="flex:1;font-size:15px;font-weight:700">Vista previa — Constancia</div>
+      <button onclick="modificarConstancia()" style="background:rgba(255,215,64,0.15);border:1px solid rgba(255,215,64,0.3);color:var(--yellow);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">✏ Modificar</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:0">
+      <iframe id="preview-iframe" style="width:100%;height:100%;border:none;background:white" srcdoc="${html.replace(/"/g,'&quot;')}"></iframe>
+    </div>
+    <div style="background:var(--bg2);border-top:1px solid var(--border);padding:14px 16px;display:flex;gap:10px;flex-shrink:0">
+      <button onclick="compartirConstancia()" class="btn btn-primary" style="flex:1">📤 Compartir / Enviar</button>
+      <button onclick="cerrarPreviewYSalir()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function cerrarPreviewConstancia() {
+  document.getElementById('modal-constancia-preview')?.remove();
+  // Vuelve al paso de firmas para poder modificar
+  CONST_STATE.pasoActual = CONST_PASOS.length - 1;
+  renderConstanciaPasos(); renderConstanciaPaso();
+}
+
+function modificarConstancia() {
+  document.getElementById('modal-constancia-preview')?.remove();
+  // Reabrir modal constancia en paso firmas
+  const modal = document.getElementById('modal-constancia');
+  modal.style.display = 'flex'; modal.classList.add('active');
+  CONST_STATE.pasoActual = CONST_PASOS.length - 1;
+  renderConstanciaPasos(); renderConstanciaPaso();
+}
+
+function cerrarPreviewYSalir() {
+  document.getElementById('modal-constancia-preview')?.remove();
   cerrarConstancia();
-  toast('Constancia completada ✓','success');
-  if(STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
+  toast('Constancia completada ✓', 'success');
+  if(STATE.rol==='admin') cargarVisitasAdmin(); else cargarMisVisitas();
+}
+
+async function compartirConstancia() {
+  const html = generarHTMLConstancia();
+  const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
+  const nombreArchivo = 'Constancia_' + numero.replace(/[^a-zA-Z0-9_-]/g,'_') + '.html';
+  // Intentar Web Share API (nativo en móvil)
+  const blob = new Blob([html], {type:'text/html'});
+  const file = new File([blob], nombreArchivo, {type:'text/html'});
+  if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+    try {
+      await navigator.share({title:'Constancia de visita — '+numero, files:[file]});
+      return;
+    } catch(e) { if (e.name !== 'AbortError') { /* fallback */ } else return; }
+  }
+  // Fallback: descargar el HTML
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nombreArchivo;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('Documento descargado ✓', 'success');
+}
+
+function generarHTMLConstancia() {
+  const d = CONST_STATE.datos;
+  const numero = document.getElementById('const-header-numero')?.textContent || '';
+  const fecha = new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fT = CONST_STATE.firmas.tecnico, fE = CONST_STATE.firmas.responsable_exit, fC = CONST_STATE.firmas.cliente;
+  // Selecciones como texto
+  const getTextos = (categoria) => (CONST_STATE.selecciones[categoria]||[]).map(s => {
+    if (s.texto_libre) return s.texto_libre;
+    const item = (CONST_STATE.itemsMenu[categoria]||[]).find(i=>i.id==s.item_id);
+    return item ? item.texto : '';
+  }).filter(Boolean);
+  const tipos = getTextos('tipo_visita');
+  const frentes = (CONST_STATE.selecciones.frente_trabajo||[]).map(s => {
+    const item = (CONST_STATE.itemsMenu.frente_trabajo||[]).find(i=>i.id==s.item_id);
+    return (item ? item.texto : s.texto_libre||'') + (s.nivel_riesgo?' ['+s.nivel_riesgo+']':'') + (s.normativa_frente?' — '+s.normativa_frente:'');
+  }).filter(Boolean);
+  const actividades = getTextos('actividad');
+  const normativas = getTextos('normativa');
+  const firmaBloque = (f,titulo) => f ? `<div style="border:1px solid #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center"><div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;font-weight:700">${titulo}</div>${f.firma_svg?`<img src="${f.firma_svg}" style="width:100%;height:80px;object-fit:contain;border:1px solid #eee;border-radius:4px;margin-bottom:8px">`:'<div style="height:80px;border:1px dashed #ccc;border-radius:4px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">Sin firma</div>'}<div style="font-size:13px;font-weight:700">${f.nombre_apellido||''}</div><div style="font-size:11px;color:#666">${f.cargo||''}${f.matricula?' — '+f.matricula:''}</div></div>` : `<div style="border:1px dashed #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center;color:#999"><div style="font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:8px">${titulo}</div><div style="font-size:12px">Sin firmar</div></div>`;
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Constancia ${numero}</title><style>body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:20px;max-width:800px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}h2{font-size:13px;font-weight:700;text-transform:uppercase;color:#555;border-bottom:1px solid #ddd;padding-bottom:4px;margin:20px 0 10px}table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px solid #ddd;padding:6px 10px;font-size:12px}th{background:#f5f5f5;text-align:left}.tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:3px 10px;font-size:11px;margin:2px}.firma-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}@media print{body{padding:0}}</style></head><body>
+    <div style="border:2px solid #1a6aaa;border-radius:8px;padding:16px 20px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><h1>Constancia de Visita a Establecimiento</h1><div style="font-size:12px;color:#555">EXIT S.A. — Sistema AsistenciaAR</div></div>
+        <div style="text-align:right"><div style="font-size:16px;font-weight:700;color:#1a6aaa">${numero}</div><div style="font-size:11px;color:#555">${fecha}</div></div>
+      </div>
+    </div>
+    <h2>1. Datos generales</h2>
+    <table><tr><th>Establecimiento / Sector</th><td>${d.establecimiento_sector||'—'}</td></tr><tr><th>Hora inicio</th><td>${d.hora_inicio||'—'}</td><th>Hora fin</th><td>${d.hora_fin||'—'}</td></tr>${d.gps_lat?`<tr><th>Coordenadas GPS</th><td colspan="3">Lat: ${d.gps_lat} / Lng: ${d.gps_lng}</td></tr>`:''}</table>
+    ${tipos.length?`<h2>2. Tipo de visita</h2><div>${tipos.map(t=>`<span class="tag">✓ ${t}</span>`).join('')}</div>`:''}
+    ${frentes.length?`<h2>Frentes de trabajo</h2><div>${frentes.map(f=>`<span class="tag">📍 ${f}</span>`).join('')}</div>`:''}
+    ${CONST_STATE.personal.length?`<h2>3. Personal presente</h2><table><tr><th>Nombre y apellido</th><th>Función / cargo</th><th>Habilitación</th><th>Estado</th></tr>${CONST_STATE.personal.map(p=>`<tr><td>${p.nombre_apellido||'—'}</td><td>${p.funcion_cargo||'—'}</td><td>${p.habilitacion||'—'}</td><td>${p.estado_habilitacion||'—'}</td></tr>`).join('')}</table>`:''}
+    ${actividades.length?`<h2>4. Actividades realizadas</h2><div>${actividades.map(a=>`<span class="tag">✓ ${a}</span>`).join('')}</div>`:''}
+    ${(CONST_STATE.acciones.verificaciones||CONST_STATE.acciones.indicaciones||CONST_STATE.acciones.charla||CONST_STATE.acciones.documentacion)?`<h2>5. Acciones del asesor</h2><table>${CONST_STATE.acciones.verificaciones?`<tr><th>Verificaciones</th><td>${CONST_STATE.acciones.verificaciones}</td></tr>`:''} ${CONST_STATE.acciones.indicaciones?`<tr><th>Indicaciones</th><td>${CONST_STATE.acciones.indicaciones}</td></tr>`:''} ${CONST_STATE.acciones.charla?`<tr><th>Charla / capacitación</th><td>${CONST_STATE.acciones.charla}</td></tr>`:''} ${CONST_STATE.acciones.documentacion?`<tr><th>Documentación revisada</th><td>${CONST_STATE.acciones.documentacion}</td></tr>`:''}</table>`:''}
+    ${normativas.length?`<h2>6. Marco normativo</h2><div>${normativas.map(n=>`<span class="tag">⚖ ${n}</span>`).join('')}</div>`:''}
+    ${d.observaciones_generales?`<h2>7. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:12px;background:#fafafa">${d.observaciones_generales}</p>`:''}
+    ${CONST_STATE.desvios.length?`<h2>8. Desvíos detectados</h2>${CONST_STATE.desvios.map((dev,i)=>`<div style="border:1px solid ${dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc'};border-radius:6px;padding:12px;margin-bottom:10px"><div style="font-weight:700">Desvío N° ${i+1}: ${dev.titulo}</div><div style="font-size:12px;color:#666;margin:4px 0">Severidad: ${dev.severidad} · Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:6px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:4px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:4px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}</div>`).join('')}`:''}
+    <h2>9. Firmas</h2>
+    <div class="firma-row">${firmaBloque(fC,'Responsable del cliente')}${firmaBloque(fT,'Asesor EXIT S.A.')}${firmaBloque(fE,'Responsable del servicio EXIT S.A.')}</div>
+    <div style="text-align:center;font-size:10px;color:#aaa;margin-top:30px;border-top:1px solid #eee;padding-top:10px">Documento generado por AsistenciaAR — EXIT S.A. — ${fecha}</div>
+  </body></html>`;
 }
 
 window.addEventListener('online',async()=>{
