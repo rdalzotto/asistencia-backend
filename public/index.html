@@ -2281,19 +2281,45 @@ async function cargarRecursosAdmin() {
   if (!cont) { _cargandoRecursos = false; return; }
   const iconos = {vehiculo:'🚗',didactico:'📽',instrumental:'🔧',otro:'📦'};
   try {
-    const recursos = await api('/recursos');
+    const [recursos, disponibilidad] = await Promise.all([
+      api('/recursos'),
+      api('/recursos/disponibilidad').catch(() => [])
+    ]);
     if (!recursos.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Sin recursos cargados aún</p>'; _cargandoRecursos = false; return; }
     let advertenciasMap = {};
     try {
       const advs = await api('/recursos/advertencias');
       advs.forEach(a => { if (!advertenciasMap[a.recurso_id]) advertenciasMap[a.recurso_id] = 0; advertenciasMap[a.recurso_id]++; });
     } catch {}
+    // Mapa de disponibilidad por recurso_id
+    const dispMap = {};
+    disponibilidad.forEach(d => { dispMap[d.id] = d; });
     cont.innerHTML = recursos.map(r => {
       const tieneAdv = advertenciasMap[r.id] > 0;
-      return '<div style="padding:10px;border:1px solid '+(tieneAdv?'var(--orange)':'var(--border)')+';border-radius:var(--radius-sm);margin-bottom:8px;background:'+(tieneAdv?'rgba(255,145,0,0.05)':'')+'"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2)">'+r.descripcion+'</div>':'')+'</div>'+(tieneAdv?'<span class="badge badge-orange">⚠ '+advertenciasMap[r.id]+' advertencia'+(advertenciasMap[r.id]>1?'s':'')+'</span>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\')" style="color:var(--orange)">⚠ Reportar</button>'+(tieneAdv?'<button class="btn btn-sm btn-secondary" onclick="verAdvertencias('+r.id+')">Ver avisos</button>':'')+'<button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>';
+      const disp = dispMap[r.id];
+      const enUso = disp && disp.reserva_id;
+      const quien = enUso ? (disp.emp_nombre ? disp.emp_nombre + ' ' + (disp.emp_apellido||'') : disp.quien || 'Admin') : '';
+      const hasta = enUso ? String(disp.hora_hasta).slice(0,5) : '';
+      const estadoBadge = enUso
+        ? `<span class="badge badge-orange" style="font-size:11px">🔴 En uso — ${quien} hasta ${hasta}</span>`
+        : `<span class="badge badge-green" style="font-size:11px">🟢 Disponible</span>`;
+      const btnRetorno = enUso
+        ? `<button class="btn btn-sm btn-warning" onclick="registrarRetorno(${disp.reserva_id},'${r.nombre.replace(/'/g,"\\'")}')">📥 Registrar retorno</button>`
+        : '';
+      return '<div style="padding:10px;border:1px solid '+(tieneAdv?'var(--orange)':enUso?'rgba(255,145,0,0.4)':'var(--border)')+';border-radius:var(--radius-sm);margin-bottom:8px;background:'+(enUso?'rgba(255,145,0,0.04)':tieneAdv?'rgba(255,145,0,0.05)':'')+'"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px"><div style="flex:1"><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+r.descripcion+'</div>':'')+'<div style="margin-top:6px">'+estadoBadge+'</div></div>'+(tieneAdv?'<span class="badge badge-orange" style="font-size:10px;margin-left:8px">⚠ '+advertenciasMap[r.id]+'</span>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+btnRetorno+'<button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\')" style="color:var(--orange)">⚠ Reportar</button>'+(tieneAdv?'<button class="btn btn-sm btn-secondary" onclick="verAdvertencias('+r.id+')">Ver avisos</button>':'')+'<button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>';
     }).join('');
   } catch { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Error cargando recursos</p>'; }
   finally { _cargandoRecursos = false; }
+}
+
+async function registrarRetorno(reservaId, nombreRecurso) {
+  if (!confirm('¿Confirmás el retorno de "' + nombreRecurso + '"? Se registrará la hora actual como hora de devolución.')) return;
+  try {
+    await api('/recursos/reservas/' + reservaId + '/retorno', {method:'PATCH'});
+    toast('Retorno registrado ✓', 'success');
+    await cargarRecursosAdmin();
+    await cargarReservasHoy();
+  } catch(e) { toast(e.message || 'Error al registrar retorno', 'error'); }
 }
 
 async function cargarReservasHoy() {
