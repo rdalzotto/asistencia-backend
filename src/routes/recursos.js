@@ -303,4 +303,46 @@ router.post('/movimientos-admin', auth, soloAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error interno' }); }
 });
 
+// ── GET /recursos/disponibilidad ─────────────────────────────
+// Devuelve todos los recursos con su estado actual (disponible / en_uso)
+router.get('/disponibilidad', auth, async (req, res) => {
+  try {
+    const ahora = new Date();
+    const fechaHoy = ahora.toISOString().split('T')[0];
+    const horaAhora = ahora.toTimeString().slice(0,5);
+    const { rows } = await db.query(
+      `SELECT r.id, r.nombre, r.tipo, r.descripcion,
+              rv.id as reserva_id,
+              rv.hora_desde, rv.hora_hasta,
+              rv.quien, rv.motivo,
+              e.nombre as emp_nombre, e.apellido as emp_apellido
+       FROM public.recursos r
+       LEFT JOIN public.reservas rv ON rv.recurso_id = r.id
+         AND rv.fecha_desde <= $2 AND rv.fecha_hasta >= $2
+         AND rv.hora_desde <= $3 AND rv.hora_hasta > $3
+       LEFT JOIN public.empleados e ON e.id = rv.empleado_id
+       WHERE r.empleador_id = $1 AND r.activo = TRUE
+       ORDER BY r.nombre`,
+      [req.user.empleadorId, fechaHoy, horaAhora]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── PATCH /recursos/reservas/:id/retorno ─────────────────────
+// Registra el retorno anticipado ajustando hora_hasta a ahora
+router.patch('/reservas/:id/retorno', auth, async (req, res) => {
+  try {
+    const ahora = new Date();
+    const horaAhora = ahora.toTimeString().slice(0,5);
+    const { rows: [r] } = await db.query(
+      `UPDATE public.reservas SET hora_hasta = $1
+       WHERE id = $2 AND empleador_id = $3 RETURNING *`,
+      [horaAhora, req.params.id, req.user.empleadorId]
+    );
+    if (!r) return res.status(404).json({ error: 'Reserva no encontrada' });
+    res.json({ ok: true, reserva: r });
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
 module.exports = router;
