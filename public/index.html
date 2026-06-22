@@ -226,6 +226,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         REGISTRAR
       </button>
       <div class="badge badge-gray" id="badge-estado-actual">Sin registros hoy</div>
+      <div id="banner-alerta-jornada" style="display:none;border-radius:var(--radius-sm);padding:12px 16px;margin-top:12px;text-align:center;border:1px solid transparent;"></div>
+      <div id="btn-olvide-salida" style="display:none;margin-top:6px">
+        <button onclick="abrirSalidaJustificada('manual')" style="background:none;border:none;color:var(--text3);font-size:12px;text-decoration:underline;cursor:pointer;padding:4px">¿Olvidaste registrar la salida?</button>
+      </div>
     </div>
     <div class="card">
       <div class="card-title">Hoy</div>
@@ -778,6 +782,42 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 </div>
 
 <!-- MODAL AUSENCIA -->
+<!-- MODAL SALIDA JUSTIFICADA / CIERRE AUTOMÁTICO -->
+<div class="modal-overlay" id="modal-salida-justificada" style="z-index:400">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="salida-just-titulo">Registrar salida</div>
+    <div id="salida-just-msg" style="font-size:13px;color:var(--text2);background:rgba(255,145,0,0.08);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:16px;display:none;line-height:1.5"></div>
+    <div class="form-group">
+      <label>Motivo</label>
+      <select id="salida-just-motivo">
+        <option value="olvido_salida">Olvidé registrar la salida al irme</option>
+        <option value="urgencia">Salí de urgencia y no pude registrar</option>
+        <option value="falla_gps">GPS no funcionó fuera de la oficina</option>
+        <option value="jornada_remota_fin">Jornada remota finalizada</option>
+        <option value="cierre_automatico">Cierre automático del sistema</option>
+        <option value="otro">Otro</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Hora real de retiro</label>
+      <input type="time" id="salida-just-hora">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Indicá a qué hora te retiraste realmente</div>
+    </div>
+    <div class="form-group">
+      <label>Observación (opcional)</label>
+      <textarea id="salida-just-obs" style="min-height:56px" placeholder="Información adicional..."></textarea>
+    </div>
+    <div style="background:rgba(0,0,0,0.15);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:16px;font-size:12px;color:var(--text3);line-height:1.5">
+      ⚠ Este movimiento quedará marcado para revisión del administrador. Las horas se calcularán en base a la hora de retiro declarada.
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-salida-justificada')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarSalidaJustificada()" style="flex:1" id="btn-confirmar-salida-just">Registrar salida</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modal-ausencia">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -1069,6 +1109,7 @@ async function cargarDashboardEmpleado() {
   try {
     const movs = await api('/movimientos/hoy');
     renderMovimientosHoy(movs);
+    iniciarAlertas(movs);
     const bh = await api('/licencias/banco-horas');
     if (bh.length) renderBancoHoras(bh[0]);
     const vac = await api('/licencias/vacaciones/saldo');
@@ -1127,6 +1168,11 @@ function renderMovimientosHoy(movs) {
   const nombres = {ingreso:'Ingreso',egreso:'Egreso',salida_almuerzo:'Salida almuerzo',regreso_almuerzo:'Regreso almuerzo',salida_externa:'Salida externa',regreso_externo:'Regreso de externo',inicio_jornada_remota:'Inicio remoto',fin_jornada_remota:'Fin remoto'};
   const ultimo = movs[movs.length - 1];
   actualizarBadgeEstado(ultimo.tipo);
+  const btnOlvide = document.getElementById('btn-olvide-salida');
+  if (btnOlvide) {
+    const jornadaActiva = ['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(ultimo.tipo);
+    btnOlvide.style.display = jornadaActiva ? 'block' : 'none';
+  }
   cont.innerHTML = movs.map(m => `
     <div class="mov-item">
       <div class="mov-dot" style="background:${colores[m.tipo]||'var(--text3)'}"></div>
@@ -1382,7 +1428,13 @@ async function confirmarMovimiento() {
   } catch(e) {
     if (e.message && e.message.includes('GPS fuera del área')) {
       btn.innerHTML = 'Confirmar'; btn.disabled = false;
-      mostrarOpcionRemota();
+      const tipoActual = document.getElementById('reg-tipo').value;
+      if (tipoActual === 'egreso' || tipoActual === 'fin_jornada_remota') {
+        cerrarModal('modal-registro');
+        abrirSalidaJustificada('gps_falla');
+      } else {
+        mostrarOpcionRemota();
+      }
     } else { toast(e.message, 'error'); }
   } finally { btn.innerHTML = 'Confirmar'; btn.disabled = false; }
 }
@@ -1411,6 +1463,207 @@ async function registrarComoRemoto() {
     mostrarExito('inicio_jornada_remota');
   } catch(e) { toast(e.message, 'error'); }
   finally { btn.disabled = false; }
+}
+</script>
+
+<script>
+// ── ALERTAS DE FIN DE JORNADA Y SALIDA JUSTIFICADA ──────────────────────────
+
+let _alertaTimers = [];
+let _salidaAutoTipo = 'egreso';
+
+function limpiarAlertaTimers() {
+  _alertaTimers.forEach(t => clearTimeout(t));
+  _alertaTimers = [];
+}
+
+async function iniciarAlertas(movimientos) {
+  limpiarAlertaTimers();
+  if (!movimientos || !movimientos.length) return;
+  const ultimo = movimientos[movimientos.length - 1].tipo;
+  const jornadaActiva = ['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(ultimo);
+  if (!jornadaActiva) return;
+
+  const esRemoto = ultimo === 'inicio_jornada_remota';
+  _salidaAutoTipo = esRemoto ? 'fin_jornada_remota' : 'egreso';
+
+  if (esRemoto) {
+    // ─ Jornada remota: alertas por tiempo transcurrido, tope de 12 hs ─
+    const inicioMov = movimientos.filter(m => m.tipo === 'inicio_jornada_remota').pop();
+    if (!inicioMov) return;
+    const horaInicio = new Date(inicioMov.hora);
+    const ahora = new Date();
+    const minTranscurridos = (ahora - horaInicio) / 60000;
+    const min10h = (10 * 60) - minTranscurridos;
+    const min12h = (12 * 60) - minTranscurridos;
+
+    if (min10h > 0) {
+      _alertaTimers.push(setTimeout(() => {
+        toast('⏱ Llevas 10 horas de jornada remota. ¿Necesitás registrar tu salida?', 'info', 9000);
+      }, min10h * 60000));
+    } else {
+      mostrarBannerAlertaJornada('⏱ Llevas más de 10 horas de jornada remota.', 'orange');
+    }
+    if (min12h > 0) {
+      _alertaTimers.push(setTimeout(() => {
+        ejecutarCierreAutomatico('fin_jornada_remota', 'Tope máximo de 12 horas de jornada remota');
+      }, min12h * 60000));
+    } else {
+      ejecutarCierreAutomatico('fin_jornada_remota', 'Tope máximo de 12 horas de jornada remota');
+    }
+    return;
+  }
+
+  // ─ Jornada presencial: alertas por hora de egreso programada ─
+  try {
+    const resp = await api('/movimientos/horario-hoy');
+    if (!resp || !resp.horario || !resp.horario.hora_egreso) return;
+    const partes = String(resp.horario.hora_egreso).split(':');
+    const hh = parseInt(partes[0]);
+    const mm = parseInt(partes[1]);
+    const horaEgresoStr = String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+
+    const ahora = new Date();
+    const egreso = new Date();
+    egreso.setHours(hh, mm, 0, 0);
+    const minHastaEgreso = (egreso - ahora) / 60000;
+    const minAntes = minHastaEgreso - 15;
+    const minCierre = minHastaEgreso + 15;
+
+    // Alerta 15 min antes
+    if (minAntes > 0) {
+      _alertaTimers.push(setTimeout(() => {
+        mostrarBannerAlertaJornada(`⏰ Tu jornada termina a las ${horaEgresoStr}. ¡No olvides registrar la salida!`, 'yellow');
+      }, minAntes * 60000));
+    } else if (minHastaEgreso > 0) {
+      // Ya estamos en la ventana de 15 min
+      mostrarBannerAlertaJornada(`⏰ Tu jornada termina a las ${horaEgresoStr}. ¡No olvides registrar la salida!`, 'yellow');
+    }
+
+    // Modal bloqueante exactamente a la hora de egreso
+    if (minHastaEgreso > 0) {
+      _alertaTimers.push(setTimeout(() => {
+        const ul = STATE.ultimoMovimiento;
+        if (['ingreso','regreso_almuerzo','regreso_externo'].includes(ul))
+          abrirSalidaJustificada('hora_egreso', horaEgresoStr);
+      }, minHastaEgreso * 60000));
+    } else if (minCierre > 0 && minHastaEgreso <= 0) {
+      // Ya pasó la hora de egreso pero no el cierre → modal ahora
+      const ul = STATE.ultimoMovimiento;
+      if (['ingreso','regreso_almuerzo','regreso_externo'].includes(ul))
+        abrirSalidaJustificada('hora_egreso', horaEgresoStr);
+    }
+
+    // Cierre automático 15 min después si no respondió
+    if (minCierre > 0) {
+      _alertaTimers.push(setTimeout(() => {
+        ejecutarCierreAutomatico('egreso', `Cierre automático — jornada no registrada a las ${horaEgresoStr}`);
+      }, minCierre * 60000));
+    } else {
+      ejecutarCierreAutomatico('egreso', 'Cierre automático por jornada no registrada');
+    }
+  } catch(e) { console.error('[alertas]', e); }
+}
+
+function mostrarBannerAlertaJornada(mensaje, color) {
+  const banner = document.getElementById('banner-alerta-jornada');
+  if (!banner) return;
+  const col = color === 'yellow' ? 'var(--yellow)' : 'var(--orange)';
+  const bg  = color === 'yellow' ? 'rgba(255,200,0,0.10)' : 'rgba(255,145,0,0.12)';
+  banner.style.cssText = `display:block;background:${bg};border:1px solid ${col};border-radius:var(--radius-sm);padding:12px 16px;text-align:center;`;
+  banner.innerHTML = `
+    <div style="font-size:13px;color:${col};font-weight:600;margin-bottom:8px">${mensaje}</div>
+    <button class="btn btn-primary" style="background:${col};color:#0f1923;font-size:12px;padding:8px 20px" onclick="abrirSalidaJustificada('banner')">Registrar salida ahora</button>
+  `;
+}
+
+function ocultarBannerAlertaJornada() {
+  const banner = document.getElementById('banner-alerta-jornada');
+  if (banner) { banner.style.display = 'none'; banner.innerHTML = ''; }
+}
+
+function abrirSalidaJustificada(modo, extra) {
+  const titulo  = document.getElementById('salida-just-titulo');
+  const msg     = document.getElementById('salida-just-msg');
+  const motivo  = document.getElementById('salida-just-motivo');
+  const horaEl  = document.getElementById('salida-just-hora');
+  const obsEl   = document.getElementById('salida-just-obs');
+  obsEl.value = '';
+
+  if (modo === 'hora_egreso') {
+    titulo.textContent  = '⏰ Hora de salida';
+    msg.style.display   = 'block';
+    msg.textContent     = `Tu jornada habitual terminó a las ${extra}. Registrá tu salida para cerrar correctamente.`;
+    motivo.value = 'olvido_salida';
+    horaEl.value = extra || horaLocalAhora();
+  } else if (modo === 'gps_falla') {
+    titulo.textContent  = '📍 Fuera del radio GPS';
+    msg.style.display   = 'block';
+    msg.textContent     = 'No se pudo verificar tu ubicación. Completá los datos para registrar tu salida de todas formas.';
+    motivo.value = 'falla_gps';
+    horaEl.value = horaLocalAhora();
+  } else if (modo === 'automatico') {
+    titulo.textContent  = '🔒 Cierre automático';
+    msg.style.display   = 'block';
+    msg.textContent     = 'El sistema cerró tu jornada automáticamente. Podés ajustar la hora real de retiro si es necesario.';
+    motivo.value = 'cierre_automatico';
+    horaEl.value = extra || horaLocalAhora();
+  } else {
+    titulo.textContent  = 'Registrar salida olvidada';
+    msg.style.display   = 'none';
+    motivo.value = 'olvido_salida';
+    horaEl.value = horaLocalAhora();
+  }
+  abrirModal('modal-salida-justificada');
+}
+
+async function confirmarSalidaJustificada() {
+  const motivo = document.getElementById('salida-just-motivo').value;
+  const hora   = document.getElementById('salida-just-hora').value;
+  const obs    = document.getElementById('salida-just-obs').value.trim();
+  const btn    = document.getElementById('btn-confirmar-salida-just');
+  if (!hora) { toast('Indicá la hora de retiro', 'error'); return; }
+
+  btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+  const esRemoto = STATE.ultimoMovimiento === 'inicio_jornada_remota';
+  const tipo = esRemoto ? 'fin_jornada_remota' : 'egreso';
+
+  try {
+    await api('/movimientos/egreso-justificado', {
+      method: 'POST',
+      body: JSON.stringify({ tipo, motivo_salida_fuera: motivo, hora_real_egreso: hora, salida_automatica: false, observacion: obs || null }),
+    });
+    cerrarModal('modal-salida-justificada');
+    limpiarAlertaTimers();
+    ocultarBannerAlertaJornada();
+    const btnOlvide = document.getElementById('btn-olvide-salida');
+    if (btnOlvide) btnOlvide.style.display = 'none';
+    cargarDashboardEmpleado();
+    mostrarExito(tipo);
+    setTimeout(() => toast('Salida registrada. Quedará marcada para revisión del admin.', 'info', 5000), 800);
+  } catch(e) {
+    toast(e.message || 'Error al registrar salida', 'error');
+  } finally {
+    btn.innerHTML = 'Registrar salida'; btn.disabled = false;
+  }
+}
+
+async function ejecutarCierreAutomatico(tipo, motivo) {
+  try {
+    const movs = await api('/movimientos/hoy');
+    const ultimo = movs && movs.length ? movs[movs.length-1].tipo : null;
+    const activo = ['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(ultimo);
+    if (!activo) return;
+
+    await api('/movimientos/egreso-justificado', {
+      method: 'POST',
+      body: JSON.stringify({ tipo, motivo_salida_fuera: 'cierre_automatico', hora_real_egreso: horaLocalAhora(), salida_automatica: true, observacion: motivo }),
+    });
+    limpiarAlertaTimers();
+    ocultarBannerAlertaJornada();
+    cargarDashboardEmpleado();
+    toast('⏰ Tu jornada fue cerrada automáticamente. Quedará marcada para revisión.', 'info', 7000);
+  } catch(e) { console.error('[cierre-auto]', e); }
 }
 </script>
 
