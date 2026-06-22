@@ -349,12 +349,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <div id="lista-viaticos-pend"></div>
       </div>
       <div class="card">
-        <div class="card-title">🔧 Recursos compartidos</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin-bottom:0">🔧 Recursos compartidos</div>
+          <button class="btn btn-primary btn-sm" onclick="abrirModalNuevoRecurso()" style="white-space:nowrap">+ Agregar</button>
+        </div>
         <div id="lista-recursos-admin" style="margin-bottom:12px"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-secondary btn-sm" onclick="abrirModalNuevoRecurso()">+ Agregar recurso</button>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('import-recursos-input').click()">📥 Importar Excel</button>
-          <button class="btn btn-secondary btn-sm" onclick="descargarPlantillaRecursos()">📄 Bajar plantilla</button>
+          <button class="btn btn-secondary btn-sm" onclick="descargarPlantillaRecursos()">📄 Plantilla</button>
         </div>
         <input type="file" id="import-recursos-input" accept=".xlsx,.xls" style="display:none" onchange="importarRecursos(this)">
       </div>
@@ -2304,9 +2306,25 @@ async function cargarRecursosAdmin() {
         ? `<span class="badge badge-orange" style="font-size:11px">🔴 En uso — ${quien} hasta ${hasta}</span>`
         : `<span class="badge badge-green" style="font-size:11px">🟢 Disponible</span>`;
       const btnRetorno = enUso
-        ? `<button class="btn btn-sm btn-warning" onclick="registrarRetorno(${disp.reserva_id},'${r.nombre.replace(/'/g,"\\'")}')">📥 Registrar retorno</button>`
+        ? `<button class="btn btn-sm btn-warning" style="width:100%" onclick="registrarRetorno(${disp.reserva_id},'${r.nombre.replace(/'/g,"\\'")}')">📥 Registrar retorno</button>`
         : '';
-      return '<div style="padding:10px;border:1px solid '+(tieneAdv?'var(--orange)':enUso?'rgba(255,145,0,0.4)':'var(--border)')+';border-radius:var(--radius-sm);margin-bottom:8px;background:'+(enUso?'rgba(255,145,0,0.04)':tieneAdv?'rgba(255,145,0,0.05)':'')+'"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px"><div style="flex:1"><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+r.descripcion+'</div>':'')+'<div style="margin-top:6px">'+estadoBadge+'</div></div>'+(tieneAdv?'<span class="badge badge-orange" style="font-size:10px;margin-left:8px">⚠ '+advertenciasMap[r.id]+'</span>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+btnRetorno+'<button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\')" style="color:var(--orange)">⚠ Reportar</button>'+(tieneAdv?'<button class="btn btn-sm btn-secondary" onclick="verAdvertencias('+r.id+')">Ver avisos</button>':'')+'<button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>';
+      return `<div style="padding:12px;border:1px solid ${tieneAdv?'var(--orange)':enUso?'rgba(255,145,0,0.4)':'var(--border)'};border-radius:var(--radius-sm);margin-bottom:10px;background:${enUso?'rgba(255,145,0,0.04)':tieneAdv?'rgba(255,145,0,0.05)':''}">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:600">${iconos[r.tipo]||'📦'} ${r.nombre}</div>
+            ${r.descripcion?`<div style="font-size:12px;color:var(--text2);margin-top:2px">${r.descripcion}</div>`:''}
+          </div>
+          ${tieneAdv?`<span class="badge badge-orange" style="font-size:10px;margin-left:8px;flex-shrink:0">⚠ ${advertenciasMap[r.id]}</span>`:''}
+        </div>
+        <div style="margin-bottom:10px">${estadoBadge}</div>
+        <div style="display:grid;grid-template-columns:${enUso?'1fr':'1fr 1fr'};gap:8px">
+          ${btnRetorno}
+          ${!enUso?`<button class="btn btn-sm btn-primary" onclick="abrirModalReservar(${r.id})">Reservar</button>`:''}
+          <button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia(${r.id},'${r.nombre.replace(/'/g,"\\'")}')">⚠ Reportar</button>
+        </div>
+        ${tieneAdv?`<button class="btn btn-sm btn-secondary" style="width:100%;margin-top:8px" onclick="verAdvertencias(${r.id})">Ver advertencias (${advertenciasMap[r.id]})</button>`:''}
+        <button class="btn btn-sm btn-danger" style="width:100%;margin-top:8px;opacity:0.6" onclick="eliminarRecurso(${r.id})">✕ Dar de baja</button>
+      </div>`;
     }).join('');
   } catch { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Error cargando recursos</p>'; }
   finally { _cargandoRecursos = false; }
