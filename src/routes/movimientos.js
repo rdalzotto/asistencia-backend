@@ -206,6 +206,152 @@ router.get('/hoy', auth, async (req, res) => {
   }
 });
 
+// ─── GET /movimientos/horario-hoy ────────────────────────────────────────────
+// Devuelve el horario del empleado para hoy (jornadas_por_dia o fallback a jornadas_config).
+// El frontend lo usa para saber cuándo disparar las alertas de fin de jornada.
+router.get('/horario-hoy', auth, async (req, res) => {
+  try {
+    const empleadoId = req.user.empleadoId;
+    if (!empleadoId) return res.json({ horario: null });
+
+    // Día de semana en horario Argentina (UTC-3)
+    const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+    const diaSemana = ahora.getDay(); // 0=Dom, 1=Lun, ..., 6=Sab
+
+    // Primero: jornada específica del empleado para este día de la semana
+    const { rows: jornadaDia } = await db.query(
+      `SELECT * FROM public.jornadas_por_dia WHERE empleado_id = $1 AND dia_semana = $2`,
+      [empleadoId, diaSemana]
+    );
+    if (jornadaDia.length && jornadaDia[0].hora_egreso) {
+      return res.json({ horario: jornadaDia[0], fuente: 'jornada_por_dia' });
+    }
+
+    // Fallback: jornada_config general del empleado
+    const { rows: emp } = await db.query(
+      `SELECT e.jornada_config_id, jc.modalidad, jc.hora_ingreso, jc.hora_egreso
+       FROM public.empleados e
+       LEFT JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
+       WHERE e.id = $1`,
+      [empleadoId]
+    );
+    if (emp.length && emp[0].hora_egreso) {
+      return res.json({ horario: emp[0], fuente: 'jornada_config' });
+    }
+
+    return res.json({ horario: null });
+  } catch (err) {
+    console.error('[MOV] horario-hoy error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /movimientos/egreso-justificado ─────────────────────────────────────
+// Registra egreso o fin_jornada_remota SIN validación GPS, con justificación del empleado.
+// Usado en 3 casos: (1) GPS falla fuera de radio al intentar salida, (2) cierre automático
+// del sistema al superar hora de egreso o tope de 12 hs, (3) empleado registra salida olvidada.
+router.post('/egreso-justificado', auth, async (req, res) => {
+  const {
+    tipo,                 // 'egreso' | 'fin_jornada_remota'
+    motivo_salida_fuera,  // razón seleccionada por el empleado
+    hora_real_egreso,     // HH:MM declarada (puede diferir de hora actual)
+    salida_automatica,    // true si lo cerró el sistema, false si lo hizo el empleado
+    observacion,
+  } = req.body;
+
+  const TIPOS_VALIDOS = ['egreso', 'fin_jornada_remota'];
+  if (!TIPOS_VALIDOS.includes(tipo))
+    return res.status(400).json({ error: 'Tipo inválido para egreso justificado' });
+
+  const empleadoId = req.user.empleadoId;
+  if (!empleadoId)
+    return res.status(400).json({ error: 'Usuario sin empleado asociado' });
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const hoy = new Date().toISOString().split('T')[0];
+    const feriado = await jornada.esFeriado(hoy);
+
+    // Evitar duplicados: si ya existe un egreso hoy, rechazar
+    const { rows: yaEgreso } = await client.query(
+      `SELECT id FROM public.movimientos
+       WHERE empleado_id = $1 AND fecha = CURRENT_DATE AND tipo IN ('egreso','fin_jornada_remota')
+       LIMIT 1`,
+      [empleadoId]
+    );
+    if (yaEgreso.length)
+      return res.status(400).json({ error: 'Ya existe un egreso registrado para hoy' });
+
+    const hashData = {
+      tipo, empleadoId, empleadorId: req.user.empleadorId,
+      hora: new Date().toISOString(), lat: null, lng: null,
+    };
+    const hash = jornada.generarHash(hashData);
+
+    // Armar observación consolidada para el admin
+    const obsTexto = [
+      motivo_salida_fuera ? `Motivo: ${motivo_salida_fuera}` : null,
+      hora_real_egreso    ? `Hora real declarada: ${hora_real_egreso}` : null,
+      salida_automatica   ? 'Cerrado automáticamente por el sistema' : null,
+      observacion         ? `Obs: ${observacion}` : null,
+    ].filter(Boolean).join(' | ');
+
+    const esRemotoTipo = tipo === 'fin_jornada_remota';
+
+    const { rows: [mov] } = await client.query(`
+      INSERT INTO public.movimientos (
+        empleado_id, empleador_id, tipo, fecha, hora,
+        lat, lng, gps_valido, distancia_m,
+        es_remoto, foto_url, foto_capturada,
+        es_tardanza, minutos_tardanza, es_feriado,
+        validado, hash_sha256, observacion_admin,
+        motivo_salida_fuera, hora_real_egreso,
+        salida_fuera_radio, salida_automatica
+      ) VALUES (
+        $1,$2,$3,CURRENT_DATE,NOW(),
+        NULL,NULL,FALSE,NULL,
+        $4,NULL,FALSE,
+        FALSE,0,$5,
+        FALSE,$6,$7,
+        $8,$9,
+        TRUE,$10
+      ) RETURNING *
+    `, [
+      empleadoId, req.user.empleadorId, tipo,
+      esRemotoTipo,
+      feriado,
+      hash,
+      obsTexto || null,
+      motivo_salida_fuera || null,
+      hora_real_egreso    || null,
+      salida_automatica   || false,
+    ]);
+
+    await jornada.actualizarBancoHoras(empleadoId, hoy, client);
+    await client.query('COMMIT');
+
+    // Notificación push a admins
+    const { rows: [emp] } = await db.query(
+      'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [empleadoId]
+    );
+    const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+    const hora   = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    const n = push.notif.egreso(nombre, hora);
+    const sufijo = salida_automatica ? ' (cierre automático)' : ' (salida justificada)';
+    await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo + sufijo);
+
+    res.json({ ok: true, movimiento: mov });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[MOV] egreso-justificado error:', err.message);
+    res.status(500).json({ error: 'Error al registrar egreso justificado' });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── GET /movimientos/historial ───────────────────────────────────────────────
 router.get('/historial', auth, async (req, res) => {
   const {
@@ -265,7 +411,7 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
         validado_por = $2,
         validado_en = NOW(),
         observacion_admin = $3
-      WHERE id = $4 AND empleador_id = $5 AND (es_remoto = TRUE OR gps_valido = FALSE)
+      WHERE id = $4 AND empleador_id = $5 AND (es_remoto = TRUE OR gps_valido = FALSE OR salida_fuera_radio = TRUE)
       RETURNING *
     `, [aprobado !== false, req.user.id, observacion || null, id, req.user.empleadorId]);
 
@@ -295,7 +441,7 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
       FROM public.movimientos m
       JOIN public.empleados e ON e.id = m.empleado_id
       WHERE m.empleador_id = $1
-        AND (m.es_remoto = TRUE OR m.gps_valido = FALSE)
+        AND (m.es_remoto = TRUE OR m.gps_valido = FALSE OR m.salida_fuera_radio = TRUE)
         AND m.validado = FALSE
         AND m.hora >= NOW() - INTERVAL '48 hours'
       ORDER BY m.hora DESC
