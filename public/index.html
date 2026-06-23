@@ -3830,9 +3830,9 @@ function renderConstanciaPasos() {
   }).join('');
 }
 
-function irConstanciaPaso(n) { guardarDatosPasoActual(); guardarConstanciaActual(); CONST_STATE.pasoActual=n; renderConstanciaPasos(); renderConstanciaPaso(); }
-function constanciaPasoAnterior() { if(CONST_STATE.pasoActual===0) return; guardarDatosPasoActual(); guardarConstanciaActual(); CONST_STATE.pasoActual--; renderConstanciaPasos(); renderConstanciaPaso(); }
-function constanciaPasoSiguiente() { guardarDatosPasoActual(); guardarConstanciaActual(); if(CONST_STATE.pasoActual<CONST_PASOS.length-1){CONST_STATE.pasoActual++; renderConstanciaPasos(); renderConstanciaPaso();} else { finalizarConstancia(); } }
+function irConstanciaPaso(n) { guardarDatosPasoActual(); guardarConstanciaActual().catch(()=>{}); CONST_STATE.pasoActual=n; renderConstanciaPasos(); renderConstanciaPaso(); }
+function constanciaPasoAnterior() { if(CONST_STATE.pasoActual===0) return; guardarDatosPasoActual(); guardarConstanciaActual().catch(()=>{}); CONST_STATE.pasoActual--; renderConstanciaPasos(); renderConstanciaPaso(); }
+function constanciaPasoSiguiente() { guardarDatosPasoActual(); guardarConstanciaActual().catch(()=>{}); if(CONST_STATE.pasoActual<CONST_PASOS.length-1){CONST_STATE.pasoActual++; renderConstanciaPasos(); renderConstanciaPaso();} else { finalizarConstancia(); } }
 
 function guardarDatosPasoActual() {
   const paso = CONST_PASOS[CONST_STATE.pasoActual].id;
@@ -3876,7 +3876,7 @@ function renderPasoTipo() {
   const sT=CONST_STATE.selecciones.tipo_visita||[], sF=CONST_STATE.selecciones.frente_trabajo||[];
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">2. Tipo de visita y frentes de trabajo</div>
   <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Tipo de visita</div>
-  ${tipos.map(t=>`<label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" value="${t.id}" ${sT.find(s=>s.item_id==t.id)?'checked':''} onchange="toggleSeleccion('tipo_visita',${t.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px">${t.texto}</span></label>`).join('')}
+  ${tipos.map(t=>`<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${t.id}" ${sT.find(s=>s.item_id==t.id)?'checked':''} onchange="toggleSeleccion('tipo_visita',${t.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px">${t.texto}</span></label><button onclick="editarItemMenu(${t.id},'tipo_visita',this)" data-texto="${t.texto}" style="background:none;border:none;color:var(--text3);font-size:14px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button></div>`).join('')}
   <button onclick="agregarItemNuevo('tipo_visita')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-bottom:16px">+ Agregar tipo no listado</button>
   <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Frentes de trabajo</div>
   ${frentes.map(f=>{const sel=sF.find(s=>s.item_id==f.id); return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" value="${f.id}" ${sel?'checked':''} onchange="toggleSeleccion('frente_trabajo',${f.id},'',this.checked);renderConstanciaPaso()" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px;flex:1">${f.texto}</span></label>${sel?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select onchange="actualizarFrenteExtra(${f.id},'nivel_riesgo',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"><option value="">Nivel riesgo</option><option value="Bajo riesgo" ${sel.nivel_riesgo==='Bajo riesgo'?'selected':''}>🟢 Bajo</option><option value="Riesgo moderado" ${sel.nivel_riesgo==='Riesgo moderado'?'selected':''}>🟡 Moderado</option><option value="Alto riesgo" ${sel.nivel_riesgo==='Alto riesgo'?'selected':''}>🔴 Alto</option><option value="Riesgo crítico" ${sel.nivel_riesgo==='Riesgo crítico'?'selected':''}>⛔ Crítico</option></select><input type="text" placeholder="Normativa..." value="${sel.normativa_frente||''}" onchange="actualizarFrenteExtra(${f.id},'normativa_frente',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"></div>`:''}</div>`;}).join('')}
@@ -3915,7 +3915,7 @@ function renderFilaEquipo(e,i) {
 function renderPasoActividades() {
   const acts=CONST_STATE.itemsMenu.actividad||[], sA=CONST_STATE.selecciones.actividad||[];
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">4. Actividades realizadas</div>
-  ${acts.map(a=>`<label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" value="${a.id}" ${sA.find(s=>s.item_id==a.id)?'checked':''} onchange="toggleSeleccion('actividad',${a.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--green)"><span style="font-size:13px">${a.texto}</span></label>`).join('')}
+  ${acts.map(a=>`<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${a.id}" ${sA.find(s=>s.item_id==a.id)?'checked':''} onchange="toggleSeleccion('actividad',${a.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--green)"><span style="font-size:13px">${a.texto}</span></label><button onclick="editarItemMenu(${a.id},'actividad',this)" data-texto="${a.texto}" style="background:none;border:none;color:var(--text3);font-size:14px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button></div>`).join('')}
   <button onclick="agregarItemNuevo('actividad')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar actividad no listada</button>`;
 }
 
@@ -3931,7 +3931,7 @@ function renderPasoAcciones() {
 function renderPasoNormativa() {
   const normas=CONST_STATE.itemsMenu.normativa||[], sN=CONST_STATE.selecciones.normativa||[];
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">6. Marco normativo aplicado</div>
-  ${normas.map(n=>`<label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;margin-bottom:6px;cursor:pointer"><input type="checkbox" value="${n.id}" ${sN.find(s=>s.item_id==n.id)?'checked':''} onchange="toggleSeleccion('normativa',${n.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--yellow)"><span style="font-size:13px">${n.texto}</span></label>`).join('')}
+  ${normas.map(n=>`<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${n.id}" ${sN.find(s=>s.item_id==n.id)?'checked':''} onchange="toggleSeleccion('normativa',${n.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--yellow)"><span style="font-size:13px">${n.texto}</span></label><button onclick="editarItemMenu(${n.id},'normativa',this)" data-texto="${n.texto}" style="background:none;border:none;color:var(--text3);font-size:14px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button></div>`).join('')}
   <button onclick="agregarItemNuevo('normativa')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar normativa no listada</button>`;
 }
 
@@ -4020,7 +4020,7 @@ function agregarItemNuevo(categoria) {
   const titulos = {tipo_visita:'Agregar tipo de visita',frente_trabajo:'Agregar frente de trabajo',actividad:'Agregar actividad',normativa:'Agregar normativa'};
   const modal = document.getElementById('modal-item-nuevo');
   const btn = modal ? modal.querySelector('.btn-primary') : null;
-  // Resetear estado del modal antes de abrir
+  if (modal) delete modal.dataset.editId;
   if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
   document.getElementById('modal-item-titulo').textContent = titulos[categoria] || 'Agregar ítem';
   document.getElementById('modal-item-categoria').value = categoria;
@@ -4030,34 +4030,53 @@ function agregarItemNuevo(categoria) {
   setTimeout(() => document.getElementById('modal-item-texto').focus(), 150);
 }
 
+function editarItemMenu(itemId, categoria, btn) {
+  const modal = document.getElementById('modal-item-nuevo');
+  const textoActual = btn ? btn.dataset.texto : '';
+  const btnModal = modal ? modal.querySelector('.btn-primary') : null;
+  if (btnModal) { btnModal.disabled = false; btnModal.textContent = 'Guardar cambio'; }
+  document.getElementById('modal-item-titulo').textContent = 'Editar ítem';
+  document.getElementById('modal-item-categoria').value = categoria;
+  document.getElementById('modal-item-texto').value = textoActual;
+  if (modal) { modal.dataset.editId = itemId; modal.style.display = ''; modal.classList.add('active'); }
+  setTimeout(() => document.getElementById('modal-item-texto').focus(), 150);
+}
+
 async function confirmarItemNuevo() {
+  const modal = document.getElementById('modal-item-nuevo');
   const categoria = document.getElementById('modal-item-categoria').value;
   const textoInput = document.getElementById('modal-item-texto');
   const texto = textoInput ? textoInput.value.trim() : '';
+  const editId = modal?.dataset.editId || null;
   if (!texto) return toast('Escribí el nombre del ítem', 'error');
-  const btn = document.querySelector('#modal-item-nuevo .btn-primary');
+  const btn = modal ? modal.querySelector('.btn-primary') : null;
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
   try {
-    const data = await api('/constancias/items', {method:'POST', body:JSON.stringify({categoria, texto})});
-    if (data.item) {
-      if (!data.item.texto) data.item.texto = texto;
-      if (!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria] = [];
-      if (!CONST_STATE.itemsMenu[categoria].find(i => i.id == data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
-      toggleSeleccion(categoria, data.item.id, '', true);
-      // Cerrar DESPUÉS del await exitoso y resetear
-      const modal = document.getElementById('modal-item-nuevo');
-      if (modal) modal.classList.remove('active');
-      if (textoInput) textoInput.value = '';
-      renderConstanciaPaso();
-      toast(data.existente ? 'Ítem ya existente — seleccionado ✓' : 'Ítem agregado ✓', 'success');
+    if (editId) {
+      const data = await api('/constancias/items/' + editId, {method:'PATCH', body:JSON.stringify({texto})});
+      if (data.item) {
+        const lista = CONST_STATE.itemsMenu[categoria] || [];
+        const idx = lista.findIndex(i => i.id == editId);
+        if (idx >= 0) lista[idx].texto = texto;
+      }
     } else {
-      throw new Error('Sin respuesta del servidor');
+      const data = await api('/constancias/items', {method:'POST', body:JSON.stringify({categoria, texto})});
+      if (data.item) {
+        if (!data.item.texto) data.item.texto = texto;
+        if (!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria] = [];
+        if (!CONST_STATE.itemsMenu[categoria].find(i => i.id == data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
+        toggleSeleccion(categoria, data.item.id, '', true);
+      }
     }
+    if (modal) { modal.classList.remove('active'); delete modal.dataset.editId; }
+    if (textoInput) textoInput.value = '';
+    renderConstanciaPaso();
+    toast(editId ? 'Ítem actualizado ✓' : 'Ítem agregado ✓', 'success');
   } catch(e) {
-    toast('Error al guardar el ítem — reintentá', 'error');
+    toast('Error al guardar — reintentá', 'error');
     console.error('[confirmarItemNuevo]', e);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
+    if (btn) { btn.disabled = false; btn.textContent = editId ? 'Guardar cambio' : 'Agregar'; }
   }
 }
 
