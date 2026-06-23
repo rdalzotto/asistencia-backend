@@ -125,13 +125,23 @@ async function cronJornadaInteligente() {
 
   try {
     // ── 1. Enviar consulta de egreso al cumplirse hora_egreso del turno ────────
+    // dia_semana: 1=lun … 6=sab, 7=dom (igual que jornadas_por_dia)
+    const diaSemanaHoy = (() => {
+      const d = new Date();
+      const js = d.getDay(); // 0=dom,1=lun…6=sab
+      return js === 0 ? 7 : js;
+    })();
+
     const { rows: conConsulta } = await db.query(`
       SELECT e.id as empleado_id, e.empleador_id, e.nombre, e.apellido,
-             jc.hora_egreso, u.id as usuario_id
+             COALESCE(jpd.hora_egreso, jc.hora_egreso) AS hora_egreso,
+             u.id as usuario_id
       FROM public.empleados e
       JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
       JOIN public.usuarios u ON u.id = e.usuario_id
-      WHERE jc.hora_egreso IS NOT NULL
+      LEFT JOIN public.jornadas_por_dia jpd
+        ON jpd.empleado_id = e.id AND jpd.dia_semana = $1
+      WHERE COALESCE(jpd.hora_egreso, jc.hora_egreso) IS NOT NULL
         AND e.activo = TRUE
         AND EXISTS (
           SELECT 1 FROM public.movimientos m
@@ -150,7 +160,7 @@ async function cronJornadaInteligente() {
           WHERE ce.empleado_id = e.id
             AND ce.fecha = CURRENT_DATE
         )
-    `);
+    `, [diaSemanaHoy]);
 
     for (const emp of conConsulta) {
       const minEgreso = minDesde(emp.hora_egreso);
