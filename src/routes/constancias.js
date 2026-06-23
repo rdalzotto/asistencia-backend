@@ -44,7 +44,7 @@ router.post('/items', auth, async (req, res) => {
   }
 });
 
-router.patch('/items/:id', auth, soloAdmin, async (req, res) => {
+router.patch('/items/:id', auth, async (req, res) => {
   const { texto, activo, orden } = req.body;
   try {
     const sets = [], params = [];
