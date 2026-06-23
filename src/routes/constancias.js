@@ -32,7 +32,9 @@ router.post('/items', auth, async (req, res) => {
     if (exist.length) return res.json({ ok: true, item: exist[0], existente: true });
     const { rows: [item] } = await db.query(`
       INSERT INTO public.constancia_items (empleador_id, categoria, texto, orden)
-      VALUES ($1, $2, $3, (SELECT COALESCE(MAX(orden),0)+1 FROM public.constancia_items WHERE empleador_id=$1 AND categoria=$2))
+      SELECT $1, $2::varchar, $3, COALESCE(MAX(orden),0)+1
+      FROM public.constancia_items
+      WHERE empleador_id=$1 AND categoria=$2::varchar
       RETURNING *
     `, [req.user.empleadorId, categoria, texto]);
     res.json({ ok: true, item });
@@ -343,8 +345,13 @@ router.post('/:id/guardar-completo', auth, async (req, res) => {
   const { datos, selecciones, personal, equipos, acciones, desvios } = req.body;
   try {
     if (datos) {
+      // Convertir strings vacíos a null para campos de tipo time/numeric
+      const horaIni = datos.hora_inicio || null;
+      const horaFin = datos.hora_fin || null;
+      const gpsLat  = datos.gps_lat  != null && datos.gps_lat  !== '' ? parseFloat(datos.gps_lat)  : null;
+      const gpsLng  = datos.gps_lng  != null && datos.gps_lng  !== '' ? parseFloat(datos.gps_lng)  : null;
       await db.query(`UPDATE public.constancias SET establecimiento_sector=COALESCE($1,establecimiento_sector), hora_inicio=COALESCE($2,hora_inicio), hora_fin=COALESCE($3,hora_fin), gps_lat=COALESCE($4,gps_lat), gps_lng=COALESCE($5,gps_lng), observaciones_generales=COALESCE($6,observaciones_generales), estado=COALESCE($7,estado), actualizado_en=NOW() WHERE id=$8 AND empleador_id=$9`,
-        [datos.establecimiento_sector, datos.hora_inicio, datos.hora_fin, datos.gps_lat, datos.gps_lng, datos.observaciones_generales, datos.estado, req.params.id, req.user.empleadorId]);
+        [datos.establecimiento_sector||null, horaIni, horaFin, gpsLat, gpsLng, datos.observaciones_generales||null, datos.estado||null, req.params.id, req.user.empleadorId]);
     }
     if (selecciones) {
       for (const [categoria, items] of Object.entries(selecciones)) {
