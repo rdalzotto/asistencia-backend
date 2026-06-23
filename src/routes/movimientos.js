@@ -452,6 +452,30 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// ─── GET /movimientos/consulta-egreso-pendiente ───────────────────────────────
+router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
+  const empleadoId = req.user.empleadoId;
+  if (!empleadoId) return res.json({ pendiente: false });
+  try {
+    const { rows: [consulta] } = await db.query(`
+      SELECT ce.*, jc.hora_egreso
+      FROM public.consultas_egreso ce
+      JOIN public.empleados e ON e.id = ce.empleado_id
+      JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
+      WHERE ce.empleado_id = $1
+        AND ce.fecha = CURRENT_DATE
+        AND ce.respondido = FALSE
+        AND ce.fecha_expira > NOW()
+    `, [empleadoId]);
+
+    if (!consulta) return res.json({ pendiente: false });
+    res.json({ pendiente: true, hora_egreso_turno: consulta.hora_egreso });
+  } catch (err) {
+    console.error('[MOV] consulta-egreso-pendiente error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── POST /movimientos/confirmar-jornada ──────────────────────────────────────
 // El empleado responde la consulta de egreso: { accion: 'egreso' | 'extension', hasta_hora: 'HH:MM' }
 router.post('/confirmar-jornada', auth, async (req, res) => {
