@@ -458,10 +458,7 @@ router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
   if (!empleadoId) return res.json({ pendiente: false });
   try {
     const { rows: [consulta] } = await db.query(`
-      SELECT ce.*, jc.hora_egreso
-      FROM public.consultas_egreso ce
-      JOIN public.empleados e ON e.id = ce.empleado_id
-      JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
+      SELECT ce.* FROM public.consultas_egreso ce
       WHERE ce.empleado_id = $1
         AND ce.fecha = CURRENT_DATE
         AND ce.respondido = FALSE
@@ -469,7 +466,25 @@ router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
     `, [empleadoId]);
 
     if (!consulta) return res.json({ pendiente: false });
-    res.json({ pendiente: true, hora_egreso_turno: consulta.hora_egreso });
+
+    // Obtener hora_egreso real del día (jornadas_por_dia o fallback jornadas_config)
+    const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+    const diaSemana = ahora.getDay();
+    const { rows: jpd } = await db.query(
+      'SELECT hora_egreso FROM public.jornadas_por_dia WHERE empleado_id = $1 AND dia_semana = $2',
+      [empleadoId, diaSemana]
+    );
+    let horaEgreso = jpd[0]?.hora_egreso || null;
+    if (!horaEgreso) {
+      const { rows: jc } = await db.query(
+        `SELECT jc.hora_egreso FROM public.jornadas_config jc
+         JOIN public.empleados e ON e.jornada_config_id = jc.id WHERE e.id = $1`,
+        [empleadoId]
+      );
+      horaEgreso = jc[0]?.hora_egreso || null;
+    }
+
+    res.json({ pendiente: true, hora_egreso_turno: horaEgreso });
   } catch (err) {
     console.error('[MOV] consulta-egreso-pendiente error:', err.message);
     res.status(500).json({ error: 'Error interno' });
@@ -552,15 +567,24 @@ router.post('/confirmar-jornada', auth, async (req, res) => {
       if (!hasta_hora || !/^\d{2}:\d{2}$/.test(hasta_hora))
         return res.status(400).json({ error: 'Indicá la hora de fin en formato HH:MM' });
 
-      // Validar que no supere turno + 3 horas
-      const { rows: [jc] } = await db.query(`
-        SELECT jc.hora_egreso FROM public.jornadas_config jc
-        JOIN public.empleados e ON e.jornada_config_id = jc.id
-        WHERE e.id = $1
-      `, [empleadoId]);
+      // Validar que no supere turno + 3 horas (usando horario real del día)
+      const ahoraAR = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+      const diaSemanaHoy = ahoraAR.getDay();
+      const { rows: jpdLimit } = await db.query(
+        'SELECT hora_egreso FROM public.jornadas_por_dia WHERE empleado_id = $1 AND dia_semana = $2',
+        [empleadoId, diaSemanaHoy]
+      );
+      let horaEgresoBase = jpdLimit[0]?.hora_egreso || null;
+      if (!horaEgresoBase) {
+        const { rows: jcLimit } = await db.query(`
+          SELECT jc.hora_egreso FROM public.jornadas_config jc
+          JOIN public.empleados e ON e.jornada_config_id = jc.id WHERE e.id = $1
+        `, [empleadoId]);
+        horaEgresoBase = jcLimit[0]?.hora_egreso || null;
+      }
 
-      if (jc?.hora_egreso) {
-        const [hBase, mBase] = jc.hora_egreso.split(':').map(Number);
+      if (horaEgresoBase) {
+        const [hBase, mBase] = horaEgresoBase.split(':').map(Number);
         const [hExt,  mExt]  = hasta_hora.split(':').map(Number);
         const minBase = hBase * 60 + mBase;
         const minExt  = hExt  * 60 + mExt;
