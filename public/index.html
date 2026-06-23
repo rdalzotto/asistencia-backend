@@ -879,7 +879,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="modal-handle"></div>
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div class="modal-title" style="margin:0">Mis visitas</div>
-      <button class="btn btn-primary btn-sm" onclick="abrirModalNuevaVisitaEmp()">+ Programar visita</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="abrirConstanciaEspontanea()" style="background:rgba(0,212,255,0.12);border-color:rgba(0,212,255,0.3);color:var(--accent)">📋 Espontánea</button>
+        <button class="btn btn-primary btn-sm" onclick="abrirModalNuevaVisitaEmp()">+ Programar visita</button>
+      </div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px">
       <button class="btn btn-sm btn-primary" id="btn-vis-vista-lista-emp" onclick="cambiarVistaVisitasEmp('lista')">📋 Lista</button>
@@ -3647,12 +3650,121 @@ const CONST_PASOS = [
   {id:'firmas',label:'9. Firmas',icono:'✍'},
 ];
 
+function abrirConstanciaEspontanea() {
+  const existing = document.getElementById('modal-constancia-espontanea');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-constancia-espontanea';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border-radius:16px;padding:24px;width:100%;max-width:420px;margin:auto">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">📋 Constancia espontánea</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:20px">Visita no programada — obra, contratista o establecimiento en vía pública</div>
+      <div class="form-group">
+        <label>Empresa / Contratista *</label>
+        <input type="text" id="espontanea-establecimiento" placeholder="Nombre de la empresa o contratista" style="width:100%;box-sizing:border-box">
+      </div>
+      <div class="form-group">
+        <label>Dirección del frente de trabajo</label>
+        <input type="text" id="espontanea-direccion" placeholder="Ej: Av. Urquiza 1200, entre calles..." style="width:100%;box-sizing:border-box">
+      </div>
+      <div class="form-group">
+        <label>Localidad</label>
+        <input type="text" id="espontanea-localidad" placeholder="Ej: Concordia" style="width:100%;box-sizing:border-box">
+      </div>
+      <div class="form-group">
+        <label>Hora de llegada</label>
+        <input type="time" id="espontanea-hora" style="width:100%;box-sizing:border-box">
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="font-size:13px;font-weight:600">📍 Ubicación GPS</div>
+          <button onclick="capturarGPSEspontanea()" id="btn-gps-espontanea" class="btn btn-secondary btn-sm">Capturar GPS</button>
+        </div>
+        <div id="gps-espontanea-resultado" style="font-size:12px;color:var(--text2)">No capturado</div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button onclick="document.getElementById('modal-constancia-espontanea').remove()" class="btn btn-secondary" style="flex:1">Cancelar</button>
+        <button onclick="confirmarConstanciaEspontanea()" class="btn btn-primary" style="flex:1">Iniciar constancia →</button>
+      </div>
+    </div>`;
+  const ahora = typeof horaLocalAhora === 'function' ? horaLocalAhora() : new Date().toTimeString().slice(0,5);
+  document.body.appendChild(overlay);
+  document.getElementById('espontanea-hora').value = ahora;
+  // Intentar GPS automático al abrir
+  capturarGPSEspontanea(true);
+}
+
+function capturarGPSEspontanea(silencioso) {
+  const resultDiv = document.getElementById('gps-espontanea-resultado');
+  const btn = document.getElementById('btn-gps-espontanea');
+  if (!navigator.geolocation) {
+    if (resultDiv) resultDiv.textContent = 'GPS no disponible en este dispositivo';
+    return;
+  }
+  if (resultDiv) resultDiv.innerHTML = '<span style="color:var(--text3)">⏳ Obteniendo ubicación...</span>';
+  if (btn) btn.disabled = true;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = parseFloat(pos.coords.latitude.toFixed(6));
+      const lng = parseFloat(pos.coords.longitude.toFixed(6));
+      const acc = Math.round(pos.coords.accuracy);
+      // Guardar en atributos del div para recuperar después
+      if (resultDiv) {
+        resultDiv.dataset.lat = lat;
+        resultDiv.dataset.lng = lng;
+        resultDiv.innerHTML = `<span style="color:var(--green)">✓ Lat: ${lat} / Lng: ${lng}</span><br><span style="color:var(--text3);font-size:11px">Precisión: ±${acc} m — <a href="https://maps.google.com/?q=${lat},${lng}" target="_blank" style="color:var(--accent)">Ver en mapa</a></span>`;
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '↺ Actualizar'; }
+    },
+    (err) => {
+      const msgs = {1:'Permiso de GPS denegado', 2:'Señal GPS no disponible', 3:'Tiempo de espera agotado'};
+      if (resultDiv) resultDiv.innerHTML = `<span style="color:var(--text3)">${msgs[err.code]||'Error GPS'}</span>`;
+      if (btn) { btn.disabled = false; }
+      if (!silencioso) toast('No se pudo obtener el GPS', 'error');
+    },
+    {enableHighAccuracy: true, timeout: 12000, maximumAge: 0}
+  );
+}
+
+async function confirmarConstanciaEspontanea() {
+  const establecimiento = document.getElementById('espontanea-establecimiento')?.value?.trim();
+  const direccion = document.getElementById('espontanea-direccion')?.value?.trim();
+  const localidad = document.getElementById('espontanea-localidad')?.value?.trim();
+  const hora = document.getElementById('espontanea-hora')?.value;
+  const gpsDiv = document.getElementById('gps-espontanea-resultado');
+  const lat = gpsDiv?.dataset.lat ? parseFloat(gpsDiv.dataset.lat) : null;
+  const lng = gpsDiv?.dataset.lng ? parseFloat(gpsDiv.dataset.lng) : null;
+  if (!establecimiento) { toast('Ingresá el nombre del establecimiento', 'error'); return; }
+  document.getElementById('modal-constancia-espontanea').remove();
+  await abrirConstancia(null, {
+    espontanea: true,
+    establecimiento,
+    direccion,
+    localidad,
+    hora_inicio: hora,
+    gps_lat: lat,
+    gps_lng: lng
+  });
+}
+
 async function abrirConstancia(visitaId, visitaDatos) {
   CONST_STATE = {constanciaId:null,visitaId,pasoActual:0,datos:{},selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},personal:[],equipos:[],acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},desvios:[],firmas:{},itemsMenu:{},offline:false,pendienteSync:false};
   CONST_STATE.offline = !navigator.onLine;
 
   // Pre-completar con datos de la visita si es constancia nueva
-  if (visitaDatos && visitaDatos.destinos && visitaDatos.destinos.length) {
+  if (visitaDatos && visitaDatos.espontanea) {
+    // Constancia espontánea — sin visita programada
+    if (visitaDatos.establecimiento) {
+      let lugar = visitaDatos.establecimiento;
+      if (visitaDatos.direccion) lugar += ' — ' + visitaDatos.direccion;
+      if (visitaDatos.localidad) lugar += ', ' + visitaDatos.localidad;
+      CONST_STATE.datos.establecimiento_sector = lugar;
+    }
+    if (visitaDatos.hora_inicio) CONST_STATE.datos.hora_inicio = visitaDatos.hora_inicio;
+    if (visitaDatos.gps_lat) { CONST_STATE.datos.gps_lat = visitaDatos.gps_lat; CONST_STATE.datos.gps_lng = visitaDatos.gps_lng; }
+    CONST_STATE.espontanea = true;
+  } else if (visitaDatos && visitaDatos.destinos && visitaDatos.destinos.length) {
     // Establecimiento = nombre del primer destino (y todos si hay varios)
     const nombresDestinos = visitaDatos.destinos.map(d => d.cliente_nombre).filter(Boolean);
     if (nombresDestinos.length) {
