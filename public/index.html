@@ -4027,11 +4027,12 @@ async function confirmarItemNuevo() {
   try {
     const data = await api('/constancias/items', {method:'POST', body:JSON.stringify({categoria, texto})});
     if (data.item) {
+      if (!data.item.texto) data.item.texto = texto;
       if (!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria] = [];
       if (!CONST_STATE.itemsMenu[categoria].find(i => i.id == data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
       toggleSeleccion(categoria, data.item.id, '', true);
       renderConstanciaPaso();
-      toast('Ítem agregado ✓', 'success');
+      toast(data.existente ? 'Ítem ya existente — seleccionado ✓' : 'Ítem agregado ✓', 'success');
     }
   } catch { toast('Error al agregar ítem', 'error'); }
 }
