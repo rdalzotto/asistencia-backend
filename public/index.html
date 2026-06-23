@@ -4021,9 +4021,11 @@ function agregarItemNuevo(categoria) {
 
 async function confirmarItemNuevo() {
   const categoria = document.getElementById('modal-item-categoria').value;
-  const texto = document.getElementById('modal-item-texto').value.trim();
+  const textoInput = document.getElementById('modal-item-texto');
+  const btnConfirmar = document.querySelector('#modal-item-nuevo .btn-primary');
+  const texto = textoInput?.value.trim();
   if (!texto) return toast('Escribí el nombre del ítem', 'error');
-  cerrarModal('modal-item-nuevo');
+  if (btnConfirmar) { btnConfirmar.disabled = true; btnConfirmar.textContent = 'Guardando...'; }
   try {
     const data = await api('/constancias/items', {method:'POST', body:JSON.stringify({categoria, texto})});
     if (data.item) {
@@ -4031,10 +4033,18 @@ async function confirmarItemNuevo() {
       if (!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria] = [];
       if (!CONST_STATE.itemsMenu[categoria].find(i => i.id == data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
       toggleSeleccion(categoria, data.item.id, '', true);
+      cerrarModal('modal-item-nuevo');
       renderConstanciaPaso();
       toast(data.existente ? 'Ítem ya existente — seleccionado ✓' : 'Ítem agregado ✓', 'success');
+    } else {
+      throw new Error('Respuesta inesperada');
     }
-  } catch { toast('Error al agregar ítem', 'error'); }
+  } catch(e) {
+    toast('Error al guardar — corregí el texto y reintentá', 'error');
+    console.error('[confirmarItemNuevo]', e);
+  } finally {
+    if (btnConfirmar) { btnConfirmar.disabled = false; btnConfirmar.textContent = 'Agregar'; }
+  }
 }
 
 function agregarPersonal(){CONST_STATE.personal.push({nombre_apellido:'',funcion_cargo:'',habilitacion:'',estado_habilitacion:'conforme'});document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
