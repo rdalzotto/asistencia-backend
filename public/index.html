@@ -10,6 +10,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 :root {
   --bg:#0f1923;--bg2:#162030;--bg3:#1e2d40;--border:rgba(255,255,255,0.08);
@@ -4148,27 +4150,168 @@ function cerrarPreviewYSalir() {
   if(STATE.rol==='admin') cargarVisitasAdmin(); else cargarMisVisitas();
 }
 
-async function compartirConstancia() {
-  const html = generarHTMLConstancia();
+async function generarPDFConstancia() {
   const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
-  const nombreArchivo = 'Constancia_' + numero.replace(/[^a-zA-Z0-9_-]/g,'_') + '.html';
-  // Intentar Web Share API (nativo en móvil)
-  const blob = new Blob([html], {type:'text/html'});
-  const file = new File([blob], nombreArchivo, {type:'text/html'});
-  if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
-    try {
-      await navigator.share({title:'Constancia de visita — '+numero, files:[file]});
-      return;
-    } catch(e) { if (e.name !== 'AbortError') { /* fallback */ } else return; }
+  const html = generarHTMLConstancia();
+  // Crear contenedor oculto para renderizar
+  const contenedor = document.createElement('div');
+  contenedor.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:white;';
+  contenedor.innerHTML = html;
+  document.body.appendChild(contenedor);
+  try {
+    const canvas = await html2canvas(contenedor, {scale:1.5, useCORS:true, backgroundColor:'#ffffff'});
+    const imgData = canvas.toDataURL('image/jpeg', 0.85);
+    const {jsPDF} = window.jspdf;
+    const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+    const pageW = 210, pageH = 297, margin = 10;
+    const imgW = pageW - margin*2;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    let posY = margin;
+    let restante = imgH;
+    let srcY = 0;
+    const altoPagina = pageH - margin*2;
+    while (restante > 0) {
+      const altoBloq = Math.min(restante, altoPagina);
+      const canvasBloq = document.createElement('canvas');
+      canvasBloq.width = canvas.width;
+      canvasBloq.height = (altoBloq * canvas.width) / imgW;
+      const ctx = canvasBloq.getContext('2d');
+      ctx.drawImage(canvas, 0, srcY * canvas.width / imgW, canvas.width, canvasBloq.height, 0, 0, canvasBloq.width, canvasBloq.height);
+      const bloqData = canvasBloq.toDataURL('image/jpeg', 0.85);
+      pdf.addImage(bloqData, 'JPEG', margin, posY, imgW, altoBloq);
+      srcY += altoBloq;
+      restante -= altoBloq;
+      if (restante > 0) { pdf.addPage(); posY = margin; }
+    }
+    return {pdf, nombre: 'Constancia_' + numero.replace(/[^a-zA-Z0-9_-]/g,'_') + '.pdf', numero};
+  } finally {
+    document.body.removeChild(contenedor);
   }
-  // Fallback: descargar el HTML
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = nombreArchivo;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast('Documento descargado ✓', 'success');
+}
+
+async function compartirConstancia() {
+  // Mostrar menú de opciones de envío
+  const existing = document.getElementById('modal-compartir-constancia');
+  if (existing) existing.remove();
+  const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-compartir-constancia';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:800;display:flex;align-items:flex-end;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
+      <div style="text-align:center;margin-bottom:18px">
+        <div style="font-size:16px;font-weight:700">Enviar constancia</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:4px">${numero}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="enviarConstanciaEmail()" style="display:flex;align-items:center;gap:14px;background:rgba(26,106,170,0.12);border:1px solid rgba(26,106,170,0.3);border-radius:12px;padding:14px 16px;cursor:pointer;color:var(--text1);text-align:left;width:100%">
+          <span style="font-size:28px">📧</span>
+          <div><div style="font-weight:700;font-size:14px">Email corporativo</div><div style="font-size:12px;color:var(--text2)">Enviar desde tu cuenta @exitsa.com.ar</div></div>
+        </button>
+        <button onclick="compartirNativoConstancia()" style="display:flex;align-items:center;gap:14px;background:rgba(37,211,102,0.1);border:1px solid rgba(37,211,102,0.3);border-radius:12px;padding:14px 16px;cursor:pointer;color:var(--text1);text-align:left;width:100%">
+          <span style="font-size:28px">📲</span>
+          <div><div style="font-weight:700;font-size:14px">WhatsApp / Bluetooth / otros</div><div style="font-size:12px;color:var(--text2)">Compartir con la app nativa del dispositivo</div></div>
+        </button>
+        <button onclick="descargarConstanciaPDF()" style="display:flex;align-items:center;gap:14px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;color:var(--text1);text-align:left;width:100%">
+          <span style="font-size:28px">⬇️</span>
+          <div><div style="font-weight:700;font-size:14px">Descargar PDF</div><div style="font-size:12px;color:var(--text2)">Guardar en este dispositivo</div></div>
+        </button>
+      </div>
+      <button onclick="document.getElementById('modal-compartir-constancia').remove()" style="margin-top:16px;width:100%;background:none;border:none;color:var(--text2);font-size:14px;padding:10px;cursor:pointer">Cancelar</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function enviarConstanciaEmail() {
+  document.getElementById('modal-compartir-constancia')?.remove();
+  const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
+  // Pedir email destino
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-email-constancia';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:800;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border-radius:16px;padding:24px;width:100%;max-width:420px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px">📧 Enviar por email</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:18px">${numero}</div>
+      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Email del destinatario</label>
+      <input id="email-destino-constancia" type="email" placeholder="cliente@empresa.com" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);color:var(--text1);font-size:14px;margin-bottom:14px">
+      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Mensaje (opcional)</label>
+      <textarea id="email-msg-constancia" rows="3" placeholder="Adjunto la constancia de visita..." style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);color:var(--text1);font-size:14px;resize:none;margin-bottom:18px"></textarea>
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('modal-email-constancia').remove()" class="btn btn-secondary" style="flex:1">Cancelar</button>
+        <button onclick="confirmarEnvioEmailConstancia()" class="btn btn-primary" style="flex:1">Enviar ✉</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function confirmarEnvioEmailConstancia() {
+  const emailDestino = document.getElementById('email-destino-constancia')?.value?.trim();
+  const mensaje = document.getElementById('email-msg-constancia')?.value?.trim();
+  if (!emailDestino || !emailDestino.includes('@')) { toast('Ingresá un email válido', 'error'); return; }
+  document.getElementById('modal-email-constancia')?.remove();
+  toast('Generando PDF...', 'info');
+  try {
+    const {pdf, nombre, numero} = await generarPDFConstancia();
+    const pdfBase64 = pdf.output('datauristring').split(',')[1];
+    toast('Enviando email...', 'info');
+    const res = await fetch('/api/email/enviar', {
+      method: 'POST',
+      headers: {'Authorization': 'Bearer ' + STATE.token, 'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        pdfBase64,
+        nombreArchivo: nombre,
+        destinatario: emailDestino,
+        asunto: 'Constancia de visita — ' + numero,
+        cuerpoHtml: '<p>' + (mensaje || 'Estimado/a, adjunto la constancia de visita correspondiente.') + '</p>',
+        tipo: 'constancia',
+        referenciaId: CONST_STATE.constanciaId || null
+      })
+    });
+    const data = await res.json();
+    if (res.ok) toast('Email enviado a ' + emailDestino + ' ✓', 'success');
+    else toast('Error al enviar: ' + (data.error || 'desconocido'), 'error');
+  } catch(e) {
+    toast('Error al generar o enviar el PDF', 'error');
+    console.error(e);
+  }
+}
+
+async function compartirNativoConstancia() {
+  document.getElementById('modal-compartir-constancia')?.remove();
+  toast('Generando PDF...', 'info');
+  try {
+    const {pdf, nombre, numero} = await generarPDFConstancia();
+    const pdfBlob = pdf.output('blob');
+    const file = new File([pdfBlob], nombre, {type:'application/pdf'});
+    if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
+      await navigator.share({title:'Constancia de visita — '+numero, files:[file]});
+    } else {
+      // Fallback: descargar
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url; a.download = nombre;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast('PDF descargado ✓', 'success');
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') { toast('Error al generar PDF', 'error'); console.error(e); }
+  }
+}
+
+async function descargarConstanciaPDF() {
+  document.getElementById('modal-compartir-constancia')?.remove();
+  toast('Generando PDF...', 'info');
+  try {
+    const {pdf, nombre} = await generarPDFConstancia();
+    pdf.save(nombre);
+    toast('PDF descargado ✓', 'success');
+  } catch(e) {
+    toast('Error al generar PDF', 'error');
+    console.error(e);
+  }
 }
 
 function generarHTMLConstancia() {
