@@ -26,7 +26,7 @@ router.post('/items', auth, async (req, res) => {
   if (!categoria || !texto) return res.status(400).json({ error: 'Datos incompletos' });
   try {
     const { rows: exist } = await db.query(`
-      SELECT id FROM public.constancia_items
+      SELECT * FROM public.constancia_items
       WHERE empleador_id = $1 AND categoria = $2 AND lower(texto) = lower($3)
     `, [req.user.empleadorId, categoria, texto]);
     if (exist.length) return res.json({ ok: true, item: exist[0], existente: true });
