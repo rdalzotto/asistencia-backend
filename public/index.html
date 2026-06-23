@@ -3617,7 +3617,7 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
 </div>
 
 <!-- MODAL NUEVO ÍTEM CONSTANCIA -->
-<div class="modal-overlay" id="modal-item-nuevo" style="z-index:600">
+<div class="modal-overlay" id="modal-item-nuevo" style="z-index:800">
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title" id="modal-item-titulo">Agregar ítem</div>
@@ -4018,18 +4018,25 @@ function actualizarFrenteExtra(itemId,campo,valor){const sel=CONST_STATE.selecci
 
 function agregarItemNuevo(categoria) {
   const titulos = {tipo_visita:'Agregar tipo de visita',frente_trabajo:'Agregar frente de trabajo',actividad:'Agregar actividad',normativa:'Agregar normativa'};
+  const modal = document.getElementById('modal-item-nuevo');
+  const btn = modal ? modal.querySelector('.btn-primary') : null;
+  // Resetear estado del modal antes de abrir
+  if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
   document.getElementById('modal-item-titulo').textContent = titulos[categoria] || 'Agregar ítem';
   document.getElementById('modal-item-categoria').value = categoria;
   document.getElementById('modal-item-texto').value = '';
-  document.getElementById('modal-item-nuevo').classList.add('active');
+  modal.style.display = '';
+  modal.classList.add('active');
   setTimeout(() => document.getElementById('modal-item-texto').focus(), 150);
 }
 
 async function confirmarItemNuevo() {
   const categoria = document.getElementById('modal-item-categoria').value;
-  const texto = document.getElementById('modal-item-texto').value.trim();
+  const textoInput = document.getElementById('modal-item-texto');
+  const texto = textoInput ? textoInput.value.trim() : '';
   if (!texto) return toast('Escribí el nombre del ítem', 'error');
-  cerrarModal('modal-item-nuevo');
+  const btn = document.querySelector('#modal-item-nuevo .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
   try {
     const data = await api('/constancias/items', {method:'POST', body:JSON.stringify({categoria, texto})});
     if (data.item) {
@@ -4037,10 +4044,21 @@ async function confirmarItemNuevo() {
       if (!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria] = [];
       if (!CONST_STATE.itemsMenu[categoria].find(i => i.id == data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
       toggleSeleccion(categoria, data.item.id, '', true);
+      // Cerrar DESPUÉS del await exitoso y resetear
+      const modal = document.getElementById('modal-item-nuevo');
+      if (modal) modal.classList.remove('active');
+      if (textoInput) textoInput.value = '';
       renderConstanciaPaso();
       toast(data.existente ? 'Ítem ya existente — seleccionado ✓' : 'Ítem agregado ✓', 'success');
+    } else {
+      throw new Error('Sin respuesta del servidor');
     }
-  } catch { toast('Error al agregar ítem', 'error'); }
+  } catch(e) {
+    toast('Error al guardar el ítem — reintentá', 'error');
+    console.error('[confirmarItemNuevo]', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Agregar'; }
+  }
 }
 
 function agregarPersonal(){CONST_STATE.personal.push({nombre_apellido:'',funcion_cargo:'',habilitacion:'',estado_habilitacion:'conforme'});document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
