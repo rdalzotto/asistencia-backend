@@ -1050,6 +1050,7 @@ async function irADashboard(rol) {
     iniciarReloj();
     cargarDashboardEmpleado();
     registrarSW();
+    setTimeout(verificarConsultaEgreso, 2000);
   }
 }
 
@@ -4524,6 +4525,99 @@ window.addEventListener('online',async()=>{
     }catch{}
   }
 });
+
+// ── CONSULTA DE EGRESO ────────────────────────────────────────────────────────
+let _ceHoraEgresoTurno = null;
+
+async function verificarConsultaEgreso() {
+  if (!STATE.empleadoId || STATE.rol === 'admin') return;
+  try {
+    const data = await api('/movimientos/consulta-egreso-pendiente');
+    if (!data?.pendiente) return;
+    _ceHoraEgresoTurno = data.hora_egreso_turno;
+    document.getElementById('ce-subtitulo').textContent =
+      'Tu turno terminó a las ' + (data.hora_egreso_turno || '') + '. ¿Qué hacés?';
+    // Calcular máximo: hora_egreso_turno + 3hs
+    if (data.hora_egreso_turno) {
+      const [h, m] = data.hora_egreso_turno.split(':').map(Number);
+      const maxMin = h * 60 + m + 180;
+      const maxH = String(Math.floor(maxMin / 60) % 24).padStart(2,'0');
+      const maxM = String(maxMin % 60).padStart(2,'0');
+      document.getElementById('ce-limite-texto').textContent = 'Máximo permitido: ' + maxH + ':' + maxM;
+      document.getElementById('ce-hasta-hora').max = maxH + ':' + maxM;
+      // Precompletar con +1h como sugerencia
+      const sugMin = h * 60 + m + 60;
+      const sugH = String(Math.floor(sugMin / 60) % 24).padStart(2,'0');
+      const sugM = String(sugMin % 60).padStart(2,'0');
+      document.getElementById('ce-hasta-hora').value = sugH + ':' + sugM;
+    }
+    document.getElementById('ce-paso-1').style.display = '';
+    document.getElementById('ce-paso-2').style.display = 'none';
+    abrirModal('modal-consulta-egreso');
+  } catch (e) {
+    // Sin consulta pendiente o error: no mostrar nada
+  }
+}
+
+function mostrarExtension() {
+  document.getElementById('ce-paso-1').style.display = 'none';
+  document.getElementById('ce-paso-2').style.display = '';
+}
+
+async function responderEgreso(accion) {
+  const body = { accion };
+  if (accion === 'extension') {
+    const hastaHora = document.getElementById('ce-hasta-hora').value;
+    if (!hastaHora) return toast('Indicá hasta qué hora vas a trabajar', 'error');
+    body.hasta_hora = hastaHora;
+  }
+  try {
+    await api('/movimientos/confirmar-jornada', { method: 'POST', body: JSON.stringify(body) });
+    cerrarModal('modal-consulta-egreso');
+    if (accion === 'egreso') {
+      toast('Egreso registrado ✓', 'success');
+      await cargarDashboardEmpleado();
+    } else {
+      toast('Extensión confirmada hasta las ' + body.hasta_hora + ' ✓', 'success');
+    }
+  } catch (e) {
+    toast(e.message || 'Error al procesar la respuesta', 'error');
+  }
+}
 </script>
+
+<!-- ─── MODAL CONSULTA DE EGRESO ─────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-consulta-egreso" style="z-index:600">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-handle"></div>
+    <div style="text-align:center;font-size:36px;margin-bottom:8px">🕐</div>
+    <div class="modal-title" style="text-align:center">Llegaste a tu horario de egreso</div>
+    <p id="ce-subtitulo" style="text-align:center;color:var(--text2);margin-bottom:24px;font-size:15px"></p>
+
+    <div id="ce-paso-1">
+      <button class="btn btn-secondary" style="width:100%;margin-bottom:12px;font-size:16px" onclick="responderEgreso('egreso')">
+        🚪 Me voy ahora
+      </button>
+      <button class="btn btn-primary" style="width:100%;font-size:16px" onclick="mostrarExtension()">
+        ⏱ Sigo trabajando
+      </button>
+    </div>
+
+    <div id="ce-paso-2" style="display:none">
+      <div class="form-group">
+        <label style="font-weight:600">¿Hasta qué hora vas a seguir?</label>
+        <p id="ce-limite-texto" style="font-size:12px;color:var(--text3);margin-bottom:8px"></p>
+        <input type="time" id="ce-hasta-hora" style="width:100%;font-size:18px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1)">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('ce-paso-1').style.display='';document.getElementById('ce-paso-2').style.display='none'">← Volver</button>
+        <button class="btn btn-primary" style="flex:1" onclick="responderEgreso('extension')">Confirmar</button>
+      </div>
+    </div>
+
+    <p style="font-size:11px;color:var(--text3);text-align:center;margin-top:16px">Si no respondés en 15 minutos, el sistema registrará tu egreso automáticamente.</p>
+  </div>
+</div>
+
 </body>
 </html>
