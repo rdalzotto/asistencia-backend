@@ -3027,11 +3027,17 @@ function validarFechaHoraVisita() {
     fechaInput.style.borderColor = 'var(--red)';
     mensaje = 'La fecha no puede ser anterior a hoy';
   } else if (!esEdicion && fecha === hoy && hora && hora < horaLocalAhora()) {
-    horaInput.style.borderColor = 'var(--red)';
-    mensaje = 'La hora no puede ser anterior a la hora actual';
+    // Solo aviso — no bloquea (puede programarse con hora pasada para registrar visita del día)
+    horaInput.style.borderColor = 'var(--orange)';
+    mensaje = 'Atención: la hora ingresada es anterior a la hora actual';
   }
-  if (aviso) { aviso.textContent = mensaje; aviso.style.display = mensaje ? 'block' : 'none'; }
-  return !mensaje;
+  if (aviso) {
+    aviso.textContent = mensaje;
+    aviso.style.display = mensaje ? 'block' : 'none';
+    aviso.style.color = (fecha && fecha < hoy) ? 'var(--red)' : 'var(--orange)';
+  }
+  // Solo bloquea si la fecha es anterior a hoy, no si la hora ya pasó
+  return !(fecha && fecha < hoy);
 }
 
 async function guardarVisita() {
@@ -4021,11 +4027,9 @@ function agregarItemNuevo(categoria) {
 
 async function confirmarItemNuevo() {
   const categoria = document.getElementById('modal-item-categoria').value;
-  const textoInput = document.getElementById('modal-item-texto');
-  const btnConfirmar = document.querySelector('#modal-item-nuevo .btn-primary');
-  const texto = textoInput?.value.trim();
+  const texto = document.getElementById('modal-item-texto').value.trim();
   if (!texto) return toast('Escribí el nombre del ítem', 'error');
-  if (btnConfirmar) { btnConfirmar.disabled = true; btnConfirmar.textContent = 'Guardando...'; }
+  cerrarModal('modal-item-nuevo');
   try {
     const data = await api('/constancias/items', {method:'POST', body:JSON.stringify({categoria, texto})});
     if (data.item) {
@@ -4033,18 +4037,10 @@ async function confirmarItemNuevo() {
       if (!CONST_STATE.itemsMenu[categoria]) CONST_STATE.itemsMenu[categoria] = [];
       if (!CONST_STATE.itemsMenu[categoria].find(i => i.id == data.item.id)) CONST_STATE.itemsMenu[categoria].push(data.item);
       toggleSeleccion(categoria, data.item.id, '', true);
-      cerrarModal('modal-item-nuevo');
       renderConstanciaPaso();
       toast(data.existente ? 'Ítem ya existente — seleccionado ✓' : 'Ítem agregado ✓', 'success');
-    } else {
-      throw new Error('Respuesta inesperada');
     }
-  } catch(e) {
-    toast('Error al guardar — corregí el texto y reintentá', 'error');
-    console.error('[confirmarItemNuevo]', e);
-  } finally {
-    if (btnConfirmar) { btnConfirmar.disabled = false; btnConfirmar.textContent = 'Agregar'; }
-  }
+  } catch { toast('Error al agregar ítem', 'error'); }
 }
 
 function agregarPersonal(){CONST_STATE.personal.push({nombre_apellido:'',funcion_cargo:'',habilitacion:'',estado_habilitacion:'conforme'});document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
