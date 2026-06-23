@@ -100,6 +100,36 @@ const notif = {
     titulo: `🔒 Cierre automático — ${nombre}`,
     cuerpo: 'No registró egreso. Jornada cerrada automáticamente.',
   }),
+
+  consultaEgreso: (horaEgreso) => ({
+    titulo: `🕐 Llegaste a tu horario de egreso (${horaEgreso})`,
+    cuerpo: '¿Vas a seguir trabajando? Respondé en la app.',
+  }),
+
+  extensionRegistrada: (nombre, hastaHora) => ({
+    titulo: `⏱️ ${nombre} extendió su jornada`,
+    cuerpo: `Continuará trabajando hasta las ${hastaHora}.`,
+  }),
+
+  egresoVoluntario: (nombre, hora) => ({
+    titulo: `🚪 ${nombre} egresó`,
+    cuerpo: `Confirmó egreso voluntario a las ${hora}.`,
+  }),
+
+  cierreSinRespuesta: (nombre) => ({
+    titulo: `🔒 Cierre por inactividad — ${nombre}`,
+    cuerpo: 'No respondió la consulta de egreso. Jornada cerrada automáticamente.',
+  }),
+
+  cierreExtensionVencida: (nombre, hora) => ({
+    titulo: `🔒 Cierre automático — ${nombre}`,
+    cuerpo: `Venció la extensión de jornada. Egreso registrado a las ${hora}.`,
+  }),
+
+  horasExtraAcumuladas: (nombre, horasHoy, horasTotalesMes) => ({
+    titulo: `⏱️ Horas extra — ${nombre}`,
+    cuerpo: `${horasHoy}h extra hoy. Total del mes: ${horasTotalesMes}h.`,
+  }),
 };
 
 module.exports = { pushUsuario, pushAdmins, notif };
