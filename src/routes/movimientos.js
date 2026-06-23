@@ -452,6 +452,72 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// ─── POST /movimientos/egreso-manual-admin ────────────────────────────────────
+// Admin registra egreso retroactivo para un empleado { empleado_id, fecha, hora }
+router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
+  const { empleado_id, fecha, hora } = req.body;
+  if (!empleado_id || !fecha || !hora)
+    return res.status(400).json({ error: 'empleado_id, fecha y hora son requeridos' });
+
+  try {
+    // Verificar que el empleado pertenece al empleador del admin
+    const { rows: [emp] } = await db.query(
+      'SELECT id, nombre, apellido, empleador_id FROM public.empleados WHERE id = $1 AND empleador_id = $2',
+      [empleado_id, req.user.empleadorId]
+    );
+    if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
+
+    // Verificar que no exista ya un egreso para esa fecha
+    const { rows: existente } = await db.query(`
+      SELECT id FROM public.movimientos
+      WHERE empleado_id = $1 AND fecha = $2 AND tipo IN ('egreso','fin_jornada_remota')
+    `, [empleado_id, fecha]);
+    if (existente.length)
+      return res.status(400).json({ error: 'Ya existe un egreso registrado para esa fecha' });
+
+    // Verificar que haya ingreso ese día
+    const { rows: ingreso } = await db.query(`
+      SELECT id FROM public.movimientos
+      WHERE empleado_id = $1 AND fecha = $2
+        AND tipo IN ('ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota')
+    `, [empleado_id, fecha]);
+    if (!ingreso.length)
+      return res.status(400).json({ error: 'No hay ingreso registrado para esa fecha' });
+
+    // Construir timestamp con timezone Argentina
+    const horaISO = `${fecha}T${hora}:00-03:00`;
+
+    const crypto = require('crypto');
+    const hash = crypto.createHash('sha256')
+      .update(JSON.stringify({ tipo: 'egreso_manual_admin', empleado_id, fecha, hora, admin: req.user.id }))
+      .digest('hex');
+
+    const { rows: [mov] } = await db.query(`
+      INSERT INTO public.movimientos
+        (empleado_id, empleador_id, tipo, fecha, hora, cierre_automatico, validado, hash_sha256, observaciones)
+      VALUES ($1, $2, 'egreso', $3, $4, FALSE, TRUE, $5, 'Registrado manualmente por administrador')
+      RETURNING *
+    `, [empleado_id, req.user.empleadorId, fecha, horaISO, hash]);
+
+    // Actualizar banco de horas
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      await jornada.actualizarBancoHoras(empleado_id, fecha, client);
+      await client.query('COMMIT');
+    } finally { client.release(); }
+
+    const nombre = `${emp.nombre} ${emp.apellido}`.trim();
+    const n = push.notif.egresoVoluntario(nombre, hora);
+    await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo + ' (manual)');
+
+    res.json({ ok: true, movimiento: mov });
+  } catch (err) {
+    console.error('[MOV] egreso-manual-admin error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── GET /movimientos/consulta-egreso-pendiente ───────────────────────────────
 router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
   const empleadoId = req.user.empleadoId;
