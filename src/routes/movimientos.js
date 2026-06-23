@@ -452,6 +452,131 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// ─── POST /movimientos/confirmar-jornada ──────────────────────────────────────
+// El empleado responde la consulta de egreso: { accion: 'egreso' | 'extension', hasta_hora: 'HH:MM' }
+router.post('/confirmar-jornada', auth, async (req, res) => {
+  const { accion, hasta_hora } = req.body;
+  const empleadoId  = req.user.empleadoId;
+  const empleadorId = req.user.empleadorId;
+
+  if (!empleadoId)
+    return res.status(400).json({ error: 'Usuario sin empleado asociado' });
+  if (!['egreso', 'extension'].includes(accion))
+    return res.status(400).json({ error: 'Acción inválida. Usá "egreso" o "extension"' });
+
+  try {
+    // Verificar que haya una consulta pendiente activa para este empleado hoy
+    const { rows: [pendiente] } = await db.query(`
+      SELECT * FROM public.consultas_egreso
+      WHERE empleado_id = $1
+        AND fecha = CURRENT_DATE
+        AND respondido = FALSE
+        AND fecha_expira > NOW()
+    `, [empleadoId]);
+
+    if (!pendiente)
+      return res.status(404).json({ error: 'No hay consulta de egreso pendiente' });
+
+    const { rows: [emp] } = await db.query(
+      'SELECT nombre, apellido, jornada_config_id FROM public.empleados WHERE id = $1',
+      [empleadoId]
+    );
+    const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+
+    // Marcar la consulta como respondida
+    await db.query(
+      'UPDATE public.consultas_egreso SET respondido = TRUE, respuesta = $1, respondido_en = NOW() WHERE id = $2',
+      [accion, pendiente.id]
+    );
+
+    const horaAR = () => {
+      const now = new Date();
+      const h   = String((now.getUTCHours() - 3 + 24) % 24).padStart(2, '0');
+      const m   = String(now.getUTCMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    };
+
+    if (accion === 'egreso') {
+      // Registrar egreso inmediato
+      const crypto = require('crypto');
+      const hash = crypto.createHash('sha256')
+        .update(JSON.stringify({ tipo: 'egreso', empleadoId, hora: new Date().toISOString() }))
+        .digest('hex');
+
+      await db.query(`
+        INSERT INTO public.movimientos
+          (empleado_id, empleador_id, tipo, fecha, hora, cierre_automatico, validado, hash_sha256)
+        VALUES ($1, $2, 'egreso', CURRENT_DATE, NOW(), FALSE, TRUE, $3)
+      `, [empleadoId, empleadorId, hash]);
+
+      // Actualizar banco de horas
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        await jornada.actualizarBancoHoras(empleadoId, new Date().toISOString().split('T')[0], client);
+        await client.query('COMMIT');
+      } finally { client.release(); }
+
+      const hora = horaAR();
+      const n = push.notif.egresoVoluntario(nombre, hora);
+      await push.pushAdmins(empleadorId, n.titulo, n.cuerpo);
+
+      return res.json({ ok: true, mensaje: `Egreso registrado a las ${hora}` });
+    }
+
+    if (accion === 'extension') {
+      if (!hasta_hora || !/^\d{2}:\d{2}$/.test(hasta_hora))
+        return res.status(400).json({ error: 'Indicá la hora de fin en formato HH:MM' });
+
+      // Validar que no supere turno + 3 horas
+      const { rows: [jc] } = await db.query(`
+        SELECT jc.hora_egreso FROM public.jornadas_config jc
+        JOIN public.empleados e ON e.jornada_config_id = jc.id
+        WHERE e.id = $1
+      `, [empleadoId]);
+
+      if (jc?.hora_egreso) {
+        const [hBase, mBase] = jc.hora_egreso.split(':').map(Number);
+        const [hExt,  mExt]  = hasta_hora.split(':').map(Number);
+        const minBase = hBase * 60 + mBase;
+        const minExt  = hExt  * 60 + mExt;
+        const maxMin  = minBase + 180; // +3 horas
+
+        if (minExt > maxMin) {
+          const maxH = String(Math.floor(maxMin / 60)).padStart(2, '0');
+          const maxM = String(maxMin % 60).padStart(2, '0');
+          return res.status(400).json({
+            error: `No podés extender más de 3 horas. Máximo permitido: ${maxH}:${maxM}`,
+          });
+        }
+      }
+
+      // Guardar la extensión
+      await db.query(`
+        UPDATE public.consultas_egreso
+        SET extension_hasta = $1
+        WHERE id = $2
+      `, [hasta_hora, pendiente.id]);
+
+      // Registrar en tabla de extensiones activas para que el cron lo procese
+      await db.query(`
+        INSERT INTO public.extensiones_jornada
+          (empleado_id, empleador_id, fecha, hasta_hora, procesado)
+        VALUES ($1, $2, CURRENT_DATE, $3, FALSE)
+        ON CONFLICT (empleado_id, fecha) DO UPDATE SET hasta_hora = $3, procesado = FALSE
+      `, [empleadoId, empleadorId, hasta_hora]);
+
+      const n = push.notif.extensionRegistrada(nombre, hasta_hora);
+      await push.pushAdmins(empleadorId, n.titulo, n.cuerpo);
+
+      return res.json({ ok: true, mensaje: `Extensión registrada hasta las ${hasta_hora}` });
+    }
+  } catch (err) {
+    console.error('[MOV] confirmar-jornada error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── Función auxiliar: distancia Haversine ───────────────────────────────────
 function calcularDistancia(lat1, lon1, lat2, lon2) {
   const R = 6371000;
