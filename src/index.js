@@ -37,10 +37,11 @@ app.use('/api/recursos',       require('./routes/recursos'));
 app.use('/api/visitas',        require('./routes/visitas'));
 app.use('/api/constancias',    require('./routes/constancias'));
 app.use('/api/extintores',     require('./routes/extintores'));
+app.use('/api/email',          require('./routes/email'));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '2.2.0' });
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), version: '2.3.0' });
 });
 
 // ─── Todas las rutas no-API sirven el frontend (SPA) ─────────────────────────
@@ -119,7 +120,7 @@ function iniciarCronCierre() {
 
 // ─── Iniciar servidor ─────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 AsistenciaAR Backend v2.2 corriendo en puerto ${PORT}`);
+  console.log(`\n🚀 AsistenciaAR Backend v2.3 corriendo en puerto ${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/health\n`);
   iniciarCronCierre();
 });
