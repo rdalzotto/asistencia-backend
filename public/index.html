@@ -3481,6 +3481,7 @@ function previsualizarLogo(input) {
     const img = document.getElementById('cfg-logo-img');
     const prev = document.getElementById('cfg-logo-preview');
     if(img) { img.src = e.target.result; prev.style.display='block'; }
+    EXIT_LOGO_ACTUAL = e.target.result;  // actualizar para el PDF inmediatamente
     aplicarLogoEmpresa(e.target.result);
   };
   reader.readAsDataURL(file);
@@ -3539,6 +3540,7 @@ async function actualizarFotoPerfil(input) {
 
 // Logo por defecto de EXIT S.A. (se reemplaza cuando el admin cargue el suyo)
 const EXIT_LOGO_DEFAULT = "data:image/jpeg;base64,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";
+let EXIT_LOGO_ACTUAL = EXIT_LOGO_DEFAULT; // se sobreescribe con logo del servidor
 
 // Aplicar logo de EXIT por defecto al cargar; el servidor lo sobreescribirá si hay uno configurado
 aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
@@ -3547,7 +3549,10 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
 (async function cargarLogoServidor() {
   try {
     const emp = await api('/config/empleador');
-    if (emp.logo_url) aplicarLogoEmpresa(emp.logo_url);
+    if (emp.logo_url) {
+      EXIT_LOGO_ACTUAL = emp.logo_url;  // guardar para el PDF
+      aplicarLogoEmpresa(emp.logo_url);
+    }
     if (emp.nombre_sistema) {
       document.getElementById('login-sistema-nombre').textContent = emp.nombre_sistema;
       document.title = emp.nombre_sistema;
@@ -4473,7 +4478,7 @@ async function generarPDFConstancia() {
 
   // Inyectar logos directamente en los elementos img (evita problema de innerHTML + base64)
   const imgs = contenedor.querySelectorAll('img[data-logo-exit]');
-  imgs.forEach(img => { img.src = EXIT_LOGO_DEFAULT; });
+  imgs.forEach(img => { img.src = EXIT_LOGO_ACTUAL || EXIT_LOGO_DEFAULT; });
   const imgsCliente = contenedor.querySelectorAll('img[data-logo-cliente]');
   if (CONST_STATE.logoCliente) imgsCliente.forEach(img => { img.src = CONST_STATE.logoCliente; });
 
