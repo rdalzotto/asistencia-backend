@@ -3547,16 +3547,14 @@ const EXIT_LOGO_DEFAULT = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w
 let EXIT_LOGO_ACTUAL = EXIT_LOGO_DEFAULT; // se sobreescribe con logo del servidor
 
 // Aplicar logo de EXIT por defecto al cargar; el servidor lo sobreescribirá si hay uno configurado
-aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
-
-// Cargar logo del servidor al iniciar (sobreescribe el default si el admin configuró uno)
+// Cargar logo del servidor al iniciar — una sola llamada, sin parpadeo
 (async function cargarLogoServidor() {
   try {
     const emp = await api('/config/empleador');
-    if (emp.logo_url) {
-      EXIT_LOGO_ACTUAL = emp.logo_url;  // guardar para el PDF
-      aplicarLogoEmpresa(emp.logo_url);
-    }
+    // Usar logo del servidor si existe, sino el membrete hardcodeado
+    const logoFinal = emp.logo_url || EXIT_LOGO_DEFAULT;
+    EXIT_LOGO_ACTUAL = logoFinal;
+    aplicarLogoEmpresa(logoFinal);
     if (emp.nombre_sistema) {
       document.getElementById('login-sistema-nombre').textContent = emp.nombre_sistema;
       document.title = emp.nombre_sistema;
