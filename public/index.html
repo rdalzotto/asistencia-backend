@@ -4458,44 +4458,63 @@ function cerrarPreviewYSalir() {
 }
 
 async function generarPDFConstancia() {
-  // Recargar datos completos del servidor antes de generar (garantiza logo, firmas, etc.)
+  // Recargar datos completos del servidor
   if (CONST_STATE.constanciaId && !String(CONST_STATE.constanciaId).startsWith('offline_')) {
-    try {
-      const c = await api('/constancias/' + CONST_STATE.constanciaId);
-      cargarDatosConstanciaExistente(c);
-    } catch {}
+    try { const c = await api('/constancias/' + CONST_STATE.constanciaId); cargarDatosConstanciaExistente(c); } catch {}
   }
   const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
   const html = generarHTMLConstancia();
-  // Crear contenedor oculto para renderizar
+
+  // Crear contenedor oculto
   const contenedor = document.createElement('div');
-  contenedor.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:white;';
+  contenedor.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:white;color:#1a1a1a;font-family:Arial,sans-serif;';
   contenedor.innerHTML = html;
   document.body.appendChild(contenedor);
+
+  // Inyectar logos directamente en los elementos img (evita problema de innerHTML + base64)
+  const imgs = contenedor.querySelectorAll('img[data-logo-exit]');
+  imgs.forEach(img => { img.src = EXIT_LOGO_DEFAULT; });
+  const imgsCliente = contenedor.querySelectorAll('img[data-logo-cliente]');
+  if (CONST_STATE.logoCliente) imgsCliente.forEach(img => { img.src = CONST_STATE.logoCliente; });
+
+  // Esperar carga real de todas las imágenes
+  await Promise.all(Array.from(contenedor.querySelectorAll('img')).map(img =>
+    img.complete ? Promise.resolve() : new Promise(res => { img.onload = res; img.onerror = res; })
+  ));
+  await new Promise(r => setTimeout(r, 150));
+
   try {
-    const canvas = await html2canvas(contenedor, {scale:1.5, useCORS:true, backgroundColor:'#ffffff'});
-    const imgData = canvas.toDataURL('image/jpeg', 0.85);
     const {jsPDF} = window.jspdf;
-    const pdf = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
-    const pageW = 210, pageH = 297, margin = 10;
-    const imgW = pageW - margin*2;
-    const imgH = (canvas.height * imgW) / canvas.width;
-    let posY = margin;
-    let restante = imgH;
-    let srcY = 0;
-    const altoPagina = pageH - margin*2;
-    while (restante > 0) {
-      const altoBloq = Math.min(restante, altoPagina);
-      const canvasBloq = document.createElement('canvas');
-      canvasBloq.width = canvas.width;
-      canvasBloq.height = (altoBloq * canvas.width) / imgW;
-      const ctx = canvasBloq.getContext('2d');
-      ctx.drawImage(canvas, 0, srcY * canvas.width / imgW, canvas.width, canvasBloq.height, 0, 0, canvasBloq.width, canvasBloq.height);
-      const bloqData = canvasBloq.toDataURL('image/jpeg', 0.85);
-      pdf.addImage(bloqData, 'JPEG', margin, posY, imgW, altoBloq);
-      srcY += altoBloq;
-      restante -= altoBloq;
-      if (restante > 0) { pdf.addPage(); posY = margin; }
+    // Capturar con html2canvas
+    const canvas = await html2canvas(contenedor, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false
+    });
+
+    const pdf = new jsPDF({orientation: 'portrait', unit: 'px', format: 'a4', hotfixes: ['px_scaling']});
+    const pdfW = pdf.internal.pageSize.getWidth();   // px
+    const pdfH = pdf.internal.pageSize.getHeight();  // px
+    const margin = 28; // px
+    const imgW = pdfW - margin * 2;
+    // Escala: cuántos px del canvas equivalen a 1 px del PDF
+    const escala = canvas.width / imgW;
+    const altoMaxPx = (pdfH - margin * 2) * escala; // alto máximo en px-canvas por página
+    let srcYpx = 0; // posición vertical en el canvas (píxeles)
+
+    while (srcYpx < canvas.height) {
+      const altoBloqPx = Math.min(altoMaxPx, canvas.height - srcYpx);
+      const bloqCanvas = document.createElement('canvas');
+      bloqCanvas.width = canvas.width;
+      bloqCanvas.height = altoBloqPx;
+      bloqCanvas.getContext('2d').drawImage(canvas, 0, srcYpx, canvas.width, altoBloqPx, 0, 0, canvas.width, altoBloqPx);
+      const bloqData = bloqCanvas.toDataURL('image/jpeg', 0.88);
+      const altoEnPdf = altoBloqPx / escala; // alto real en pdf px
+      pdf.addImage(bloqData, 'JPEG', margin, margin, imgW, altoEnPdf);
+      srcYpx += altoBloqPx;
+      if (srcYpx < canvas.height) { pdf.addPage(); }
     }
     return {pdf, nombre: 'Constancia_' + numero.replace(/[^a-zA-Z0-9_-]/g,'_') + '.pdf', numero};
   } finally {
@@ -4536,21 +4555,71 @@ async function compartirConstancia() {
   document.body.appendChild(overlay);
 }
 
+// ── EMAIL CONSTANCIA — múltiples destinatarios + grupos ─────────────────────
+let _emailDestinatarios = []; // lista de emails activos para el envío
+
 async function enviarConstanciaEmail() {
   document.getElementById('modal-compartir-constancia')?.remove();
   const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
-  // Pedir email destino
+  _emailDestinatarios = [];
+
+  // Cargar grupos del destino si hay uno vinculado
+  let grupos = [];
+  if (CONST_STATE.destinoId) {
+    try { grupos = await api('/constancias/grupos-email?destino_id=' + CONST_STATE.destinoId); } catch {}
+  }
+
   const overlay = document.createElement('div');
   overlay.id = 'modal-email-constancia';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:800;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:900;display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto';
+
+  const gruposHTML = grupos.length ? `
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;color:var(--text2);font-weight:600;margin-bottom:8px;text-transform:uppercase">Grupos guardados</div>
+      ${grupos.map(g => `
+        <div style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:13px;font-weight:700">${g.nombre}</span>
+            <div style="display:flex;gap:6px">
+              <button onclick="usarGrupoEmail(${g.id})" style="background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:var(--accent);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer">+ Agregar</button>
+              <button onclick="editarGrupoEmail(${g.id},'${g.nombre.replace(/'/g,"\'")}',${JSON.stringify(g.emails).replace(/"/g,'&quot;')})" style="background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer" title="Editar">✏️</button>
+              <button onclick="eliminarGrupoEmail(${g.id})" style="background:none;border:none;color:var(--red);font-size:14px;cursor:pointer" title="Eliminar">🗑</button>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--text3)">${Array.isArray(g.emails) ? g.emails.join(' · ') : g.emails}</div>
+        </div>`).join('')}
+    </div>` : '';
+
   overlay.innerHTML = `
-    <div style="background:var(--bg2);border-radius:16px;padding:24px;width:100%;max-width:420px">
-      <div style="font-size:16px;font-weight:700;margin-bottom:6px">📧 Enviar por email</div>
+    <div style="background:var(--bg2);border-radius:16px;padding:24px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">📧 Enviar por email</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:18px">${numero}</div>
-      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Email del destinatario</label>
-      <input id="email-destino-constancia" type="email" placeholder="cliente@empresa.com" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);color:var(--text1);font-size:14px;margin-bottom:14px">
-      <label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Mensaje (opcional)</label>
+
+      ${gruposHTML}
+
+      <div style="font-size:12px;color:var(--text2);font-weight:600;margin-bottom:8px;text-transform:uppercase">Destinatarios</div>
+      <div id="email-chips" style="display:flex;flex-wrap:wrap;gap:6px;min-height:36px;background:var(--bg3);border-radius:8px;padding:8px;margin-bottom:10px;border:1px solid var(--border)"></div>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <input id="email-nuevo-input" type="email" placeholder="agregar@email.com" style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);color:var(--text1);font-size:14px"
+          onkeydown="if(event.key==='Enter'||event.key===','){event.preventDefault();agregarEmailChip();}">
+        <button onclick="agregarEmailChip()" class="btn btn-secondary" style="padding:9px 14px">+ Agregar</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:16px">Presioná Enter o coma para agregar cada email. Podés agregar varios.</div>
+
+      ${CONST_STATE.destinoId ? `
+      <button onclick="mostrarGuardarGrupo()" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;margin-bottom:16px;width:100%">💾 Guardar destinatarios como grupo</button>
+      <div id="form-guardar-grupo" style="display:none;background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:16px">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Nombre del grupo</div>
+        <div style="display:flex;gap:8px">
+          <input id="grupo-nombre-input" type="text" placeholder="Ej: Contactos ACME" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);color:var(--text1);font-size:13px">
+          <button onclick="guardarGrupoEmail()" class="btn btn-primary" style="font-size:12px;padding:8px 12px">Guardar</button>
+          <button onclick="document.getElementById('form-guardar-grupo').style.display='none'" class="btn btn-secondary" style="font-size:12px;padding:8px 10px">✕</button>
+        </div>
+      </div>` : ''}
+
+      <div style="font-size:12px;color:var(--text2);font-weight:600;margin-bottom:6px;text-transform:uppercase">Mensaje (opcional)</div>
       <textarea id="email-msg-constancia" rows="3" placeholder="Adjunto la constancia de visita..." style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg1);color:var(--text1);font-size:14px;resize:none;margin-bottom:18px"></textarea>
+
       <div style="display:flex;gap:10px">
         <button onclick="document.getElementById('modal-email-constancia').remove()" class="btn btn-secondary" style="flex:1">Cancelar</button>
         <button onclick="confirmarEnvioEmailConstancia()" class="btn btn-primary" style="flex:1">Enviar ✉</button>
@@ -4559,10 +4628,92 @@ async function enviarConstanciaEmail() {
   document.body.appendChild(overlay);
 }
 
+function renderEmailChips() {
+  const cont = document.getElementById('email-chips');
+  if (!cont) return;
+  cont.innerHTML = _emailDestinatarios.map((em, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:var(--accent);border-radius:20px;padding:3px 10px;font-size:12px">
+      ${em}
+      <button onclick="_emailDestinatarios.splice(${i},1);renderEmailChips()" style="background:none;border:none;color:inherit;font-size:14px;cursor:pointer;padding:0;line-height:1">×</button>
+    </span>`
+  ).join('');
+}
+
+function agregarEmailChip() {
+  const input = document.getElementById('email-nuevo-input');
+  if (!input) return;
+  const emails = input.value.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
+  emails.forEach(em => { if (!_emailDestinatarios.includes(em)) _emailDestinatarios.push(em); });
+  input.value = '';
+  renderEmailChips();
+}
+
+function usarGrupoEmail(grupoId) {
+  // Los grupos ya están en el DOM como data — buscarlos del HTML o re-fetch
+  // Solución simple: re-fetch
+  api('/constancias/grupos-email?destino_id=' + CONST_STATE.destinoId).then(grupos => {
+    const g = grupos.find(x => x.id === grupoId);
+    if (!g) return;
+    const emails = Array.isArray(g.emails) ? g.emails : JSON.parse(g.emails || '[]');
+    emails.forEach(em => { if (!_emailDestinatarios.includes(em)) _emailDestinatarios.push(em); });
+    renderEmailChips();
+  }).catch(() => {});
+}
+
+function mostrarGuardarGrupo() {
+  const f = document.getElementById('form-guardar-grupo');
+  if (f) f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+async function guardarGrupoEmail() {
+  if (!_emailDestinatarios.length) { toast('Agregá al menos un email', 'error'); return; }
+  const nombre = document.getElementById('grupo-nombre-input')?.value?.trim();
+  if (!nombre) { toast('Poné un nombre al grupo', 'error'); return; }
+  try {
+    await api('/constancias/grupos-email', {
+      method: 'POST',
+      body: JSON.stringify({ destino_id: CONST_STATE.destinoId, nombre, emails: _emailDestinatarios })
+    });
+    toast('Grupo guardado ✓', 'success');
+    document.getElementById('form-guardar-grupo').style.display = 'none';
+    // Reabrir modal para reflejar el nuevo grupo
+    document.getElementById('modal-email-constancia')?.remove();
+    enviarConstanciaEmail();
+  } catch(e) { toast('Error al guardar grupo', 'error'); }
+}
+
+async function eliminarGrupoEmail(grupoId) {
+  try {
+    await api('/constancias/grupos-email/' + grupoId, { method: 'DELETE' });
+    document.getElementById('modal-email-constancia')?.remove();
+    enviarConstanciaEmail();
+  } catch(e) { toast('Error al eliminar', 'error'); }
+}
+
+async function editarGrupoEmail(grupoId, nombreActual, emailsActuales) {
+  const emails = Array.isArray(emailsActuales) ? emailsActuales : [];
+  const nuevoNombre = prompt('Nombre del grupo:', nombreActual);
+  if (nuevoNombre === null) return;
+  const nuevosEmails = prompt('Emails (separados por coma):', emails.join(', '));
+  if (nuevosEmails === null) return;
+  const lista = nuevosEmails.split(/[,;\s]+/).map(e => e.trim()).filter(e => e.includes('@'));
+  if (!lista.length) { toast('Ingresá al menos un email válido', 'error'); return; }
+  try {
+    await api('/constancias/grupos-email/' + grupoId, {
+      method: 'PATCH',
+      body: JSON.stringify({ nombre: nuevoNombre || nombreActual, emails: lista })
+    });
+    toast('Grupo actualizado ✓', 'success');
+    document.getElementById('modal-email-constancia')?.remove();
+    enviarConstanciaEmail();
+  } catch(e) { toast('Error al actualizar', 'error'); }
+}
+
 async function confirmarEnvioEmailConstancia() {
-  const emailDestino = document.getElementById('email-destino-constancia')?.value?.trim();
+  // Agregar lo que esté en el input antes de validar
+  agregarEmailChip();
   const mensaje = document.getElementById('email-msg-constancia')?.value?.trim();
-  if (!emailDestino || !emailDestino.includes('@')) { toast('Ingresá un email válido', 'error'); return; }
+  if (!_emailDestinatarios.length) { toast('Agregá al menos un destinatario', 'error'); return; }
   document.getElementById('modal-email-constancia')?.remove();
   toast('Generando PDF...', 'info');
   try {
@@ -4575,7 +4726,7 @@ async function confirmarEnvioEmailConstancia() {
       body: JSON.stringify({
         pdfBase64,
         nombreArchivo: nombre,
-        destinatario: emailDestino,
+        destinatarios: _emailDestinatarios,
         asunto: 'Constancia de visita — ' + numero,
         cuerpoHtml: '<p>' + (mensaje || 'Estimado/a, adjunto la constancia de visita correspondiente.') + '</p>',
         tipo: 'constancia',
@@ -4583,7 +4734,7 @@ async function confirmarEnvioEmailConstancia() {
       })
     });
     const data = await res.json();
-    if (res.ok) toast('Email enviado a ' + emailDestino + ' ✓', 'success');
+    if (res.ok) toast('Email enviado a ' + _emailDestinatarios.join(', ') + ' ✓', 'success');
     else toast('Error al enviar: ' + (data.error || 'desconocido'), 'error');
   } catch(e) {
     toast('Error al generar o enviar el PDF', 'error');
@@ -4651,11 +4802,11 @@ function generarHTMLConstancia() {
     <div style="border:2px solid #1a6aaa;border-radius:8px;padding:16px 20px;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;align-items:center;gap:14px">
-          <img src="${EXIT_LOGO_DEFAULT}" style="height:52px;width:auto;object-fit:contain" onerror="this.style.display='none'">
+          <img data-logo-exit="1" src="" style="height:52px;width:auto;object-fit:contain;display:block">
           <div><h1>Constancia de Visita a Establecimiento</h1><div style="font-size:12px;color:#555">EXIT S.A. — Sistema AsistenciaAR</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:16px">
-          ${CONST_STATE.logoCliente ? `<img src="${CONST_STATE.logoCliente}" style="height:48px;max-width:140px;object-fit:contain" onerror="this.style.display='none'">` : ''}
+          ${`<img data-logo-cliente="1" src="" style="height:48px;max-width:140px;object-fit:contain;${CONST_STATE.logoCliente?'':'display:none'}">`}
           <div style="text-align:right"><div style="font-size:16px;font-weight:700;color:#1a6aaa">${numero}</div><div style="font-size:11px;color:#555">${fecha}</div></div>
         </div>
       </div>
