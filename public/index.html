@@ -2851,11 +2851,17 @@ function renderTarjetaVisita(v, esAdmin) {
   const labels={programada:'Programada',en_curso:'En curso',completada:'Completada',cancelada:'Cancelada',rechazada:'Rechazada',suspendida:'Suspendida',pendiente_aprobacion:'Pendiente aprobación'};
   const destinos=v.destinos||[], recursos=v.recursos||[], gastos=v.gastos||[];
   const totalGastos=gastos.reduce((s,g)=>s+parseFloat(g.monto||0),0);
-  const puedeIniciar = v.estado==='programada';
+  const fechaVisita = String(v.fecha).slice(0,10);
+  const fechaPasada = fechaVisita < fechaLocalHoy();
+  const puedeIniciar = v.estado==='programada' && !fechaPasada;
   const esPendiente = v.estado==='pendiente_aprobacion';
-  const puedeSuspender = v.estado==='programada' || v.estado==='en_curso';
-  const puedeEditarOEliminar = ['programada','en_curso'].includes(v.estado) && String(v.fecha).slice(0,10) >= fechaLocalHoy();
-  const puedeConstancia = ['en_curso','completada','programada'].includes(v.estado);
+  const puedeSuspender = (v.estado==='programada' || v.estado==='en_curso') && !fechaPasada;
+  const puedeEditarOEliminar = ['programada','en_curso'].includes(v.estado) && !fechaPasada;
+  // Técnico: constancia solo si visita en_curso o completada (no programada pasada)
+  // Admin: puede abrir constancia en cualquier estado activo
+  const puedeConstancia = esAdmin
+    ? ['en_curso','completada','programada'].includes(v.estado)
+    : ['en_curso','completada'].includes(v.estado) || (v.estado==='programada' && !fechaPasada);
 
   let bloqueSuspension = '';
   if (v.estado==='suspendida') {
@@ -3212,8 +3218,21 @@ async function cargarMisVisitas() {
   cont.innerHTML='<p style="color:var(--text3);text-align:center">Cargando...</p>';
   try {
     const visitas = await api('/visitas?desde='+desde+'&hasta='+(hasta||desde));
-    if (!visitas.length) { cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Sin visitas en el período</p>'; return; }
-    cont.innerHTML = visitas.map(v => renderTarjetaVisita(v,false)).join('');
+    const hoy = fechaLocalHoy();
+    const visiblesPorTecnico = visitas.filter(v => {
+      const fechaV = String(v.fecha).slice(0,10);
+      // Ocultar visitas programadas con fecha pasada (no accionables)
+      if (v.estado === 'programada' && fechaV < hoy) return false;
+      // Ocultar visitas ya resueltas de hoy (completadas, canceladas, rechazadas)
+      // El técnico ya las cumplió — si quiere verlas puede ampliar el filtro
+      if (['completada','cancelada','rechazada'].includes(v.estado) && fechaV === hoy) return false;
+      return true;
+    });
+    if (!visiblesPorTecnico.length) {
+      cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Sin visitas pendientes en el período</p>';
+      return;
+    }
+    cont.innerHTML = visiblesPorTecnico.map(v => renderTarjetaVisita(v,false)).join('');
   } catch { cont.innerHTML='<p style="color:var(--red);font-size:13px;text-align:center">Error cargando</p>'; }
 }
 
@@ -3884,7 +3903,16 @@ async function abrirConstancia(visitaId, visitaDatos) {
     document.getElementById('const-header-numero').textContent = data.constancia.numero_informe || '';
     if (data.existente) {
       // Si ya existe constancia, cargar sus datos (pisando el pre-completado)
-      try { const c = await api('/constancias/'+CONST_STATE.constanciaId); cargarDatosConstanciaExistente(c); } catch {}
+      try {
+        const c = await api('/constancias/'+CONST_STATE.constanciaId);
+        cargarDatosConstanciaExistente(c);
+        // Si ya fue enviada y el usuario es técnico, mostrar solo vista previa (sin edición)
+        if (c.estado === 'enviada' && STATE.rol !== 'admin') {
+          cerrarConstancia();
+          mostrarVistaPreviewConstancia(true); // true = modo solo lectura
+          return;
+        }
+      } catch {}
     }
   } catch {
     CONST_STATE.constanciaId = 'offline_' + Date.now();
@@ -3919,6 +3947,7 @@ function cargarDatosConstanciaExistente(c) {
   if (c.hora_fin) CONST_STATE.datos.hora_fin = c.hora_fin;
   if (c.gps_lat) { CONST_STATE.datos.gps_lat = c.gps_lat; CONST_STATE.datos.gps_lng = c.gps_lng; }
   if (c.observaciones_generales) CONST_STATE.datos.observaciones_generales = c.observaciones_generales;
+  if (c.estado) CONST_STATE.estadoConstancia = c.estado;
   // Guardar destino_id y logo del cliente (vienen del JOIN con destinos_externos)
   if (c.destino_id) CONST_STATE.destinoId = c.destino_id;
   if (c.cliente_logo_url) CONST_STATE.logoCliente = c.cliente_logo_url;
@@ -4491,25 +4520,31 @@ async function finalizarConstancia() {
   mostrarVistaPreviewConstancia();
 }
 
-function mostrarVistaPreviewConstancia() {
+function mostrarVistaPreviewConstancia(soloLectura = false) {
   const html = generarHTMLConstancia();
   const existing = document.getElementById('modal-constancia-preview');
   if (existing) existing.remove();
   const overlay = document.createElement('div');
   overlay.id = 'modal-constancia-preview';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:700;display:flex;flex-direction:column;';
+  const btnModificar = soloLectura
+    ? `<span style="font-size:11px;color:var(--text3);padding:6px 10px">📤 Ya enviada</span>`
+    : `<button onclick="modificarConstancia()" style="background:rgba(255,215,64,0.15);border:1px solid rgba(255,215,64,0.3);color:var(--yellow);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">✏ Modificar</button>`;
+  const btnFooter = soloLectura
+    ? `<button onclick="document.getElementById('modal-constancia-preview').remove()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>`
+    : `<button onclick="compartirConstancia()" class="btn btn-primary" style="flex:1">📤 Compartir / Enviar</button>
+       <button onclick="cerrarPreviewYSalir()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>`;
   overlay.innerHTML = `
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">
-      <button onclick="cerrarPreviewConstancia()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer">←</button>
-      <div style="flex:1;font-size:15px;font-weight:700">Vista previa — Constancia</div>
-      <button onclick="modificarConstancia()" style="background:rgba(255,215,64,0.15);border:1px solid rgba(255,215,64,0.3);color:var(--yellow);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">✏ Modificar</button>
+      <button onclick="document.getElementById('modal-constancia-preview').remove()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer">←</button>
+      <div style="flex:1;font-size:15px;font-weight:700">Constancia${soloLectura?' — Solo lectura':''}</div>
+      ${btnModificar}
     </div>
     <div style="flex:1;overflow-y:auto;padding:0">
       <iframe id="preview-iframe" style="width:100%;height:100%;border:none;background:white" srcdoc="${html.replace(/"/g,'&quot;')}"></iframe>
     </div>
     <div style="background:var(--bg2);border-top:1px solid var(--border);padding:14px 16px;display:flex;gap:10px;flex-shrink:0">
-      <button onclick="compartirConstancia()" class="btn btn-primary" style="flex:1">📤 Compartir / Enviar</button>
-      <button onclick="cerrarPreviewYSalir()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>
+      ${btnFooter}
     </div>`;
   document.body.appendChild(overlay);
 }
@@ -4789,6 +4824,15 @@ async function editarGrupoEmail(grupoId, nombreActual, emailsActuales) {
   } catch(e) { toast('Error al actualizar', 'error'); }
 }
 
+async function marcarConstanciaEnviada() {
+  const id = CONST_STATE.constanciaId;
+  if (!id || String(id).startsWith('offline_')) return;
+  try {
+    await api('/constancias/' + id, { method: 'PATCH', body: JSON.stringify({ estado: 'enviada' }) });
+    CONST_STATE.estadoConstancia = 'enviada';
+  } catch(e) { console.warn('[constancia] No se pudo marcar como enviada:', e.message); }
+}
+
 async function confirmarEnvioEmailConstancia() {
   // Agregar lo que esté en el input antes de validar
   agregarEmailChip();
@@ -4814,8 +4858,10 @@ async function confirmarEnvioEmailConstancia() {
       })
     });
     const data = await res.json();
-    if (res.ok) toast('Email enviado a ' + _emailDestinatarios.join(', ') + ' ✓', 'success');
-    else toast('Error al enviar: ' + (data.error || 'desconocido'), 'error');
+    if (res.ok) {
+      toast('Email enviado a ' + _emailDestinatarios.join(', ') + ' ✓', 'success');
+      await marcarConstanciaEnviada();
+    } else toast('Error al enviar: ' + (data.error || 'desconocido'), 'error');
   } catch(e) {
     toast('Error al generar o enviar el PDF', 'error');
     console.error(e);
@@ -4831,6 +4877,8 @@ async function compartirNativoConstancia() {
     const file = new File([pdfBlob], nombre, {type:'application/pdf'});
     if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
       await navigator.share({title:'Constancia de visita — '+numero, files:[file]});
+      // Marcar como enviada solo si el usuario completó el share (no canceló)
+      await marcarConstanciaEnviada();
     } else {
       // Fallback: descargar
       const url = URL.createObjectURL(pdfBlob);
@@ -4840,6 +4888,7 @@ async function compartirNativoConstancia() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       toast('PDF descargado ✓', 'success');
+      await marcarConstanciaEnviada();
     }
   } catch(e) {
     if (e.name !== 'AbortError') { toast('Error al generar PDF', 'error'); console.error(e); }
