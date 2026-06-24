@@ -218,6 +218,7 @@
   <div style="font-size:20px;cursor:pointer;position:relative;" onclick="showScreen('alertas')">
     🔔<span id="alertBadge" style="font-size:10px;background:white;color:var(--red);border-radius:10px;padding:1px 5px;font-weight:800;vertical-align:top;display:none;"></span>
   </div>
+  <div id="syncStatus" style="font-size:11px;padding:3px 8px;border-radius:10px;background:rgba(0,0,0,0.2);color:white;white-space:nowrap;cursor:pointer;" onclick="intentarSyncManual()" title="Estado de guardado">☁ OK</div>
 </div>
 
 <!-- TABS -->
@@ -1041,12 +1042,72 @@ async function init() {
   initSignature();
   renderAlertas();
   initVoiceButtons();
+  iniciarAutosave(); // guardar al servidor cada 30s si hay conexión
+
+  // Mostrar pendientes al inicio
+  const queue = JSON.parse(localStorage.getItem('ext_offline_queue')||'[]');
+  if (queue.length > 0) {
+    setSyncStatus('pending');
+    showToast('⚠ Hay '+queue.length+' auditoría(s) pendiente(s) de sincronizar. Tocá el indicador ☁ para reintentar.');
+  } else {
+    setSyncStatus('saved');
+  }
+  // Intentar sincronizar pendientes al inicio si hay conexión
+  if (navigator.onLine && queue.length > 0) {
+    setTimeout(procesarOfflineQueue, 2000);
+  }
+}
+
+// ── SYNC STATUS ──────────────────────────────────────────────────────────────
+function setSyncStatus(estado) {
+  // estados: 'saving' | 'saved' | 'offline' | 'pending' | 'error'
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  const map = {
+    saving:  { text: '⏳ Guardando...', bg: 'rgba(255,200,0,0.3)' },
+    saved:   { text: '☁ Guardado',     bg: 'rgba(0,200,100,0.3)' },
+    offline: { text: '📴 Sin conexión', bg: 'rgba(255,100,0,0.35)' },
+    pending: { text: '⚠ Pendiente',    bg: 'rgba(255,100,0,0.5)'  },
+    error:   { text: '✕ Error al guardar', bg: 'rgba(255,50,50,0.4)' },
+  };
+  const s = map[estado] || map.saved;
+  el.textContent = s.text;
+  el.style.background = s.bg;
 }
 
 function saveToStorage() {
   if (APP.currentAudit) {
     try { localStorage.setItem('ext_draft', JSON.stringify(APP.currentAudit)); } catch(e) {}
   }
+}
+
+// Autosave al servidor cada 30 segundos si hay auditoría activa y conexión
+let _autosaveInterval = null;
+function iniciarAutosave() {
+  if (_autosaveInterval) clearInterval(_autosaveInterval);
+  _autosaveInterval = setInterval(async () => {
+    if (!APP.currentAudit || !navigator.onLine) return;
+    await autosaveAudit();
+  }, 30000);
+}
+
+async function autosaveAudit() {
+  if (!APP.currentAudit) return;
+  saveToStorage(); // siempre guardar local primero
+  if (!navigator.onLine) { setSyncStatus('offline'); return; }
+  setSyncStatus('saving');
+  try {
+    await _enviarAuditServidor(APP.currentAudit, false);
+    setSyncStatus('saved');
+  } catch(e) {
+    setSyncStatus('pending');
+    console.warn('[autosave] fallo:', e.message);
+  }
+}
+
+async function intentarSyncManual() {
+  await procesarOfflineQueue();
+  if (APP.currentAudit && navigator.onLine) await autosaveAudit();
 }
 
 function setTodayDate() {
@@ -1206,12 +1267,7 @@ function saveAuditData() {
 }
 
 // ── API SAVE ──────────────────────────────────────────────────────────────────
-async function saveAuditToAPI() {
-  saveAuditData();
-  const audit = APP.currentAudit;
-  if (!audit) return null;
-
-  // Calculate summary
+function _buildPayload(audit) {
   let total=0, ok=0, nok=0, warn=0;
   audit.extintores.forEach(ext=>{
     CHECK_ITEMS.forEach(c=>{
@@ -1222,8 +1278,7 @@ async function saveAuditToAPI() {
     if(checkExpiry(ext)) warn++;
   });
   const pctOk = total>0 ? Math.round(ok/total*100) : 0;
-
-  const payload = {
+  return {
     destino_id:     audit.destino_id||null,
     cliente_nombre: audit.empresa||null,
     cliente_sector: audit.sector||null,
@@ -1237,55 +1292,102 @@ async function saveAuditToAPI() {
     total_extintores: audit.extintores.length,
     ok_count: ok, nok_count: nok, warn_count: warn, resultado_pct: pctOk,
     extintores: audit.extintores,
+    _ts: Date.now(),
   };
+}
 
-  try {
-    const result = await apiExt('/api/extintores/auditorias', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-    // Update audit with server ID
+// Enviar al servidor. Si isFinal=true, limpia el draft al éxito.
+async function _enviarAuditServidor(audit, isFinal=false) {
+  const payload = _buildPayload(audit);
+  const result = await apiExt('/api/extintores/auditorias', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  if (result?.auditoria?.id) {
     APP.currentAudit.server_id = result.auditoria.id;
-    // Refresh list
-    APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
-    // Clear draft
+  }
+  if (isFinal) {
     localStorage.removeItem('ext_draft');
+    APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
     renderHistorial();
     renderHistorialFull();
-    return result.auditoria;
+  }
+  return result?.auditoria || null;
+}
+
+async function saveAuditToAPI() {
+  saveAuditData();
+  const audit = APP.currentAudit;
+  if (!audit) return null;
+  saveToStorage(); // local primero siempre
+
+  if (!navigator.onLine) {
+    // Encolar para cuando haya conexión
+    _encolarOffline(_buildPayload(audit));
+    setSyncStatus('offline');
+    showToast('📴 Sin conexión — se sincronizará automáticamente al reconectarse');
+    return null;
+  }
+
+  setSyncStatus('saving');
+  try {
+    const auditoria = await _enviarAuditServidor(audit, true);
+    setSyncStatus('saved');
+    return auditoria;
   } catch(e) {
-    // Save offline
-    try {
-      const queue = JSON.parse(localStorage.getItem('ext_offline_queue')||'[]');
-      queue.push({...payload, _ts: Date.now()});
-      localStorage.setItem('ext_offline_queue', JSON.stringify(queue));
-    } catch(e2) {}
-    showToast('📴 Guardado localmente — se sincronizará con conexión');
+    // Si falla, encolar y avisar
+    _encolarOffline(_buildPayload(audit));
+    setSyncStatus('pending');
+    showToast('⚠ No se pudo guardar en el servidor — queda pendiente de sincronización');
     return null;
   }
 }
 
-// Retry offline queue when connection restores
-window.addEventListener('online', async ()=>{
-  showToast('📶 Conexión restaurada');
+function _encolarOffline(payload) {
   try {
+    // Evitar duplicados por _ts similar (misma auditoría ya en cola)
     const queue = JSON.parse(localStorage.getItem('ext_offline_queue')||'[]');
-    if (!queue.length) return;
-    let synced = 0;
-    const remaining = [];
-    for (const payload of queue) {
-      try {
-        await apiExt('/api/extintores/auditorias', { method:'POST', body: JSON.stringify(payload) });
-        synced++;
-      } catch(e) { remaining.push(payload); }
+    // Si ya hay un item con el mismo server_id o sin server_id (misma sesión), reemplazarlo
+    const idx = queue.findIndex(q => q._ts && payload._ts && Math.abs(q._ts - payload._ts) < 5000);
+    if (idx >= 0) queue[idx] = payload;
+    else queue.push(payload);
+    localStorage.setItem('ext_offline_queue', JSON.stringify(queue));
+  } catch(e) { console.error('[offline queue]', e); }
+}
+
+async function procesarOfflineQueue() {
+  const queue = JSON.parse(localStorage.getItem('ext_offline_queue')||'[]');
+  if (!queue.length) { setSyncStatus('saved'); return; }
+  setSyncStatus('saving');
+  let synced = 0;
+  const remaining = [];
+  for (const payload of queue) {
+    try {
+      await apiExt('/api/extintores/auditorias', { method:'POST', body: JSON.stringify(payload) });
+      synced++;
+    } catch(e) {
+      remaining.push(payload);
     }
-    localStorage.setItem('ext_offline_queue', JSON.stringify(remaining));
-    if (synced > 0) {
-      showToast('☁ '+synced+' auditoría'+( synced>1?'s':'')+' sincronizada'+( synced>1?'s':''));
-      APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
-      renderHistorial(); renderHistorialFull();
-    }
-  } catch(e) {}
+  }
+  localStorage.setItem('ext_offline_queue', JSON.stringify(remaining));
+  if (synced > 0) {
+    showToast('☁ '+synced+' auditoría'+(synced>1?'s':'')+' sincronizada'+(synced>1?'s':''));
+    APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
+    renderHistorial(); renderHistorialFull();
+  }
+  setSyncStatus(remaining.length > 0 ? 'pending' : 'saved');
+}
+
+// Al reconectarse: sincronizar queue automáticamente
+window.addEventListener('online', async () => {
+  showToast('📶 Conexión restaurada — sincronizando...');
+  await procesarOfflineQueue();
+});
+
+// Al perder conexión: avisar
+window.addEventListener('offline', () => {
+  setSyncStatus('offline');
+  showToast('📴 Sin conexión — los cambios se guardan localmente');
 });
 
 // ── HISTORIAL ─────────────────────────────────────────────────────────────────
