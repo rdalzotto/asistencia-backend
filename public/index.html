@@ -4176,7 +4176,7 @@ async function guardarConstanciaActual(mostrarToast=false) {
 // ── FIRMA DIGITAL ─────────────────────────────────────────────────
 let _firmaCanvas=null,_firmaCtx=null,_firmaDibujando=false;
 
-async function abrirFirma(tipo) {
+function abrirFirma(tipo) {
   const titulos={cliente:'Firma — Responsable del cliente',tecnico:'Firma — Asesor EXIT S.A.',responsable_exit:'Firma — Responsable del servicio EXIT S.A.'};
   document.getElementById('firma-titulo').textContent=titulos[tipo]||'Firma digital';
   document.getElementById('firma-tipo').value=tipo;
@@ -4203,16 +4203,18 @@ async function abrirFirma(tipo) {
     document.getElementById('firma-dni').value='';
     document.getElementById('firma-matricula').value='';
   }
-  // Cargar responsables conocidos si es firma de cliente
+  // Variables para responsables (se cargan en background abajo)
   const grpResp = document.getElementById('firma-grupo-responsables');
   const sel = document.getElementById('firma-responsables-select');
+  grpResp.style.display = 'none';
+  document.getElementById('modal-firma').classList.add('active');
+  // Cargar responsables conocidos en background si es cliente
   if (esCliente) {
     const destinos = CONST_STATE.destinosVisita || [];
     const destinoId = destinos.length === 1 ? destinos[0].destino_id : (destinos[0]?.destino_id || null);
     CONST_STATE._firmaDestinoId = destinoId;
     if (destinoId) {
-      try {
-        const lista = await api('/constancias/responsables-destino?destino_id=' + destinoId);
+      api('/constancias/responsables-destino?destino_id=' + destinoId).then(lista => {
         sel.innerHTML = '<option value="">— Seleccioná o ingresá uno nuevo —</option>';
         lista.forEach(r => {
           const opt = document.createElement('option');
@@ -4221,12 +4223,9 @@ async function abrirFirma(tipo) {
           sel.appendChild(opt);
         });
         grpResp.style.display = lista.length ? 'block' : 'none';
-      } catch { grpResp.style.display = 'none'; }
+      }).catch(() => { grpResp.style.display = 'none'; });
     } else { grpResp.style.display = 'none'; }
-  } else { grpResp.style.display = 'none'; }
-  document.getElementById('modal-firma').classList.add('active');
-  // Esperar a que el modal esté visible antes de inicializar el canvas
-  setTimeout(()=>{ _firmaCanvas=null; _firmaCtx=null; inicializarFirmaCanvas(); }, 200);
+  }
 }
 
 function seleccionarResponsableConocido(val) {
