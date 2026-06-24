@@ -254,6 +254,16 @@ router.post('/', auth, async (req, res) => {
 router.patch('/:id', auth, async (req, res) => {
   const { establecimiento_sector, hora_inicio, hora_fin, gps_lat, gps_lng, gps_precision_m, gps_hora, observaciones_generales, estado, firmada_cliente, firmada_tecnico } = req.body;
   try {
+    // Verificar si la constancia ya fue enviada — solo admin puede editarla después
+    if (req.user.rol !== 'admin') {
+      const { rows: [actual] } = await db.query(
+        `SELECT estado FROM public.constancias WHERE id = $1 AND empleador_id = $2`,
+        [req.params.id, req.user.empleadorId]
+      );
+      if (actual?.estado === 'enviada') {
+        return res.status(403).json({ error: 'Esta constancia ya fue enviada y no puede ser modificada por el técnico.' });
+      }
+    }
     const { rows: [c] } = await db.query(`
       UPDATE public.constancias SET
         establecimiento_sector = COALESCE($1, establecimiento_sector),
@@ -384,6 +394,16 @@ router.post('/:id/firmas', auth, async (req, res) => {
 router.post('/:id/guardar-completo', auth, async (req, res) => {
   const { datos, selecciones, personal, equipos, acciones, desvios } = req.body;
   try {
+    // Bloquear edición si ya fue enviada y el usuario no es admin
+    if (req.user.rol !== 'admin') {
+      const { rows: [actual] } = await db.query(
+        `SELECT estado FROM public.constancias WHERE id = $1 AND empleador_id = $2`,
+        [req.params.id, req.user.empleadorId]
+      );
+      if (actual?.estado === 'enviada') {
+        return res.status(403).json({ error: 'Esta constancia ya fue enviada y no puede ser modificada.' });
+      }
+    }
     if (datos) {
       const horaIni = datos.hora_inicio || null;
       const horaFin = datos.hora_fin || null;
