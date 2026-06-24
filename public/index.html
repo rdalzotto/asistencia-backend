@@ -4241,20 +4241,21 @@ async function confirmarFirma() {
   if(!_firmaCanvas) return toast('Error con el canvas','error');
   const firma_svg=_firmaCanvas.toDataURL('image/png');
   CONST_STATE.firmas[tipo]={nombre_apellido:nombre,cargo,matricula,dni,firma_svg,tipo};
-  try {
-    const id=CONST_STATE.constanciaId;
-    const body={tipo,nombre_apellido:nombre,cargo,matricula,firma_svg};
-    if(tipo==='cliente'){body.dni=dni||null;body.destino_id=CONST_STATE._firmaDestinoId||null;}
-    if(!String(id).startsWith('offline_')) await api('/constancias/'+id+'/firmas',{method:'POST',body:JSON.stringify(body)});
-  } catch {}
-  // Persistir firma EXIT para reutilización automática
-  if(tipo==='tecnico'||tipo==='responsable_exit') {
-    try { await api('/constancias/firma-guardada',{method:'POST',body:JSON.stringify({nombre_apellido:nombre,cargo,matricula,firma_svg,tipo})}); } catch {}
-  }
+  // Cerrar modal y actualizar UI inmediatamente — sin esperar al servidor
   _firmaCanvas=null; _firmaCtx=null;
   cerrarModal('modal-firma');
   renderConstanciaPaso();
   toast('Firma guardada \u2713','success');
+  // Persistir en servidor en background (no bloquea UI)
+  const _id=CONST_STATE.constanciaId;
+  if(!String(_id).startsWith('offline_')) {
+    const _body={tipo,nombre_apellido:nombre,cargo,matricula,firma_svg};
+    if(tipo==='cliente'){_body.dni=dni||null;_body.destino_id=CONST_STATE._firmaDestinoId||null;}
+    api('/constancias/'+_id+'/firmas',{method:'POST',body:JSON.stringify(_body)}).catch(()=>{});
+  }
+  if(tipo==='tecnico'||tipo==='responsable_exit') {
+    api('/constancias/firma-guardada',{method:'POST',body:JSON.stringify({nombre_apellido:nombre,cargo,matricula,firma_svg,tipo})}).catch(()=>{});
+  }
 }
 
 async function finalizarConstancia() {
