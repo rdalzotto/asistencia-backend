@@ -131,7 +131,8 @@ async function enviarInforme(params) {
   const {
     pdfBase64,
     nombreArchivo,
-    destinatario,
+    destinatarios,   // array de emails (nuevo)
+    destinatario,    // legacy: string único
     asunto,
     cuerpoHtml,
     emailTecnico,
@@ -141,6 +142,11 @@ async function enviarInforme(params) {
     tipo,
     referenciaId,
   } = params;
+  // Normalizar a array
+  const listaDestinatarios = destinatarios && destinatarios.length
+    ? destinatarios
+    : [destinatario].filter(Boolean);
+  if (!listaDestinatarios.length) throw new Error('Sin destinatarios');
 
   const pdfBuffer = Buffer.from(pdfBase64, 'base64');
   let urlArchivo = null;
@@ -151,7 +157,7 @@ async function enviarInforme(params) {
   } catch (err) {
     console.error('[emailService] Error subiendo a Storage:', err.message);
     await registrarEnvio({
-      empleadoId, empleadorId, destinatario, asunto, tipo, referenciaId,
+      empleadoId, empleadorId, destinatario: listaDestinatarios.join(', '), asunto, tipo, referenciaId,
       urlArchivo: null, estado: 'error', errorMsg: `Storage: ${err.message}`,
     });
     throw err;
@@ -174,7 +180,7 @@ async function enviarInforme(params) {
 
     await transporter.sendMail({
       from: `"${nombreTecnico} — EXIT S.A." <${emailTecnico}>`,
-      to: destinatario,
+      to: listaDestinatarios.join(', '),
       subject: asunto,
       html: cuerpoHtml + firmaHtml,
       attachments: [
@@ -187,7 +193,7 @@ async function enviarInforme(params) {
     });
 
     await registrarEnvio({
-      empleadoId, empleadorId, destinatario, asunto, tipo, referenciaId,
+      empleadoId, empleadorId, destinatario: listaDestinatarios.join(', '), asunto, tipo, referenciaId,
       urlArchivo, estado: 'enviado', errorMsg: null,
     });
 
@@ -195,7 +201,7 @@ async function enviarInforme(params) {
   } catch (err) {
     console.error('[emailService] Error enviando email:', err.message);
     await registrarEnvio({
-      empleadoId, empleadorId, destinatario, asunto, tipo, referenciaId,
+      empleadoId, empleadorId, destinatario: listaDestinatarios.join(', '), asunto, tipo, referenciaId,
       urlArchivo, estado: 'error', errorMsg: `SMTP: ${err.message}`,
     });
     throw err;
