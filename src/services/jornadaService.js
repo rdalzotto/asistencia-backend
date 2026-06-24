@@ -44,9 +44,10 @@ function calcularTardanza(horaIngreso, jornadaConfig, convenio) {
 }
 
 // ─── Calcular horas trabajadas en una jornada ────────────────────────────────
-async function calcularHorasJornada(empleadoId, fecha) {
+async function calcularHorasJornada(empleadoId, fecha, client) {
   // Obtener todos los movimientos del día ordenados
-  const { rows: movs } = await db.query(`
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const { rows: movs } = await queryFn(`
     SELECT tipo, hora FROM public.movimientos
     WHERE empleado_id = $1 AND fecha = $2
     ORDER BY hora ASC
@@ -200,7 +201,7 @@ async function actualizarBancoHoras(empleadoId, fecha, client) {
 
   let horasTrabajadas = 0;
   for (const { fecha: f } of movDias) {
-    horasTrabajadas += await calcularHorasJornada(empleadoId, f);
+    horasTrabajadas += await calcularHorasJornada(empleadoId, f, client);
   }
 
   // Horas de ausencias justificadas del mes
