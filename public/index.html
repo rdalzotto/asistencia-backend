@@ -4226,6 +4226,10 @@ function abrirFirma(tipo) {
   const sel = document.getElementById('firma-responsables-select');
   grpResp.style.display = 'none';
   document.getElementById('modal-firma').classList.add('active');
+  // Inicializar canvas — reintentar hasta que el modal tenga dimensiones reales
+  _firmaCanvas=null; _firmaCtx=null; let _ci=0;
+  const _tryInit=()=>{ const c=document.getElementById('firma-canvas'); if(!c){if(_ci++<15)setTimeout(_tryInit,100);return;} const r=c.getBoundingClientRect(); if(r.width<10){if(_ci++<15)setTimeout(_tryInit,100);return;} inicializarFirmaCanvas(); };
+  setTimeout(_tryInit,150);
   // Cargar responsables conocidos en background si es cliente
   if (esCliente) {
     const destinos = CONST_STATE.destinosVisita || [];
@@ -4288,8 +4292,11 @@ async function confirmarFirma() {
   const matricula=document.getElementById('firma-matricula').value.trim();
   const dni=document.getElementById('firma-dni').value.trim();
   if(!nombre||!cargo) return toast('Completá nombre y cargo','error');
-  if(!_firmaCanvas) return toast('Error con el canvas','error');
-  const firma_svg=_firmaCanvas.toDataURL('image/png');
+  // Capturar firma del canvas si está disponible y tiene dimensiones válidas
+  let firma_svg = (CONST_STATE.firmas[tipo] && CONST_STATE.firmas[tipo].firma_svg) || null;
+  if(_firmaCanvas && _firmaCanvas.width>0 && _firmaCanvas.height>0) {
+    firma_svg = _firmaCanvas.toDataURL('image/png');
+  }
   CONST_STATE.firmas[tipo]={nombre_apellido:nombre,cargo,matricula,dni,firma_svg,tipo};
   // Cerrar modal y actualizar UI inmediatamente — sin esperar al servidor
   _firmaCanvas=null; _firmaCtx=null;
