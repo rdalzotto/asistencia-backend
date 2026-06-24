@@ -1805,9 +1805,11 @@ async function cargarDashboardAdmin() {
         </div>
       `).join('');
     }
+    const cardRemotos = document.getElementById('card-remotos');
+    const listaRemotos = document.getElementById('lista-remotos');
     if (data.pendientes_remoto?.length) {
-      document.getElementById('card-remotos').style.display = 'block';
-      document.getElementById('lista-remotos').innerHTML = data.pendientes_remoto.map(m => `
+      cardRemotos.style.display = 'block';
+      listaRemotos.innerHTML = data.pendientes_remoto.map(m => `
         <div style="padding:12px 0;border-bottom:1px solid var(--border)">
           <div style="font-size:14px;font-weight:600">${m.nombre} ${m.apellido} <span style="font-size:11px;font-weight:600;color:${m.es_remoto?'var(--accent)':'var(--orange)'}">${m.es_remoto?'· 💻 Remoto':'· 📍 Sin GPS'}</span></div>
           <div style="font-size:12px;color:var(--text2)">${new Date(m.hora).toLocaleString('es-AR')}${!m.es_remoto?' · '+(m.tipo||''):''}</div>
@@ -1817,6 +1819,9 @@ async function cargarDashboardAdmin() {
           </div>
         </div>
       `).join('');
+    } else {
+      cardRemotos.style.display = 'none';
+      listaRemotos.innerHTML = '';
     }
     await cargarVacacionesMes();
   } catch(e) { console.error(e); }
@@ -3785,6 +3790,12 @@ async function confirmarConstanciaEspontanea() {
 }
 
 async function abrirConstancia(visitaId, visitaDatos) {
+  // Ocultar navegación inferior para que los botones Anterior/Siguiente no queden tapados
+  document.getElementById('nav-empleado')?.style.setProperty('display','none','important');
+  document.getElementById('nav-admin')?.style.setProperty('display','none','important');
+  document.getElementById('modal-constancia').style.display = 'flex';
+  document.getElementById('modal-constancia').classList.add('active');
+
   CONST_STATE = {constanciaId:null,visitaId,pasoActual:0,datos:{},selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},personal:[],equipos:[],acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},desvios:[],firmas:{},itemsMenu:{},offline:false,pendienteSync:false};
   CONST_STATE.offline = !navigator.onLine;
 
@@ -3880,6 +3891,9 @@ function cargarDatosConstanciaExistente(c) {
 function cerrarConstancia() {
   document.getElementById('modal-constancia').classList.remove('active');
   document.getElementById('modal-constancia').style.display = '';
+  // Restaurar navegación inferior
+  document.getElementById('nav-empleado')?.style.removeProperty('display');
+  document.getElementById('nav-admin')?.style.removeProperty('display');
 }
 
 function renderConstanciaPasos() {
@@ -4822,34 +4836,89 @@ function generarHTMLConstancia() {
   const actividades = getTextos('actividad');
   const normativas = getTextos('normativa');
   const firmaBloque = (f,titulo) => f ? `<div style="border:1px solid #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center"><div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;font-weight:700">${titulo}</div>${f.firma_svg?`<img src="${f.firma_svg}" style="width:100%;height:80px;object-fit:contain;border:1px solid #eee;border-radius:4px;margin-bottom:8px">`:'<div style="height:80px;border:1px dashed #ccc;border-radius:4px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">Sin firma</div>'}<div style="font-size:13px;font-weight:700">${f.nombre_apellido||''}</div><div style="font-size:11px;color:#666">${f.cargo||''}${f.matricula?' — '+f.matricula:''}</div></div>` : `<div style="border:1px dashed #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center;color:#999"><div style="font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:8px">${titulo}</div><div style="font-size:12px">Sin firmar</div></div>`;
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Constancia ${numero}</title><style>body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:20px;max-width:800px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}h2{font-size:13px;font-weight:700;text-transform:uppercase;color:#555;border-bottom:1px solid #ddd;padding-bottom:4px;margin:20px 0 10px}table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px solid #ddd;padding:6px 10px;font-size:12px}th{background:#f5f5f5;text-align:left}.tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:3px 10px;font-size:11px;margin:2px}.firma-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}@media print{body{padding:0}}</style></head><body>
-    <div style="border:2px solid #1a6aaa;border-radius:8px;padding:16px 20px;margin-bottom:20px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div style="display:flex;align-items:center;gap:14px">
-          <img data-logo-exit="1" src="" style="height:52px;width:auto;object-fit:contain;display:block">
-          <div><h1>Constancia de Visita a Establecimiento</h1><div style="font-size:12px;color:#555">EXIT S.A. — Sistema AsistenciaAR</div></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:16px">
-          ${`<img data-logo-cliente="1" src="" style="height:48px;max-width:140px;object-fit:contain;${CONST_STATE.logoCliente?'':'display:none'}">`}
-          <div style="text-align:right"><div style="font-size:16px;font-weight:700;color:#1a6aaa">${numero}</div><div style="font-size:11px;color:#555">${fecha}</div></div>
-        </div>
+  // Construir tabla de destinos para datos generales
+  const destinosVisita = CONST_STATE.destinosVisita || [];
+  const filaDestinos = destinosVisita.length > 0
+    ? destinosVisita.map((dest, i) => {
+        const dir = [dest.domicilio, dest.localidad].filter(Boolean).join(', ');
+        const gpsLink = (dest.lat && dest.lng)
+          ? ` <span style="font-size:10px;color:#1a6aaa">📍 ${parseFloat(dest.lat).toFixed(6)}, ${parseFloat(dest.lng).toFixed(6)}</span>`
+          : '';
+        return `<tr>
+          <td style="font-weight:700;white-space:nowrap;width:28px;color:#555">${destinosVisita.length > 1 ? (i+1)+'.' : ''}</td>
+          <td style="font-weight:600">${dest.cliente_nombre||'—'}</td>
+          <td>${dir||'—'}${gpsLink}</td>
+          <td style="white-space:nowrap;font-size:11px;color:#555">${dest.motivo||''}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="4">${d.establecimiento_sector||'—'}</td></tr>`;
+
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Constancia ${numero}</title><style>
+    body{font-family:Arial,sans-serif;font-size:12.5px;color:#1a1a1a;margin:0;padding:18px 22px;max-width:794px;box-sizing:border-box}
+    h2{font-size:11.5px;font-weight:700;text-transform:uppercase;color:#1a6aaa;border-bottom:2px solid #1a6aaa;padding-bottom:3px;margin:16px 0 8px;page-break-after:avoid}
+    table{width:100%;border-collapse:collapse;margin-bottom:10px;page-break-inside:avoid}
+    td,th{border:1px solid #ddd;padding:5px 9px;font-size:12px;vertical-align:top}
+    th{background:#f0f4f8;text-align:left;font-weight:700;white-space:nowrap;width:28%}
+    .tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:2px 9px;font-size:11px;margin:2px}
+    .firma-row{display:flex;gap:10px;margin-top:10px;page-break-inside:avoid}
+    .seccion{page-break-inside:avoid}
+    @media print{body{padding:10px}}
+  </style></head><body>
+
+    <!-- HEADER: logo EXIT | título | número + fecha | logo cliente -->
+    <div style="border:2px solid #1a6aaa;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+      <!-- Logo EXIT: altura fija, ancho máximo controlado -->
+      <div style="flex:0 0 auto">
+        <img data-logo-exit="1" src="" style="height:44px;max-width:130px;width:auto;object-fit:contain;display:block">
       </div>
+      <!-- Separador vertical -->
+      <div style="width:1px;background:#d0dae8;align-self:stretch;flex:0 0 auto"></div>
+      <!-- Título y subtítulo -->
+      <div style="flex:1;min-width:0">
+        <div style="font-size:15px;font-weight:700;color:#1a1a1a;line-height:1.2">Constancia de Visita a Establecimiento</div>
+        <div style="font-size:10.5px;color:#555;margin-top:2px">EXIT S.A. — Higiene y Seguridad en el Trabajo</div>
+      </div>
+      <!-- Número y fecha -->
+      <div style="flex:0 0 auto;text-align:right;min-width:90px">
+        <div style="font-size:15px;font-weight:700;color:#1a6aaa">${numero}</div>
+        <div style="font-size:10px;color:#555;margin-top:2px">${fecha}</div>
+      </div>
+      <!-- Logo cliente (solo si existe) -->
+      ${CONST_STATE.logoCliente ? `
+      <div style="flex:0 0 auto;border-left:1px solid #d0dae8;padding-left:12px">
+        <img data-logo-cliente="1" src="" style="height:44px;max-width:110px;width:auto;object-fit:contain;display:block">
+      </div>` : `<img data-logo-cliente="1" src="" style="display:none">`}
     </div>
+
     <h2>1. Datos generales</h2>
-    <table><tr><th>Establecimiento / Sector</th><td>${d.establecimiento_sector||'—'}</td></tr><tr><th>Hora inicio</th><td>${d.hora_inicio||'—'}</td><th>Hora fin</th><td>${d.hora_fin||'—'}</td></tr>${d.gps_lat?`<tr><th>Coordenadas GPS</th><td colspan="3">Lat: ${d.gps_lat} / Lng: ${d.gps_lng}</td></tr>`:''}</table>
-    ${tipos.length?`<h2>2. Tipo de visita</h2><div>${tipos.map(t=>`<span class="tag">✓ ${t}</span>`).join('')}</div>`:''}
-    ${frentes.length?`<h2>Frentes de trabajo</h2><div>${frentes.map(f=>`<span class="tag">📍 ${f}</span>`).join('')}</div>`:''}
-    ${CONST_STATE.personal.length?`<h2>3. Personal presente</h2><table><tr><th>Nombre y apellido</th><th>Función / cargo</th><th>Habilitación</th><th>Estado</th></tr>${CONST_STATE.personal.map(p=>`<tr><td>${p.nombre_apellido||'—'}</td><td>${p.funcion_cargo||'—'}</td><td>${p.habilitacion||'—'}</td><td>${p.estado_habilitacion||'—'}</td></tr>`).join('')}</table>`:''}
-    ${actividades.length?`<h2>4. Actividades realizadas</h2><div>${actividades.map(a=>`<span class="tag">✓ ${a}</span>`).join('')}</div>`:''}
-    ${(CONST_STATE.acciones.verificaciones||CONST_STATE.acciones.indicaciones||CONST_STATE.acciones.charla||CONST_STATE.acciones.documentacion)?`<h2>5. Acciones del asesor</h2><table>${CONST_STATE.acciones.verificaciones?`<tr><th>Verificaciones</th><td>${CONST_STATE.acciones.verificaciones}</td></tr>`:''} ${CONST_STATE.acciones.indicaciones?`<tr><th>Indicaciones</th><td>${CONST_STATE.acciones.indicaciones}</td></tr>`:''} ${CONST_STATE.acciones.charla?`<tr><th>Charla / capacitación</th><td>${CONST_STATE.acciones.charla}</td></tr>`:''} ${CONST_STATE.acciones.documentacion?`<tr><th>Documentación revisada</th><td>${CONST_STATE.acciones.documentacion}</td></tr>`:''}</table>`:''}
-    ${normativas.length?`<h2>6. Marco normativo</h2><div>${normativas.map(n=>`<span class="tag">⚖ ${n}</span>`).join('')}</div>`:''}
-    ${d.observaciones_generales?`<h2>7. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:12px;background:#fafafa">${d.observaciones_generales}</p>`:''}
-    ${CONST_STATE.desvios.length?`<h2>8. Desvíos detectados</h2>${CONST_STATE.desvios.map((dev,i)=>`<div style="border:1px solid ${dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc'};border-radius:6px;padding:12px;margin-bottom:10px"><div style="font-weight:700">Desvío N° ${i+1}: ${dev.titulo}</div><div style="font-size:12px;color:#666;margin:4px 0">Severidad: ${dev.severidad} · Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:6px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:4px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:4px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}</div>`).join('')}`:''}
-    <h2>9. Firmas</h2>
-    <div class="firma-row">${firmaBloque(fC,'Responsable del cliente')}${firmaBloque(fT,'Asesor EXIT S.A.')}${firmaBloque(fE,'Responsable del servicio EXIT S.A.')}</div>
-    <div style="text-align:center;font-size:10px;color:#aaa;margin-top:30px;border-top:1px solid #eee;padding-top:10px">Documento generado por AsistenciaAR — EXIT S.A. — ${fecha}</div>
+    <div class="seccion">
+      <table>
+        <tr><th>Establecimiento / Sector</th><td>${d.establecimiento_sector||'—'}</td></tr>
+        <tr><th>Hora inicio</th><td style="width:22%">${d.hora_inicio||'—'}</td><th style="width:15%">Hora fin</th><td>${d.hora_fin||'—'}</td></tr>
+        ${d.gps_lat?`<tr><th>Coordenadas GPS</th><td colspan="3" style="font-size:11px">Lat: ${d.gps_lat} / Lng: ${d.gps_lng}${d.gps_precision_m?' (±'+d.gps_precision_m+' m)':''}</td></tr>`:''}
+      </table>
+      ${destinosVisita.length > 0 ? `
+      <div style="font-size:11px;font-weight:700;color:#555;text-transform:uppercase;margin:6px 0 4px">Lugar(es) de la visita</div>
+      <table>
+        <tr><th style="width:3%;padding:4px 6px"></th><th style="width:30%">Empresa / Cliente</th><th>Dirección y coordenadas</th><th style="width:20%">Motivo</th></tr>
+        ${filaDestinos}
+      </table>` : ''}
+    </div>
+
+    ${tipos.length?`<div class="seccion"><h2>2. Tipo de visita</h2><div>${tipos.map(t=>`<span class="tag">✓ ${t}</span>`).join('')}</div></div>`:''}
+    ${frentes.length?`<div class="seccion"><h2>Frentes de trabajo</h2><div>${frentes.map(f=>`<span class="tag">📍 ${f}</span>`).join('')}</div></div>`:''}
+    ${CONST_STATE.personal.length?`<div class="seccion"><h2>3. Personal presente</h2><table><tr><th>Nombre y apellido</th><th>Función / cargo</th><th>Habilitación</th><th>Estado</th></tr>${CONST_STATE.personal.map(p=>`<tr><td>${p.nombre_apellido||'—'}</td><td>${p.funcion_cargo||'—'}</td><td>${p.habilitacion||'—'}</td><td>${p.estado_habilitacion||'—'}</td></tr>`).join('')}</table></div>`:''}
+    ${actividades.length?`<div class="seccion"><h2>4. Actividades realizadas</h2><div>${actividades.map(a=>`<span class="tag">✓ ${a}</span>`).join('')}</div></div>`:''}
+    ${(CONST_STATE.acciones.verificaciones||CONST_STATE.acciones.indicaciones||CONST_STATE.acciones.charla||CONST_STATE.acciones.documentacion)?`<div class="seccion"><h2>5. Acciones del asesor</h2><table>${CONST_STATE.acciones.verificaciones?`<tr><th>Verificaciones</th><td>${CONST_STATE.acciones.verificaciones}</td></tr>`:''} ${CONST_STATE.acciones.indicaciones?`<tr><th>Indicaciones</th><td>${CONST_STATE.acciones.indicaciones}</td></tr>`:''} ${CONST_STATE.acciones.charla?`<tr><th>Charla / capacitación</th><td>${CONST_STATE.acciones.charla}</td></tr>`:''} ${CONST_STATE.acciones.documentacion?`<tr><th>Documentación revisada</th><td>${CONST_STATE.acciones.documentacion}</td></tr>`:''}</table></div>`:''}
+    ${normativas.length?`<div class="seccion"><h2>6. Marco normativo</h2><div>${normativas.map(n=>`<span class="tag">⚖ ${n}</span>`).join('')}</div></div>`:''}
+    ${d.observaciones_generales?`<div class="seccion"><h2>7. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:10px 12px;background:#fafafa;margin:0">${d.observaciones_generales}</p></div>`:''}
+    ${CONST_STATE.desvios.length?`<h2>8. Desvíos detectados</h2>${CONST_STATE.desvios.map((dev,i)=>`<div class="seccion" style="border:1px solid ${dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc'};border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-weight:700;font-size:12.5px">Desvío N° ${i+1}: ${dev.titulo}</div><div style="font-size:11px;color:#666;margin:3px 0">Severidad: ${dev.severidad} · Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:5px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:3px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:3px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}</div>`).join('')}`:''}
+    <div class="seccion"><h2>9. Firmas</h2>
+    <div class="firma-row">${firmaBloque(fC,'Responsable del cliente')}${firmaBloque(fT,'Asesor EXIT S.A.')}${firmaBloque(fE,'Responsable del servicio EXIT S.A.')}</div></div>
+    <div style="text-align:center;font-size:10px;color:#aaa;margin-top:24px;border-top:1px solid #eee;padding-top:8px">Documento generado por AsistenciaAR — EXIT S.A. — ${fecha}</div>
   </body></html>`;
 }
+
 
 window.addEventListener('online',async()=>{
   const keys=Object.keys(localStorage).filter(k=>k.startsWith('constancia_pendiente_'));
