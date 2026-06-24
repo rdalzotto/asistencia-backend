@@ -88,7 +88,7 @@ router.get('/reporte', auth, soloAdmin, async (req, res) => {
 
 // ── GET /visitas ──────────────────────────────────────────────
 router.get('/', auth, async (req, res) => {
-  const { desde, hasta, empleado_id, visto_admin } = req.query;
+  const { desde, hasta, empleado_id, visto_admin, estado } = req.query;
   const params = [req.user.empleadorId];
   let where = 'WHERE v.empleador_id = $1';
   if (req.user.rol === 'empleado') {
@@ -101,6 +101,7 @@ router.get('/', auth, async (req, res) => {
   if (desde) { params.push(desde); where += ` AND v.fecha >= $${params.length}`; }
   if (hasta) { params.push(hasta); where += ` AND v.fecha <= $${params.length}`; }
   if (visto_admin === 'false') { where += ` AND v.visto_admin = FALSE`; }
+  if (estado) { params.push(estado); where += ` AND v.estado = $${params.length}`; }
   try {
     const { rows } = await db.query(`
       SELECT v.*, e.nombre as emp_nombre, e.apellido as emp_apellido, e.legajo,
