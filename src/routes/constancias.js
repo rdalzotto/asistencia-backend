@@ -438,4 +438,52 @@ router.post('/:id/guardar-completo', auth, async (req, res) => {
   }
 });
 
+
+// ── GRUPOS DE EMAIL (contactos guardados por destino) ────────────────────────
+router.get('/grupos-email', auth, async (req, res) => {
+  const { destino_id } = req.query;
+  if (!destino_id) return res.status(400).json({ error: 'destino_id requerido' });
+  try {
+    const { rows } = await db.query(
+      `SELECT id, nombre, emails FROM public.grupos_email
+       WHERE destino_id = $1 AND empleador_id = $2 ORDER BY nombre`,
+      [destino_id, req.user.empleadorId]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+router.post('/grupos-email', auth, async (req, res) => {
+  const { destino_id, nombre, emails } = req.body;
+  if (!destino_id || !nombre || !emails?.length) return res.status(400).json({ error: 'Datos incompletos' });
+  try {
+    const { rows: [g] } = await db.query(
+      `INSERT INTO public.grupos_email (destino_id, empleador_id, nombre, emails)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [destino_id, req.user.empleadorId, nombre, JSON.stringify(emails)]
+    );
+    res.json({ ok: true, grupo: g });
+  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+router.patch('/grupos-email/:id', auth, async (req, res) => {
+  const { nombre, emails } = req.body;
+  try {
+    await db.query(
+      `UPDATE public.grupos_email SET nombre = COALESCE($1, nombre), emails = COALESCE($2, emails)
+       WHERE id = $3 AND empleador_id = $4`,
+      [nombre || null, emails ? JSON.stringify(emails) : null, req.params.id, req.user.empleadorId]
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+router.delete('/grupos-email/:id', auth, async (req, res) => {
+  try {
+    await db.query(`DELETE FROM public.grupos_email WHERE id = $1 AND empleador_id = $2`,
+      [req.params.id, req.user.empleadorId]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+});
+
 module.exports = router;
