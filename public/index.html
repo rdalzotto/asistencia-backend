@@ -3614,7 +3614,7 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
     </div>
     <input type="hidden" id="firma-tipo">
     <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn btn-secondary" onclick="cerrarModal('modal-firma')">Cancelar</button>
+      <button class="btn btn-secondary" onclick="_firmaCanvas=null;_firmaCtx=null;cerrarModal('modal-firma')">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarFirma()">Confirmar firma</button>
     </div>
   </div>
@@ -4251,6 +4251,7 @@ async function confirmarFirma() {
   if(tipo==='tecnico'||tipo==='responsable_exit') {
     try { await api('/constancias/firma-guardada',{method:'POST',body:JSON.stringify({nombre_apellido:nombre,cargo,matricula,firma_svg,tipo})}); } catch {}
   }
+  _firmaCanvas=null; _firmaCtx=null;
   cerrarModal('modal-firma');
   renderConstanciaPaso();
   toast('Firma guardada \u2713','success');
