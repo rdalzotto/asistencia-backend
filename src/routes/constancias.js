@@ -78,28 +78,65 @@ router.post('/items/importar', auth, soloAdmin, async (req, res) => {
   res.json({ ok: true, importados: ok, errores: err });
 });
 
+// ── FIRMAS GUARDADAS (una por tipo por usuario) ──────────────────────────────
 router.get('/firma-guardada', auth, async (req, res) => {
   try {
+    // Devuelve un objeto { tecnico: {...}, responsable_exit: {...} }
     const { rows } = await db.query(`
-      SELECT * FROM public.firmas_guardadas
-      WHERE usuario_id = $1 ORDER BY creado_en DESC LIMIT 1
+      SELECT DISTINCT ON (tipo) *
+      FROM public.firmas_guardadas
+      WHERE usuario_id = $1
+      ORDER BY tipo, creado_en DESC
     `, [req.user.id]);
-    res.json(rows[0] || null);
+    const result = {};
+    for (const r of rows) result[r.tipo] = r;
+    res.json(result);
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
 
 router.post('/firma-guardada', auth, async (req, res) => {
   const { nombre_apellido, cargo, matricula, firma_svg, tipo } = req.body;
   if (!firma_svg) return res.status(400).json({ error: 'Firma requerida' });
+  const tipoFirma = tipo || 'tecnico';
   try {
-    await db.query(`DELETE FROM public.firmas_guardadas WHERE usuario_id = $1`, [req.user.id]);
+    // Borrar solo la firma del mismo tipo, no todas las del usuario
+    await db.query(`DELETE FROM public.firmas_guardadas WHERE usuario_id = $1 AND tipo = $2`, [req.user.id, tipoFirma]);
     const { rows: [firma] } = await db.query(`
       INSERT INTO public.firmas_guardadas (usuario_id, empleador_id, tipo, nombre_apellido, cargo, matricula, firma_svg)
       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
-    `, [req.user.id, req.user.empleadorId, tipo || 'tecnico', nombre_apellido, cargo, matricula || null, firma_svg]);
+    `, [req.user.id, req.user.empleadorId, tipoFirma, nombre_apellido, cargo, matricula || null, firma_svg]);
     res.json({ ok: true, firma });
   } catch (err) {
     console.error('[CONST] guardar firma error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ── LOGO DE DESTINO EXTERNO ──────────────────────────────────────────────────
+router.get('/destino-logo/:destino_id', auth, async (req, res) => {
+  try {
+    const { rows: [d] } = await db.query(
+      `SELECT id, nombre, logo_url FROM public.destinos_externos WHERE id = $1 AND empleador_id = $2`,
+      [req.params.destino_id, req.user.empleadorId]
+    );
+    if (!d) return res.status(404).json({ error: 'Destino no encontrado' });
+    res.json({ id: d.id, nombre: d.nombre, logo_url: d.logo_url || null });
+  } catch (err) {
+    console.error('[CONST] destino-logo GET error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.patch('/destino-logo/:destino_id', auth, async (req, res) => {
+  const { logo_url } = req.body;
+  try {
+    await db.query(
+      `UPDATE public.destinos_externos SET logo_url = $1 WHERE id = $2 AND empleador_id = $3`,
+      [logo_url || null, req.params.destino_id, req.user.empleadorId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[CONST] destino-logo PATCH error:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -126,7 +163,6 @@ router.post('/responsables-destino', auth, async (req, res) => {
   const { destino_id, nombre_apellido, cargo, dni } = req.body;
   if (!destino_id || !nombre_apellido) return res.status(400).json({ error: 'Datos incompletos' });
   try {
-    // Evitar duplicados exactos (mismo nombre+dni en el mismo destino)
     const { rows: exist } = await db.query(`
       SELECT id FROM public.responsables_destino
       WHERE destino_id = $1 AND empleador_id = $2 AND lower(nombre_apellido) = lower($3) AND (dni = $4 OR ($4 IS NULL AND dni IS NULL))
@@ -152,7 +188,7 @@ router.get('/', auth, async (req, res) => {
   if (estado) { params.push(estado); where += ` AND c.estado = $${params.length}`; }
   try {
     const { rows } = await db.query(`
-      SELECT c.*, e.nombre, e.apellido, v.fecha as visita_fecha, d.nombre as cliente_nombre
+      SELECT c.*, e.nombre, e.apellido, v.fecha as visita_fecha, d.nombre as cliente_nombre, d.logo_url as cliente_logo_url
       FROM public.constancias c
       JOIN public.empleados e ON e.id = c.empleado_id
       LEFT JOIN public.visitas v ON v.id = c.visita_id
@@ -170,10 +206,13 @@ router.get('/', auth, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   try {
     const { rows: [c] } = await db.query(`
-      SELECT c.*, e.nombre, e.apellido, e.legajo, v.fecha as visita_fecha, v.origen as visita_origen
+      SELECT c.*, e.nombre, e.apellido, e.legajo, v.fecha as visita_fecha, v.origen as visita_origen,
+             d.id as destino_id, d.nombre as cliente_nombre, d.logo_url as cliente_logo_url
       FROM public.constancias c
       JOIN public.empleados e ON e.id = c.empleado_id
       LEFT JOIN public.visitas v ON v.id = c.visita_id
+      LEFT JOIN public.visita_destinos vd ON vd.visita_id = v.id AND vd.orden = 1
+      LEFT JOIN public.destinos_externos d ON d.id = vd.destino_id
       WHERE c.id = $1 AND c.empleador_id = $2
     `, [req.params.id, req.user.empleadorId]);
     if (!c) return res.status(404).json({ error: 'No encontrada' });
@@ -319,7 +358,8 @@ router.post('/:id/firmas', auth, async (req, res) => {
     const { rows: [firma] } = await db.query(`INSERT INTO public.constancia_firmas (constancia_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [req.params.id, tipo, nombre_apellido||null, cargo||null, matricula||null, firma_svg]);
     if (tipo !== 'cliente') {
-      await db.query(`DELETE FROM public.firmas_guardadas WHERE usuario_id = $1`, [req.user.id]);
+      // Guardar firma por tipo (no borrar todas)
+      await db.query(`DELETE FROM public.firmas_guardadas WHERE usuario_id = $1 AND tipo = $2`, [req.user.id, tipo]);
       await db.query(`INSERT INTO public.firmas_guardadas (usuario_id, empleador_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [req.user.id, req.user.empleadorId, tipo, nombre_apellido, cargo, matricula||null, firma_svg]);
     }
@@ -345,7 +385,6 @@ router.post('/:id/guardar-completo', auth, async (req, res) => {
   const { datos, selecciones, personal, equipos, acciones, desvios } = req.body;
   try {
     if (datos) {
-      // Convertir strings vacíos a null para campos de tipo time/numeric
       const horaIni = datos.hora_inicio || null;
       const horaFin = datos.hora_fin || null;
       const gpsLat  = datos.gps_lat  != null && datos.gps_lat  !== '' ? parseFloat(datos.gps_lat)  : null;
