@@ -1067,6 +1067,8 @@ async function irADashboard(rol) {
     STATE.empleadorId = me.usuario.empleador_id;
     STATE.nombre = me.empleado ? me.empleado.nombre : 'Admin';
     STATE.apellido = me.empleado ? (me.empleado.apellido || '') : '';
+    STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
+    STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
     irADashboard(rol);
   } catch { doLogout(); }
 })();
@@ -3802,7 +3804,15 @@ async function abrirConstancia(visitaId, visitaDatos) {
     CONST_STATE.pendienteSync = true;
     toast('Sin conexión — se guardará cuando haya señal', 'info', 4000);
   }
-  try { const ft = await api('/constancias/firma-guardada'); if (ft) CONST_STATE.firmas.tecnico = ft; } catch {}
+  try { const ft = await api('/constancias/firma-guardada'); if (ft) { CONST_STATE.firmas.tecnico = ft; CONST_STATE.firmas.responsable_exit = ft; } } catch {}
+  // Si no hay firma guardada en servidor, precargar desde datos del usuario logueado
+  const _nombreCompleto = ((STATE.nombre||'')+' '+(STATE.apellido||'')).trim();
+  if (!CONST_STATE.firmas.tecnico?.nombre_apellido && _nombreCompleto) {
+    CONST_STATE.firmas.tecnico = {nombre_apellido:_nombreCompleto, cargo:STATE.cargo||'Asesor técnico', matricula:STATE.matricula||'', firma_svg:null, tipo:'tecnico'};
+  }
+  if (!CONST_STATE.firmas.responsable_exit?.nombre_apellido) {
+    CONST_STATE.firmas.responsable_exit = {nombre_apellido:_nombreCompleto, cargo:STATE.cargo||'Responsable del servicio', matricula:STATE.matricula||'', firma_svg:null, tipo:'responsable_exit'};
+  }
   renderConstanciaPasos(); renderConstanciaPaso();
   const modal = document.getElementById('modal-constancia');
   modal.style.display = 'flex'; modal.classList.add('active');
@@ -3971,11 +3981,34 @@ function renderFilaDesvio(d,i) {
 
 function renderPasoFirmas() {
   const fT=CONST_STATE.firmas.tecnico, fE=CONST_STATE.firmas.responsable_exit, fC=CONST_STATE.firmas.cliente;
-  const bloque = (tipo,titulo,sub,f) => `<div style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">${titulo}</div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">${sub}</div>${f?`<img src="${f.firma_svg}" style="width:100%;height:70px;object-fit:contain;background:white;border-radius:6px;margin-bottom:6px"><div style="font-size:12px;font-weight:600">${f.nombre_apellido||''}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.matricula?' — '+f.matricula:''}</div><button onclick="abrirFirma('${tipo}')" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;margin-top:6px">✏ Actualizar</button>`:`<button onclick="abrirFirma('${tipo}')" class="btn btn-primary" style="width:100%">✍ Firmar</button>`}</div>`;
+  const bloqueExit = (tipo,titulo,sub,f) => {
+    const firmada = f?.firma_svg;
+    const tieneNombre = f?.nombre_apellido;
+    return `<div style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+        <div style="font-size:13px;font-weight:600">${titulo}</div>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${firmada?'rgba(0,230,118,0.15)':'rgba(255,200,0,0.15)'};color:${firmada?'var(--green)':'#f5a623'}">${firmada?'✓ Firmado':'✓ Precargado'}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">${sub}</div>
+      ${firmada?`<img src="${f.firma_svg}" style="width:100%;height:60px;object-fit:contain;background:white;border-radius:6px;margin-bottom:8px">`:''}
+      ${tieneNombre?`<div style="font-size:12px;font-weight:600">${f.nombre_apellido}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.matricula?' — '+f.matricula:''}</div>`:''}
+      <button onclick="abrirFirma('${tipo}')" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;margin-top:8px;width:100%">✏ Actualizar firma</button>
+    </div>`;
+  };
+  const bloqueCliente = (f) => `<div style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+      <div style="font-size:13px;font-weight:600">Responsable del cliente</div>
+      ${f?`<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.15);color:var(--green)">✓ Firmado</span>`:`<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,80,80,0.15);color:#f55">Pendiente</span>`}
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Firma del representante de la empresa visitada</div>
+    ${f?.firma_svg?`<img src="${f.firma_svg}" style="width:100%;height:60px;object-fit:contain;background:white;border-radius:6px;margin-bottom:8px">`:''}
+    ${f?.nombre_apellido?`<div style="font-size:12px;font-weight:600">${f.nombre_apellido}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.dni?' — DNI '+f.dni:''}</div>`:''}
+    <button onclick="abrirFirma('cliente')" class="${f?'':'btn btn-primary'}" style="${f?'background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;margin-top:8px;width:100%':'width:100%;margin-top:8px'}">${f?'✏ Actualizar firma':'✍ Firmar ahora'}</button>
+  </div>`;
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">9. Firmas</div>
-  ${bloque('cliente','Responsable del cliente','Firma del representante de la empresa visitada',fC)}
-  ${bloque('tecnico','Asesor EXIT S.A.','Tu firma como técnico/asesor',fT)}
-  ${bloque('responsable_exit','Responsable del servicio EXIT S.A.','Firma del responsable del servicio',fE)}`;
+  ${bloqueCliente(fC)}
+  ${bloqueExit('tecnico','Asesor EXIT S.A.','Tu firma como técnico/asesor',fT)}
+  ${bloqueExit('responsable_exit','Responsable del servicio EXIT S.A.','Firma del responsable del servicio EXIT',fE)}`;
 }
 
 async function obtenerGPSConstancia() {
