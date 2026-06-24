@@ -1007,6 +1007,21 @@ function iniciarReloj() {
       n.getSeconds().toString().padStart(2,'0');
     document.getElementById('fecha-hoy').textContent =
       dias[n.getDay()] + ', ' + n.getDate() + ' de ' + meses[n.getMonth()] + ' de ' + n.getFullYear();
+    // Actualizar contador de horas trabajadas en tiempo real
+    const elHoras = document.getElementById('stat-horas-hoy');
+    if (elHoras && STATE.movimientosHoy && STATE.movimientosHoy.length) {
+      const movs = STATE.movimientosHoy;
+      let totalMin = 0, entrada = null;
+      for (const m of movs) {
+        if (['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(m.tipo)) entrada = new Date(m.hora);
+        if (['egreso','salida_almuerzo','salida_externa','fin_jornada_remota'].includes(m.tipo) && entrada) {
+          totalMin += (new Date(m.hora) - entrada) / 60000; entrada = null;
+        }
+      }
+      if (entrada) totalMin += (new Date() - entrada) / 60000;
+      const horas = Math.floor(totalMin / 60), mins = Math.floor(totalMin % 60);
+      elHoras.textContent = horas + 'h' + (mins ? mins + 'm' : '');
+    }
   }
   tick(); setInterval(tick, 1000);
 }
@@ -1170,6 +1185,7 @@ function detectarProximoTipo(movs) {
 
 function renderMovimientosHoy(movs) {
   const cont = document.getElementById('movimientos-hoy');
+  STATE.movimientosHoy = movs || [];
   STATE.ultimoMovimiento = movs && movs.length ? movs[movs.length-1].tipo : null;
   if (!movs.length) {
     cont.innerHTML = '<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Sin movimientos hoy</p>';
