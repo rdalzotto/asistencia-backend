@@ -3860,7 +3860,12 @@ function renderConstanciaPaso() {
   document.getElementById('const-btn-anterior').style.display = CONST_STATE.pasoActual===0?'none':'flex';
   document.getElementById('const-btn-siguiente').textContent = CONST_STATE.pasoActual===CONST_PASOS.length-1?'✓ Finalizar':'Siguiente →';
   const renders = {datos:renderPasoDatos,tipo:renderPasoTipo,personal:renderPasoPersonal,actividades:renderPasoActividades,acciones:renderPasoAcciones,normativa:renderPasoNormativa,observaciones:renderPasoObservaciones,desvios:renderPasoDesvios,firmas:renderPasoFirmas};
-  document.getElementById('const-paso-contenido').innerHTML = renders[paso]?renders[paso]():'';
+  try {
+    document.getElementById('const-paso-contenido').innerHTML = renders[paso]?renders[paso]():'';
+  } catch(e) {
+    console.error('[renderConstanciaPaso] error en paso '+paso+':', e);
+    document.getElementById('const-paso-contenido').innerHTML = '<div style="padding:20px;color:var(--text2);text-align:center">Error al renderizar este paso. <button class="btn btn-primary" style="margin-top:12px" onclick="renderConstanciaPaso()">Reintentar</button></div>';
+  }
   if (paso==='datos' && !CONST_STATE.datos.gps_lat) obtenerGPSConstancia();
 }
 
@@ -3981,35 +3986,48 @@ function renderFilaDesvio(d,i) {
 
 function renderPasoFirmas() {
   const fT=CONST_STATE.firmas.tecnico, fE=CONST_STATE.firmas.responsable_exit, fC=CONST_STATE.firmas.cliente;
-  const bloqueExit = (tipo,titulo,sub,f) => {
-    const firmada = f?.firma_svg;
-    const tieneNombre = f?.nombre_apellido;
-    return `<div style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px">
+  // Las imágenes base64 NUNCA van inline en template strings — se insertan por DOM
+  const bloqueHTML = (tipo, titulo, sub, f, esCliente) => {
+    const firmada = !!(f && f.firma_svg);
+    const tieneNombre = !!(f && f.nombre_apellido);
+    const badge = firmada
+      ? '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.15);color:var(--green)">✓ Firmado</span>'
+      : (esCliente
+          ? '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,80,80,0.15);color:#f55">Pendiente</span>'
+          : '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,200,0,0.15);color:#f5a623">✓ Precargado</span>');
+    const info = tieneNombre
+      ? `<div style="font-size:12px;font-weight:600">${f.nombre_apellido}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.matricula?' — '+f.matricula:''}${f.dni?' — DNI '+f.dni:''}</div>`
+      : '';
+    const btnStyle = (!firmada && esCliente)
+      ? 'class="btn btn-primary" style="width:100%;margin-top:8px"'
+      : 'style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;margin-top:8px;width:100%"';
+    const btnText = (!firmada && esCliente) ? '✍ Firmar ahora' : '✏ Actualizar firma';
+    return `<div data-firma-img="${tipo}" style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-        <div style="font-size:13px;font-weight:600">${titulo}</div>
-        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${firmada?'rgba(0,230,118,0.15)':'rgba(255,200,0,0.15)'};color:${firmada?'var(--green)':'#f5a623'}">${firmada?'✓ Firmado':'✓ Precargado'}</span>
+        <div style="font-size:13px;font-weight:600">${titulo}</div>${badge}
       </div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:10px">${sub}</div>
-      ${firmada?`<img src="${f.firma_svg}" style="width:100%;height:60px;object-fit:contain;background:white;border-radius:6px;margin-bottom:8px">`:''}
-      ${tieneNombre?`<div style="font-size:12px;font-weight:600">${f.nombre_apellido}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.matricula?' — '+f.matricula:''}</div>`:''}
-      <button onclick="abrirFirma('${tipo}')" style="background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;margin-top:8px;width:100%">✏ Actualizar firma</button>
+      <div class="firma-preview-slot" style="${firmada?'':'display:none'}"><img style="width:100%;height:60px;object-fit:contain;background:white;border-radius:6px;margin-bottom:8px"></div>
+      ${info}
+      <button onclick="abrirFirma('${tipo}')" ${btnStyle}>${btnText}</button>
     </div>`;
   };
-  const bloqueCliente = (f) => `<div style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
-      <div style="font-size:13px;font-weight:600">Responsable del cliente</div>
-      ${f?`<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.15);color:var(--green)">✓ Firmado</span>`:`<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,80,80,0.15);color:#f55">Pendiente</span>`}
-    </div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Firma del representante de la empresa visitada</div>
-    ${f?.firma_svg?`<img src="${f.firma_svg}" style="width:100%;height:60px;object-fit:contain;background:white;border-radius:6px;margin-bottom:8px">`:''}
-    ${f?.nombre_apellido?`<div style="font-size:12px;font-weight:600">${f.nombre_apellido}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.dni?' — DNI '+f.dni:''}</div>`:''}
-    <button onclick="abrirFirma('cliente')" class="${f?'':'btn btn-primary'}" style="${f?'background:none;border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;margin-top:8px;width:100%':'width:100%;margin-top:8px'}">${f?'✏ Actualizar firma':'✍ Firmar ahora'}</button>
-  </div>`;
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">9. Firmas</div>
-  ${bloqueCliente(fC)}
-  ${bloqueExit('tecnico','Asesor EXIT S.A.','Tu firma como técnico/asesor',fT)}
-  ${bloqueExit('responsable_exit','Responsable del servicio EXIT S.A.','Firma del responsable del servicio EXIT',fE)}`;
+  const html = `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">9. Firmas</div>
+  ${bloqueHTML('cliente','Responsable del cliente','Firma del representante de la empresa visitada',fC,true)}
+  ${bloqueHTML('tecnico','Asesor EXIT S.A.','Tu firma como técnico/asesor',fT,false)}
+  ${bloqueHTML('responsable_exit','Responsable del servicio EXIT S.A.','Firma del responsable del servicio EXIT',fE,false)}`;
+  // Insertar imágenes por DOM (nunca inline en HTML string)
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  [['cliente',fC],['tecnico',fT],['responsable_exit',fE]].forEach(([tipo,f]) => {
+    if (f && f.firma_svg) {
+      const slot = container.querySelector('[data-firma-img="'+tipo+'"] .firma-preview-slot');
+      if (slot) { slot.style.display=''; slot.querySelector('img').src = f.firma_svg; }
+    }
+  });
+  return container.innerHTML;
 }
+
 
 async function obtenerGPSConstancia() {
   const info=document.getElementById('ci-gps-info');
