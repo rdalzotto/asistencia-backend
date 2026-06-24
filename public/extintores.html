@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#2D6A2D">
+<link rel="manifest" href="/manifest.json">
 <title>EXIT S.A. — Relevamiento de Extintores</title>
 <style>
   :root {
@@ -1008,26 +1009,42 @@ async function init() {
   AUTH.rol   = localStorage.getItem('ar_rol');
   if (!AUTH.token) { window.location.href = '/'; return; }
 
+  // Intentar validar con el servidor; si no hay red, usar datos cacheados del token
   try {
     const me = await apiExt('/api/auth/me');
     AUTH.empleadoId  = me.empleado?.id || null;
     AUTH.empleadorId = me.usuario?.empleador_id || null;
     AUTH.nombre      = me.empleado?.nombre  || 'Admin';
     AUTH.apellido    = me.empleado?.apellido || '';
-    document.getElementById('topbarUser').textContent = AUTH.nombre;
-  } catch(e) { console.error('Auth error:', e); window.location.href = '/'; return; }
+    // Guardar en localStorage para uso offline
+    localStorage.setItem('ar_auth_cache', JSON.stringify({
+      empleadoId: AUTH.empleadoId,
+      empleadorId: AUTH.empleadorId,
+      nombre: AUTH.nombre,
+      apellido: AUTH.apellido,
+    }));
+  } catch(e) {
+    // Sin conexión: usar datos cacheados en lugar de redirigir al login
+    const cached = localStorage.getItem('ar_auth_cache');
+    if (cached) {
+      try {
+        const c = JSON.parse(cached);
+        AUTH.empleadoId  = c.empleadoId;
+        AUTH.empleadorId = c.empleadorId;
+        AUTH.nombre      = c.nombre  || 'Usuario';
+        AUTH.apellido    = c.apellido || '';
+        console.warn('[init] Sin red — usando datos de auth cacheados');
+      } catch { console.error('Auth cache corrupto:', e); }
+    } else {
+      // Nunca se logueó en este dispositivo, no podemos continuar
+      window.location.href = '/'; return;
+    }
+  }
+  document.getElementById('topbarUser').textContent = AUTH.nombre;
 
   // Load data in parallel
   try {
-    const [destinos, auditorias, colegas] = await Promise.all([
-      apiExt('/api/config/destinos').catch(()=>[]),
-      apiExt('/api/extintores/auditorias').catch(()=>[]),
-      AUTH.empleadoId ? apiExt('/api/extintores/colegas').catch(()=>[]) : Promise.resolve([]),
-    ]);
-    APP.destinos   = destinos;
-    APP.auditorias = auditorias;
-    APP.colegas    = colegas;
-  } catch(e) { console.error('Data load error:', e); }
+    const [destinos, auditorias, colegas] = await Promise.all([\n      apiExt('/api/config/destinos').catch(()=>[]),\n      apiExt('/api/extintores/auditorias').catch(()=>[]),\n      AUTH.empleadoId ? apiExt('/api/extintores/colegas').catch(()=>[]) : Promise.resolve([]),\n    ]);\n    APP.destinos   = destinos;\n    APP.auditorias = auditorias;\n    APP.colegas    = colegas;\n  } catch(e) { console.error('Data load error:', e); }
 
   // Restore offline drafts
   try {
@@ -1303,10 +1320,12 @@ async function _enviarAuditServidor(audit, isFinal=false) {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+  // Solo actualizar estado local DESPUÉS de confirmar que el servidor respondió OK
   if (result?.auditoria?.id) {
     APP.currentAudit.server_id = result.auditoria.id;
   }
   if (isFinal) {
+    // Borrar draft local solo si el servidor confirmó la recepción
     localStorage.removeItem('ext_draft');
     APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
     renderHistorial();
@@ -1938,6 +1957,13 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 
 window.addEventListener('load', init);
 window.addEventListener('beforeunload', ()=>{ saveAuditData(); });
+
+// ── Registro del Service Worker (soporte offline + PWA) ──────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(err =>
+    console.warn('[SW] No se pudo registrar:', err)
+  );
+}
 
 </script>
 </body>
