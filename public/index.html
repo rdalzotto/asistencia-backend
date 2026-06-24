@@ -3581,7 +3581,7 @@ aplicarLogoEmpresa(EXIT_LOGO_DEFAULT);
 </div>
 
 <!-- MODAL FIRMA DIGITAL -->
-<div class="modal-overlay" id="modal-firma" style="z-index:500">
+<div class="modal-overlay" id="modal-firma" style="z-index:1500">
   <div class="modal" style="max-height:95vh">
     <div class="modal-handle"></div>
     <div class="modal-title" id="firma-titulo">Firma digital</div>
@@ -4247,6 +4247,10 @@ async function confirmarFirma() {
     if(tipo==='cliente'){body.dni=dni||null;body.destino_id=CONST_STATE._firmaDestinoId||null;}
     if(!String(id).startsWith('offline_')) await api('/constancias/'+id+'/firmas',{method:'POST',body:JSON.stringify(body)});
   } catch {}
+  // Persistir firma EXIT para reutilización automática
+  if(tipo==='tecnico'||tipo==='responsable_exit') {
+    try { await api('/constancias/firma-guardada',{method:'POST',body:JSON.stringify({nombre_apellido:nombre,cargo,matricula,firma_svg,tipo})}); } catch {}
+  }
   cerrarModal('modal-firma');
   renderConstanciaPaso();
   toast('Firma guardada \u2713','success');
@@ -4495,7 +4499,7 @@ function generarHTMLConstancia() {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Constancia ${numero}</title><style>body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:20px;max-width:800px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}h2{font-size:13px;font-weight:700;text-transform:uppercase;color:#555;border-bottom:1px solid #ddd;padding-bottom:4px;margin:20px 0 10px}table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px solid #ddd;padding:6px 10px;font-size:12px}th{background:#f5f5f5;text-align:left}.tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:3px 10px;font-size:11px;margin:2px}.firma-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}@media print{body{padding:0}}</style></head><body>
     <div style="border:2px solid #1a6aaa;border-radius:8px;padding:16px 20px;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div><h1>Constancia de Visita a Establecimiento</h1><div style="font-size:12px;color:#555">EXIT S.A. — Sistema AsistenciaAR</div></div>
+        <div style="display:flex;align-items:center;gap:14px"><img src="data:image/svg+xml;base64,${btoa(document.getElementById('exit-logo-svg')?.outerHTML||'')}" style="height:52px;width:auto" onerror="this.style.display='none'"><div><h1>Constancia de Visita a Establecimiento</h1><div style="font-size:12px;color:#555">EXIT S.A. — Sistema AsistenciaAR</div></div></div>
         <div style="text-align:right"><div style="font-size:16px;font-weight:700;color:#1a6aaa">${numero}</div><div style="font-size:11px;color:#555">${fecha}</div></div>
       </div>
     </div>
