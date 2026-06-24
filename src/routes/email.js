@@ -35,16 +35,16 @@ async function getEmailCorporativo(userId) {
 }
 
 router.post('/enviar', requireAuth, async (req, res) => {
-  const { pdfBase64, nombreArchivo, destinatario, asunto, cuerpoHtml, tipo, referenciaId } = req.body;
+  const { pdfBase64, nombreArchivo, destinatario, destinatarios, asunto, cuerpoHtml, tipo, referenciaId } = req.body;
 
   if (!pdfBase64)     return res.status(400).json({ error: 'pdfBase64 es requerido' });
-  if (!destinatario)  return res.status(400).json({ error: 'destinatario es requerido' });
+  const listaDestinatarios = destinatarios && destinatarios.length ? destinatarios : [destinatario].filter(Boolean);
+  if (!listaDestinatarios.length) return res.status(400).json({ error: 'destinatario es requerido' });
   if (!nombreArchivo) return res.status(400).json({ error: 'nombreArchivo es requerido' });
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(destinatario)) {
-    return res.status(400).json({ error: 'El destinatario no es un email válido' });
-  }
+  const invalidos = listaDestinatarios.filter(e => !emailRegex.test(e));
+  if (invalidos.length) return res.status(400).json({ error: 'Email inválido: ' + invalidos.join(', ') });
 
   // Usar email corporativo si el email de login no es @exitsa.com.ar
   let emailTecnico = req.user.email;
@@ -58,7 +58,8 @@ router.post('/enviar', requireAuth, async (req, res) => {
     const resultado = await enviarInforme({
       pdfBase64,
       nombreArchivo,
-      destinatario,
+      destinatarios: listaDestinatarios,
+      destinatario: listaDestinatarios[0],
       asunto:        asunto     || 'Informe EXIT S.A.',
       cuerpoHtml:    cuerpoHtml || '<p>Estimado cliente, adjunto encontrará el informe correspondiente.</p>',
       emailTecnico,
