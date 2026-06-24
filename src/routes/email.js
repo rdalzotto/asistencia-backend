@@ -141,7 +141,7 @@ router.get('/diagnostico', requireAuth, async (req, res) => {
   if (cuenta && cuenta.user && cuenta.pass) {
     try {
       const nodemailer = require('nodemailer');
-      const t = nodemailer.createTransporter({
+      const t = nodemailer.createTransport({
         host: 'mail.exitsa.com.ar', port: 465, secure: true,
         auth: { user: cuenta.user, pass: cuenta.pass },
         tls: { rejectUnauthorized: false }
