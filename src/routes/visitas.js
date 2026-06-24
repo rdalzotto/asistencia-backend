@@ -88,16 +88,19 @@ router.get('/reporte', auth, soloAdmin, async (req, res) => {
 
 // ── GET /visitas ──────────────────────────────────────────────
 router.get('/', auth, async (req, res) => {
-  const { desde, hasta, empleado_id, visto_admin, estado } = req.query;
+  const { desde, hasta, empleado_id, visto_admin, estado, todos } = req.query;
   const params = [req.user.empleadorId];
   let where = 'WHERE v.empleador_id = $1';
-  if (req.user.rol === 'empleado') {
+  if (req.user.rol === 'empleado' && todos !== 'true') {
+    // Vista propia: solo mis visitas
     params.push(req.user.empleadoId);
     where += ` AND v.empleado_id = $${params.length}`;
-  } else if (empleado_id) {
+  } else if (req.user.rol !== 'empleado' && empleado_id) {
+    // Admin con filtro por empleado específico
     params.push(empleado_id);
     where += ` AND v.empleado_id = $${params.length}`;
   }
+  // Con todos=true (empleado viendo equipo): sin filtro de empleado_id → ve a todos
   if (desde) { params.push(desde); where += ` AND v.fecha >= $${params.length}`; }
   if (hasta) { params.push(hasta); where += ` AND v.fecha <= $${params.length}`; }
   if (visto_admin === 'false') { where += ` AND v.visto_admin = FALSE`; }
