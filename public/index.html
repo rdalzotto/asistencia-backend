@@ -989,7 +989,7 @@ function cerrarModal(id) {
   modal.classList.remove('active');
   // Limpia estilos en línea forzados al abrir (ej: modal de visita en modo empleado), si quedaron pegados
   modal.style.display = '';
-  modal.style.zIndex = '';
+  // NO limpiar zIndex — modales con z-index fijo (ej: modal-firma z-index:1500) deben conservarlo
   if (STATE.camStream) { STATE.camStream.getTracks().forEach(t => t.stop()); STATE.camStream = null; }
   document.getElementById('cameraPreview').style.display = 'none';
 }
