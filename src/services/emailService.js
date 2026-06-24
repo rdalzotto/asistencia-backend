@@ -49,7 +49,7 @@ function crearTransporter(emailTecnico) {
   if (!cuenta || !cuenta.user || !cuenta.pass) {
     throw new Error(`No hay configuración SMTP para: ${emailTecnico}`);
   }
-  return nodemailer.createTransporter({
+  return nodemailer.createTransport({
     host: 'mail.exitsa.com.ar',
     port: 465,
     secure: true,
