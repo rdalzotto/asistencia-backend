@@ -3788,6 +3788,16 @@ async function abrirConstancia(visitaId, visitaDatos) {
     }
     // Guardar destinos en state para autocompletar
     CONST_STATE.destinosVisita = visitaDatos.destinos;
+    // Guardar destino_id del primer destino y precargar logo si tiene
+    const primerDestino = visitaDatos.destinos[0];
+    if (primerDestino?.destino_id) {
+      CONST_STATE.destinoId = primerDestino.destino_id;
+      // Intentar cargar logo guardado del destino
+      try {
+        const dInfo = await api('/constancias/destino-logo/' + primerDestino.destino_id);
+        if (dInfo.logo_url) CONST_STATE.logoCliente = dInfo.logo_url;
+      } catch {}
+    }
   }
 
   try { CONST_STATE.itemsMenu = await api('/constancias/items'); } catch { CONST_STATE.itemsMenu = {}; }
@@ -3804,8 +3814,16 @@ async function abrirConstancia(visitaId, visitaDatos) {
     CONST_STATE.pendienteSync = true;
     toast('Sin conexión — se guardará cuando haya señal', 'info', 4000);
   }
-  try { const ft = await api('/constancias/firma-guardada'); if (ft) { CONST_STATE.firmas.tecnico = ft; CONST_STATE.firmas.responsable_exit = ft; } } catch {}
-  // Si no hay firma guardada en servidor, precargar desde datos del usuario logueado
+  // Cargar firmas guardadas por tipo (tecnico y responsable_exit son independientes)
+  try {
+    const ft = await api('/constancias/firma-guardada');
+    // ft es un objeto { tecnico: {...}, responsable_exit: {...} }
+    if (ft && typeof ft === 'object') {
+      if (ft.tecnico) CONST_STATE.firmas.tecnico = ft.tecnico;
+      if (ft.responsable_exit) CONST_STATE.firmas.responsable_exit = ft.responsable_exit;
+    }
+  } catch {}
+  // Precargar desde datos del usuario logueado si no hay firma guardada
   const _nombreCompleto = ((STATE.nombre||'')+' '+(STATE.apellido||'')).trim();
   if (!CONST_STATE.firmas.tecnico?.nombre_apellido && _nombreCompleto) {
     CONST_STATE.firmas.tecnico = {nombre_apellido:_nombreCompleto, cargo:STATE.cargo||'Asesor técnico', matricula:STATE.matricula||'', firma_svg:null, tipo:'tecnico'};
@@ -3824,6 +3842,9 @@ function cargarDatosConstanciaExistente(c) {
   if (c.hora_fin) CONST_STATE.datos.hora_fin = c.hora_fin;
   if (c.gps_lat) { CONST_STATE.datos.gps_lat = c.gps_lat; CONST_STATE.datos.gps_lng = c.gps_lng; }
   if (c.observaciones_generales) CONST_STATE.datos.observaciones_generales = c.observaciones_generales;
+  // Guardar destino_id y logo del cliente (vienen del JOIN con destinos_externos)
+  if (c.destino_id) CONST_STATE.destinoId = c.destino_id;
+  if (c.cliente_logo_url) CONST_STATE.logoCliente = c.cliente_logo_url;
   if (c.selecciones) c.selecciones.forEach(s => { if (!CONST_STATE.selecciones[s.categoria]) CONST_STATE.selecciones[s.categoria]=[]; CONST_STATE.selecciones[s.categoria].push({item_id:s.item_id,texto_libre:s.texto_libre,nivel_riesgo:s.nivel_riesgo,normativa_frente:s.normativa_frente}); });
   if (c.personal?.length) CONST_STATE.personal = c.personal;
   if (c.equipos?.length) CONST_STATE.equipos = c.equipos;
@@ -3887,7 +3908,25 @@ function renderPasoDatos() {
     <input type="text" id="ci-sector" value="${d.establecimiento_sector||''}" placeholder="Ej: Planta Norte — Línea de producción" oninput="CONST_STATE.datos.establecimiento_sector=this.value">
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora inicio</label><input type="time" id="ci-hora-ini" value="${d.hora_inicio||''}"></div><div class="form-group"><label>Hora fin</label><input type="time" id="ci-hora-fin" value="${d.hora_fin||''}"></div></div>
-  <div class="form-group"><label>Coordenadas GPS <button onclick="obtenerGPSConstancia()" class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px">📍 Obtener</button></label><div id="ci-gps-info" style="font-size:12px;color:${d.gps_lat?'var(--green)':'var(--text3)'}">${d.gps_lat?'✓ Lat: '+d.gps_lat+' / Lng: '+d.gps_lng+(d.gps_precision_m?' (±'+d.gps_precision_m+'m)':''):'No capturado aún'}</div></div>`;
+  <div class="form-group"><label>Coordenadas GPS <button onclick="obtenerGPSConstancia()" class="btn btn-secondary btn-sm" style="margin-left:8px;font-size:11px">📍 Obtener</button></label><div id="ci-gps-info" style="font-size:12px;color:${d.gps_lat?'var(--green)':'var(--text3)'}">${d.gps_lat?'✓ Lat: '+d.gps_lat+' / Lng: '+d.gps_lng+(d.gps_precision_m?' (±'+d.gps_precision_m+'m)':''):'No capturado aún'}</div></div>
+  <div class="form-group" style="margin-top:16px">
+    <label style="display:flex;align-items:center;justify-content:space-between">
+      <span>Logo empresa visitada</span>
+      <span style="font-size:11px;color:var(--text3)">(opcional — aparece en el PDF)</span>
+    </label>
+    ${CONST_STATE.logoCliente ? `
+      <div style="display:flex;align-items:center;gap:10px;background:var(--bg3);border-radius:8px;padding:8px 12px;margin-bottom:8px">
+        <img src="${CONST_STATE.logoCliente}" style="height:40px;max-width:120px;object-fit:contain;border-radius:4px" onerror="this.style.display='none'">
+        <div style="flex:1;font-size:11px;color:var(--text2)">Logo cargado</div>
+        <button onclick="quitarLogoCliente()" style="background:none;border:none;color:var(--red);font-size:18px;cursor:pointer" title="Quitar logo">✕</button>
+      </div>` : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button onclick="document.getElementById('ci-logo-input').click()" class="btn btn-secondary btn-sm">📷 ${CONST_STATE.logoCliente ? 'Cambiar logo' : 'Subir logo'}</button>
+      ${CONST_STATE.destinoId && CONST_STATE.logoCliente ? `<button onclick="guardarLogoEnDestino()" class="btn btn-secondary btn-sm" style="border-color:var(--green);color:var(--green)">💾 Guardar para futuras visitas</button>` : ''}
+    </div>
+    <input type="file" id="ci-logo-input" accept="image/*" style="display:none" onchange="cargarLogoCliente(this)">
+  </div>
+`;
 }
 
 function renderPasoTipo() {
@@ -4028,6 +4067,52 @@ function renderPasoFirmas() {
   return container.innerHTML;
 }
 
+
+
+// ── LOGO EMPRESA VISITADA ────────────────────────────────────────────────────
+function cargarLogoCliente(input) {
+  const file = input.files[0];
+  if (!file) return;
+  // Comprimir a max 200KB antes de guardar en state
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      const maxW = 400, maxH = 200;
+      let w = img.width, h = img.height;
+      if (w > maxW) { h = h * maxW / w; w = maxW; }
+      if (h > maxH) { w = w * maxH / h; h = maxH; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      CONST_STATE.logoCliente = canvas.toDataURL('image/png', 0.85);
+      renderConstanciaPaso();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function quitarLogoCliente() {
+  CONST_STATE.logoCliente = null;
+  renderConstanciaPaso();
+}
+
+async function guardarLogoEnDestino() {
+  if (!CONST_STATE.destinoId || !CONST_STATE.logoCliente) return;
+  try {
+    await api('/constancias/destino-logo/' + CONST_STATE.destinoId, {
+      method: 'PATCH',
+      body: JSON.stringify({ logo_url: CONST_STATE.logoCliente })
+    });
+    toast('Logo guardado para futuras visitas ✓', 'success');
+    // Actualizar botón — quitar el de guardar
+    renderConstanciaPaso();
+  } catch(e) {
+    toast('Error al guardar logo', 'error');
+  }
+}
 
 async function obtenerGPSConstancia() {
   const info=document.getElementById('ci-gps-info');
@@ -4373,6 +4458,13 @@ function cerrarPreviewYSalir() {
 }
 
 async function generarPDFConstancia() {
+  // Recargar datos completos del servidor antes de generar (garantiza logo, firmas, etc.)
+  if (CONST_STATE.constanciaId && !String(CONST_STATE.constanciaId).startsWith('offline_')) {
+    try {
+      const c = await api('/constancias/' + CONST_STATE.constanciaId);
+      cargarDatosConstanciaExistente(c);
+    } catch {}
+  }
   const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
   const html = generarHTMLConstancia();
   // Crear contenedor oculto para renderizar
@@ -4558,8 +4650,14 @@ function generarHTMLConstancia() {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Constancia ${numero}</title><style>body{font-family:Arial,sans-serif;font-size:13px;color:#1a1a1a;margin:0;padding:20px;max-width:800px;margin:0 auto}h1{font-size:18px;margin:0 0 4px}h2{font-size:13px;font-weight:700;text-transform:uppercase;color:#555;border-bottom:1px solid #ddd;padding-bottom:4px;margin:20px 0 10px}table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{border:1px solid #ddd;padding:6px 10px;font-size:12px}th{background:#f5f5f5;text-align:left}.tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:3px 10px;font-size:11px;margin:2px}.firma-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}@media print{body{padding:0}}</style></head><body>
     <div style="border:2px solid #1a6aaa;border-radius:8px;padding:16px 20px;margin-bottom:20px">
       <div style="display:flex;justify-content:space-between;align-items:center">
-        <div style="display:flex;align-items:center;gap:14px"><img src="data:image/svg+xml;base64,${btoa(document.getElementById('exit-logo-svg')?.outerHTML||'')}" style="height:52px;width:auto" onerror="this.style.display='none'"><div><h1>Constancia de Visita a Establecimiento</h1><div style="font-size:12px;color:#555">EXIT S.A. — Sistema AsistenciaAR</div></div></div>
-        <div style="text-align:right"><div style="font-size:16px;font-weight:700;color:#1a6aaa">${numero}</div><div style="font-size:11px;color:#555">${fecha}</div></div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <img src="${EXIT_LOGO_DEFAULT}" style="height:52px;width:auto;object-fit:contain" onerror="this.style.display='none'">
+          <div><h1>Constancia de Visita a Establecimiento</h1><div style="font-size:12px;color:#555">EXIT S.A. — Sistema AsistenciaAR</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px">
+          ${CONST_STATE.logoCliente ? `<img src="${CONST_STATE.logoCliente}" style="height:48px;max-width:140px;object-fit:contain" onerror="this.style.display='none'">` : ''}
+          <div style="text-align:right"><div style="font-size:16px;font-weight:700;color:#1a6aaa">${numero}</div><div style="font-size:11px;color:#555">${fecha}</div></div>
+        </div>
       </div>
     </div>
     <h2>1. Datos generales</h2>
