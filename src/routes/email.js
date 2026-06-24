@@ -148,3 +148,57 @@ router.get('/historial', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+
+/**
+ * GET /api/email/diagnostico
+ * Verifica configuración SMTP y Storage sin enviar nada.
+ */
+router.get('/diagnostico', requireAuth, async (req, res) => {
+  const emailTecnico = req.user.email;
+  const resultado = {
+    email_tecnico: emailTecnico,
+    supabase_url: !!process.env.SUPABASE_URL,
+    supabase_service_key: !!process.env.SUPABASE_SERVICE_KEY,
+    smtp_config: null,
+    smtp_test: null,
+    storage_test: null,
+  };
+
+  // Verificar config SMTP
+  const SMTP_ACCOUNTS = {
+    'rdalzotto@exitsa.com.ar': { user: process.env.SMTP_USER_ROGELIO, pass: !!process.env.SMTP_PASS_ROGELIO },
+    'wott@exitsa.com.ar':      { user: process.env.SMTP_USER_WALTER,  pass: !!process.env.SMTP_PASS_WALTER  },
+    'rpereyra@exitsa.com.ar':  { user: process.env.SMTP_USER_ROBERTO, pass: !!process.env.SMTP_PASS_ROBERTO },
+    'info@exitsa.com.ar':      { user: process.env.SMTP_USER_ANDREA,  pass: !!process.env.SMTP_PASS_ANDREA  },
+  };
+  const cuenta = SMTP_ACCOUNTS[emailTecnico];
+  resultado.smtp_config = cuenta ? { user: cuenta.user, pass_cargado: cuenta.pass } : 'NO ENCONTRADA';
+
+  // Test SMTP
+  if (cuenta && cuenta.user && cuenta.pass) {
+    try {
+      const nodemailer = require('nodemailer');
+      const t = nodemailer.createTransporter({
+        host: 'mail.exitsa.com.ar', port: 465, secure: true,
+        auth: { user: cuenta.user, pass: process.env[`SMTP_PASS_${emailTecnico.split('@')[0].toUpperCase().replace('.','_')}`] || '' },
+        tls: { rejectUnauthorized: false }
+      });
+      await t.verify();
+      resultado.smtp_test = 'OK';
+    } catch(e) { resultado.smtp_test = 'ERROR: ' + e.message; }
+  }
+
+  // Test Storage
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+    try {
+      const { createClient } = require('@supabase/supabase-js');
+      const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+      const { data, error } = await sb.storage.from('informes').list('', { limit: 1 });
+      resultado.storage_test = error ? 'ERROR: ' + error.message : 'OK (bucket accesible)';
+    } catch(e) { resultado.storage_test = 'ERROR: ' + e.message; }
+  } else {
+    resultado.storage_test = 'SUPABASE_SERVICE_KEY no cargada';
+  }
+
+  res.json(resultado);
+});
