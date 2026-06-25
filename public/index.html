@@ -4087,10 +4087,12 @@ function renderPasoDatos() {
 }
 
 function _botonesItem(id, cat, texto) {
-  const t = texto.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-  return '<button onclick="editarItemMenu('+id+',\''+cat+'\',\''+t+'\')" style="background:none;border:none;color:var(--text3);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button>'
-       + '<button onclick="eliminarItemMenu('+id+',\''+cat+'\',\''+t+'\')" style="background:none;border:none;color:var(--red);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Eliminar">🗑</button>';
+  const esc = String(texto).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return `<button data-iid="${id}" data-cat="${cat}" data-txt="${esc}" onclick="_editItem(this)" style="background:none;border:none;color:var(--text3);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button>`
+       + `<button data-iid="${id}" data-cat="${cat}" data-txt="${esc}" onclick="_delItem(this)" style="background:none;border:none;color:var(--red);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Eliminar">🗑</button>`;
 }
+function _editItem(btn) { editarItemMenu(btn.dataset.iid, btn.dataset.cat, btn.dataset.txt); }
+function _delItem(btn) { eliminarItemMenu(btn.dataset.iid, btn.dataset.cat, btn.dataset.txt); }
 
 function renderPasoTipo() {
   const tipos=CONST_STATE.itemsMenu.tipo_visita||[], frentes=CONST_STATE.itemsMenu.frente_trabajo||[];
@@ -5060,7 +5062,7 @@ function generarHTMLConstancia() {
   }).filter(Boolean);
   const actividades = getTextos('actividad');
   const normativas = getTextos('normativa');
-  const firmaBloque = (f,titulo) => f ? `<div style="border:1px solid #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center"><div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;font-weight:700">${titulo}</div>${f.firma_svg?`<img src="${f.firma_svg}" style="width:100%;height:80px;object-fit:contain;border:1px solid #eee;border-radius:4px;margin-bottom:8px">`:'<div style="height:80px;border:1px dashed #ccc;border-radius:4px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">Sin firma</div>'}<div style="font-size:13px;font-weight:700">${f.nombre_apellido||''}</div><div style="font-size:11px;color:#666">${f.cargo||''}${f.matricula?' — '+f.matricula:''}</div></div>` : `<div style="border:1px dashed #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center;color:#999"><div style="font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:8px">${titulo}</div><div style="font-size:12px">Sin firmar</div></div>`;
+  const firmaBloque = (f,titulo) => f ? `<div style="border:1px solid #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center"><div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;font-weight:700">${titulo}</div>${f.firma_svg?`<img src="${f.firma_svg}" style="width:100%;height:80px;object-fit:contain;border:1px solid #eee;border-radius:4px;margin-bottom:8px">`:'<div style="height:80px;border:1px dashed #ccc;border-radius:4px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">Sin firma</div>'}<div style="font-size:13px;font-weight:700;margin-top:4px">${f.nombre_apellido||''}</div>${f.cargo?`<div style="font-size:11px;color:#666;margin-top:2px">${f.cargo}</div>`:``}${f.matricula?`<div style="font-size:11px;color:#333;font-weight:600;margin-top:2px">${f.matricula}</div>`:``}</div>` : `<div style="border:1px dashed #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center;color:#999"><div style="font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:8px">${titulo}</div><div style="font-size:12px">Sin firmar</div></div>`;
   // Construir tabla de destinos para datos generales
   const destinosVisita = CONST_STATE.destinosVisita || [];
   const filaDestinos = destinosVisita.length > 0
