@@ -61,6 +61,13 @@ router.patch('/items/:id', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
 
+router.delete('/items/:id', auth, soloAdmin, async (req, res) => {
+  try {
+    await db.query(`DELETE FROM public.constancia_items WHERE id = $1 AND empleador_id = $2`, [req.params.id, req.user.empleadorId]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+});
+
 router.post('/items/importar', auth, soloAdmin, async (req, res) => {
   const { items } = req.body;
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Sin datos' });
