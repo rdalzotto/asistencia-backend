@@ -236,7 +236,7 @@ router.post('/', auth, async (req, res) => {
   const empleadoId = req.user.empleadoId || null;
   try {
     if (visita_id) {
-      const { rows: exist } = await db.query(`SELECT id FROM public.constancias WHERE visita_id = $1 AND empleador_id = $2 AND estado = 'borrador' LIMIT 1`, [visita_id, req.user.empleadorId]);
+      const { rows: exist } = await db.query(`SELECT id FROM public.constancias WHERE visita_id = $1 AND empleador_id = $2 ORDER BY creado_en DESC LIMIT 1`, [visita_id, req.user.empleadorId]);
       if (exist.length) return res.json({ ok: true, constancia: exist[0], existente: true });
     }
     const anio = new Date().getFullYear();
