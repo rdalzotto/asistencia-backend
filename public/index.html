@@ -4086,15 +4086,23 @@ function renderPasoDatos() {
 `;
 }
 
+function _botonesItem(id, cat, texto) {
+  const t = texto.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  return '<button onclick="editarItemMenu('+id+',\''+cat+'\',\''+t+'\')" style="background:none;border:none;color:var(--text3);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button>'
+       + '<button onclick="eliminarItemMenu('+id+',\''+cat+'\',\''+t+'\')" style="background:none;border:none;color:var(--red);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Eliminar">🗑</button>';
+}
+
 function renderPasoTipo() {
   const tipos=CONST_STATE.itemsMenu.tipo_visita||[], frentes=CONST_STATE.itemsMenu.frente_trabajo||[];
   const sT=CONST_STATE.selecciones.tipo_visita||[], sF=CONST_STATE.selecciones.frente_trabajo||[];
+  const itemRow = (id,cat,accentColor,checked,texto,onchange) =>
+    `<div style="display:flex;align-items:center;gap:2px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${id}" ${checked?'checked':''} onchange="${onchange}" style="width:16px;height:16px;accent-color:${accentColor}"><span style="font-size:13px">${texto}</span></label>${_botonesItem(id,cat,texto)}</div>`;
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">2. Tipo de visita y frentes de trabajo</div>
   <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Tipo de visita</div>
-  ${tipos.map(t=>`<div style="display:flex;align-items:center;gap:4px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${t.id}" ${sT.find(s=>s.item_id==t.id)?'checked':''} onchange="toggleSeleccion('tipo_visita',${t.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px">${t.texto}</span></label><button onclick="editarItemMenu(${t.id},'tipo_visita','${t.texto.replace(/'/g,String.fromCharCode(39))}' )" style="background:none;border:none;color:var(--text3);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button></div>`).join('')}
+  ${tipos.map(t=>itemRow(t.id,'tipo_visita','var(--accent)',!!sT.find(s=>s.item_id==t.id),t.texto,`toggleSeleccion('tipo_visita',${t.id},'',this.checked)`)).join('')}
   <button onclick="agregarItemNuevo('tipo_visita')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-bottom:16px">+ Agregar tipo no listado</button>
   <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Frentes de trabajo</div>
-  ${frentes.map(f=>{const sel=sF.find(s=>s.item_id==f.id); return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" value="${f.id}" ${sel?'checked':''} onchange="toggleSeleccion('frente_trabajo',${f.id},'',this.checked);renderConstanciaPaso()" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px;flex:1">${f.texto}</span></label>${sel?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select onchange="actualizarFrenteExtra(${f.id},'nivel_riesgo',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"><option value="">Nivel riesgo</option><option value="Bajo riesgo" ${sel.nivel_riesgo==='Bajo riesgo'?'selected':''}>🟢 Bajo</option><option value="Riesgo moderado" ${sel.nivel_riesgo==='Riesgo moderado'?'selected':''}>🟡 Moderado</option><option value="Alto riesgo" ${sel.nivel_riesgo==='Alto riesgo'?'selected':''}>🔴 Alto</option><option value="Riesgo crítico" ${sel.nivel_riesgo==='Riesgo crítico'?'selected':''}>⛔ Crítico</option></select><input type="text" placeholder="Normativa..." value="${sel.normativa_frente||''}" onchange="actualizarFrenteExtra(${f.id},'normativa_frente',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"></div>`:''}</div>`;}).join('')}
+  ${frentes.map(f=>{const sel=sF.find(s=>s.item_id==f.id); return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:2px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;flex:1"><input type="checkbox" value="${f.id}" ${sel?'checked':''} onchange="toggleSeleccion('frente_trabajo',${f.id},'',this.checked);renderConstanciaPaso()" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px;flex:1">${f.texto}</span></label>${_botonesItem(f.id,'frente_trabajo',f.texto)}</div>${sel?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select onchange="actualizarFrenteExtra(${f.id},'nivel_riesgo',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"><option value="">Nivel riesgo</option><option value="Bajo riesgo" ${sel.nivel_riesgo==='Bajo riesgo'?'selected':''}>🟢 Bajo</option><option value="Riesgo moderado" ${sel.nivel_riesgo==='Riesgo moderado'?'selected':''}>🟡 Moderado</option><option value="Alto riesgo" ${sel.nivel_riesgo==='Alto riesgo'?'selected':''}>🔴 Alto</option><option value="Riesgo crítico" ${sel.nivel_riesgo==='Riesgo crítico'?'selected':''}>⛔ Crítico</option></select><input type="text" placeholder="Normativa..." value="${sel.normativa_frente||''}" onchange="actualizarFrenteExtra(${f.id},'normativa_frente',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"></div>`:''}</div>`;}).join('')}
   <button onclick="agregarItemNuevo('frente_trabajo')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:4px">+ Agregar frente no listado</button>`;
 }
 
@@ -4126,11 +4134,10 @@ function renderFilaEquipo(e,i) {
   <div style="display:flex;gap:8px"><input type="text" id="ci-eq-nuevo-${i}" placeholder="Agregar ítem..." style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:12px" onkeydown="if(event.key==='Enter'){event.preventDefault();agregarItemEquipo(${i})}"><button onclick="agregarItemEquipo(${i})" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);padding:6px 10px;font-size:12px;cursor:pointer">+</button></div>
   </div>`;
 }
-
 function renderPasoActividades() {
   const acts=CONST_STATE.itemsMenu.actividad||[], sA=CONST_STATE.selecciones.actividad||[];
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">4. Actividades realizadas</div>
-  ${acts.map(a=>`<div style="display:flex;align-items:center;gap:4px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${a.id}" ${sA.find(s=>s.item_id==a.id)?'checked':''} onchange="toggleSeleccion('actividad',${a.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--green)"><span style="font-size:13px">${a.texto}</span></label><button onclick="editarItemMenu(${a.id},'actividad','${a.texto.replace(/'/g,String.fromCharCode(39))}' )" style="background:none;border:none;color:var(--text3);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button></div>`).join('')}
+  ${acts.map(a=>`<div style="display:flex;align-items:center;gap:2px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${a.id}" ${sA.find(s=>s.item_id==a.id)?'checked':''} onchange="toggleSeleccion('actividad',${a.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--green)"><span style="font-size:13px">${a.texto}</span></label>${_botonesItem(a.id,'actividad',a.texto)}</div>`).join('')}
   <button onclick="agregarItemNuevo('actividad')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar actividad no listada</button>`;
 }
 
@@ -4146,7 +4153,7 @@ function renderPasoAcciones() {
 function renderPasoNormativa() {
   const normas=CONST_STATE.itemsMenu.normativa||[], sN=CONST_STATE.selecciones.normativa||[];
   return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">6. Marco normativo aplicado</div>
-  ${normas.map(n=>`<div style="display:flex;align-items:center;gap:4px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${n.id}" ${sN.find(s=>s.item_id==n.id)?'checked':''} onchange="toggleSeleccion('normativa',${n.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--yellow)"><span style="font-size:13px">${n.texto}</span></label><button onclick="editarItemMenu(${n.id},'normativa','${n.texto.replace(/'/g,String.fromCharCode(39))}' )" style="background:none;border:none;color:var(--text3);font-size:15px;padding:4px 6px;cursor:pointer;flex-shrink:0" title="Editar">✏️</button></div>`).join('')}
+  ${normas.map(n=>`<div style="display:flex;align-items:center;gap:2px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${n.id}" ${sN.find(s=>s.item_id==n.id)?'checked':''} onchange="toggleSeleccion('normativa',${n.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--yellow)"><span style="font-size:13px">${n.texto}</span></label>${_botonesItem(n.id,'normativa',n.texto)}</div>`).join('')}
   <button onclick="agregarItemNuevo('normativa')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar normativa no listada</button>`;
 }
 
@@ -4375,6 +4382,25 @@ function editarItemMenu(itemId, categoria, textoActual) {
   if (modal) { modal.dataset.editId = itemId; modal.style.display = ''; modal.classList.add('active'); }
   setTimeout(() => document.getElementById('modal-item-texto').focus(), 150);
 }
+
+async function eliminarItemMenu(itemId, categoria, textoItem) {
+  if (!confirm('¿Eliminar "' + textoItem + '"?\nEsta acción no se puede deshacer.')) return;
+  try {
+    await api('/constancias/items/' + itemId, { method: 'DELETE' });
+    // Quitar de la lista en memoria
+    if (CONST_STATE.itemsMenu[categoria]) {
+      CONST_STATE.itemsMenu[categoria] = CONST_STATE.itemsMenu[categoria].filter(i => i.id != itemId);
+    }
+    // Quitar de selecciones si estaba tildado
+    if (CONST_STATE.selecciones[categoria]) {
+      CONST_STATE.selecciones[categoria] = CONST_STATE.selecciones[categoria].filter(s => s.item_id != itemId);
+    }
+    renderConstanciaPasos();
+    renderConstanciaPaso();
+    toast('Ítem eliminado', 'info');
+  } catch(e) { toast('Error al eliminar', 'error'); }
+}
+
 
 async function confirmarItemNuevo() {
   const modal = document.getElementById('modal-item-nuevo');
