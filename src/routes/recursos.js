@@ -140,6 +140,21 @@ router.patch('/advertencias/:id/resolver', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error interno' }); }
 });
 
+// ── PATCH /recursos/:id ───────────────────────────────────────
+router.patch('/:id', auth, soloAdmin, async (req, res) => {
+  const { nombre, tipo, descripcion, accesorios } = req.body;
+  if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+  try {
+    const { rows: [r] } = await db.query(
+      `UPDATE public.recursos SET nombre=$1, tipo=$2, descripcion=$3, accesorios=$4
+       WHERE id=$5 AND empleador_id=$6 RETURNING *`,
+      [nombre, tipo || 'otro', descripcion || null, accesorios || null, req.params.id, req.user.empleadorId]
+    );
+    if (!r) return res.status(404).json({ error: 'Recurso no encontrado' });
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: 'Error interno' }); }
+});
+
 // ── GET /recursos/reservas ────────────────────────────────────
 router.get('/reservas', auth, async (req, res) => {
   const { fecha } = req.query;
