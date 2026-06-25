@@ -3699,7 +3699,10 @@ let EXIT_LOGO_ACTUAL = EXIT_LOGO_DEFAULT; // se sobreescribe con logo del servid
       <button onclick="cerrarConstancia()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px">←</button>
       <div style="flex:1">
         <div style="font-size:15px;font-weight:700" id="const-header-titulo">Constancia de visita</div>
-        <div style="font-size:11px;color:var(--text2)" id="const-header-numero">VIS-2026-0001</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+          <span style="font-size:11px;color:var(--text2)" id="const-header-numero">VIS-2026-0001</span>
+          <span id="const-header-estado" style="font-size:10px;padding:1px 7px;border-radius:8px;font-weight:600"></span>
+        </div>
       </div>
       <button onclick="guardarConstanciaActual(true)" style="background:rgba(0,212,255,0.15);border:1px solid rgba(0,212,255,0.3);color:var(--accent);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">💾 Guardar</button>
     </div>
@@ -4012,7 +4015,23 @@ function cerrarConstancia() {
   document.getElementById('nav-admin')?.style.removeProperty('display');
 }
 
+function actualizarBadgeEstadoConstancia() {
+  const badge = document.getElementById('const-header-estado');
+  if (!badge) return;
+  const estado = CONST_STATE.estadoConstancia || 'borrador';
+  const cfg = {
+    borrador:   { txt:'✏ Borrador',  bg:'rgba(255,200,0,0.2)',  color:'#f5a623' },
+    completada: { txt:'✓ Completada', bg:'rgba(0,230,118,0.2)', color:'var(--green)' },
+    enviada:    { txt:'📤 Enviada',   bg:'rgba(0,212,255,0.2)', color:'var(--accent)' },
+  };
+  const c = cfg[estado] || cfg.borrador;
+  badge.textContent = c.txt;
+  badge.style.background = c.bg;
+  badge.style.color = c.color;
+}
+
 function renderConstanciaPasos() {
+  actualizarBadgeEstadoConstancia();
   document.getElementById('const-pasos-nav').innerHTML = CONST_PASOS.map((p,i) => {
     const a = i===CONST_STATE.pasoActual;
     return `<button onclick="irConstanciaPaso(${i})" style="flex-shrink:0;padding:6px 10px;border-radius:8px;border:1px solid ${a?'var(--accent)':'var(--border)'};background:${a?'rgba(0,212,255,0.15)':'var(--bg3)'};color:${a?'var(--accent)':'var(--text2)'};font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">${p.icono} ${p.label}</button>`;
@@ -4201,7 +4220,7 @@ function renderPasoFirmas() {
           ? '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,80,80,0.15);color:#f55">Pendiente</span>'
           : '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(255,200,0,0.15);color:#f5a623">✓ Precargado</span>');
     const info = tieneNombre
-      ? `<div style="font-size:12px;font-weight:600">${f.nombre_apellido}</div><div style="font-size:11px;color:var(--text2)">${f.cargo||''}${f.matricula?' — '+f.matricula:''}${f.dni?' — DNI '+f.dni:''}</div>`
+      ? `<div style="font-size:12px;font-weight:600">${f.nombre_apellido}</div>${f.cargo?`<div style="font-size:11px;color:var(--text2)">${f.cargo}</div>`:''}${f.matricula?`<div style="font-size:11px;color:var(--text);font-weight:600">${f.matricula}</div>`:''}${f.dni?`<div style="font-size:11px;color:var(--text2)">DNI ${f.dni}</div>`:''}`
       : '';
     const btnStyle = (!firmada && esCliente)
       ? 'class="btn btn-primary" style="width:100%;margin-top:8px"'
@@ -4648,13 +4667,42 @@ async function confirmarFirma() {
 async function finalizarConstancia() {
   guardarDatosPasoActual();
   await guardarConstanciaActual();
+  // Mostrar diálogo: Finalizar o guardar como borrador
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-finalizar-constancia';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.innerHTML = `
+    <div style="background:var(--bg);border-radius:12px;padding:24px;max-width:340px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+      <div style="font-size:16px;font-weight:700;margin-bottom:8px">¿Qué querés hacer?</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:20px">La constancia está guardada. Podés finalizarla para ver, compartir y enviar, o dejarla en borrador para seguir editando después.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="confirmarFinalizarConstancia()" class="btn btn-primary">✓ Finalizar y ver constancia</button>
+        <button onclick="dejarEnBorrador()" style="background:rgba(255,200,0,0.15);border:1px solid rgba(255,200,0,0.3);color:#f5a623;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer">✏ Dejar en borrador</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function confirmarFinalizarConstancia() {
+  document.getElementById('modal-finalizar-constancia')?.remove();
   try {
-    const id=CONST_STATE.constanciaId;
-    if(!String(id).startsWith('offline_')) await api('/constancias/'+id,{method:'PATCH',body:JSON.stringify({estado:'completada'})});
+    const id = CONST_STATE.constanciaId;
+    if (!String(id).startsWith('offline_')) {
+      await api('/constancias/'+id, {method:'PATCH', body:JSON.stringify({estado:'completada'})});
+      CONST_STATE.estadoConstancia = 'completada';
+      actualizarBadgeEstadoConstancia();
+    }
   } catch {}
-  // Mostrar modal de vista previa y compartir
   mostrarVistaPreviewConstancia();
 }
+
+function dejarEnBorrador() {
+  document.getElementById('modal-finalizar-constancia')?.remove();
+  toast('Constancia guardada como borrador ✓', 'success');
+  cerrarConstancia();
+  if (STATE.rol==='admin') cargarVisitasAdmin(); else cargarMisVisitas();
+}
+
 
 function mostrarVistaPreviewConstancia(soloLectura = false) {
   const html = generarHTMLConstancia();
@@ -4663,17 +4711,31 @@ function mostrarVistaPreviewConstancia(soloLectura = false) {
   const overlay = document.createElement('div');
   overlay.id = 'modal-constancia-preview';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:700;display:flex;flex-direction:column;';
-  const btnModificar = soloLectura
-    ? `<span style="font-size:11px;color:var(--text3);padding:6px 10px">📤 Ya enviada</span>`
-    : `<button onclick="modificarConstancia()" style="background:rgba(255,215,64,0.15);border:1px solid rgba(255,215,64,0.3);color:var(--yellow);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">✏ Modificar</button>`;
-  const btnFooter = soloLectura
-    ? `<button onclick="document.getElementById('modal-constancia-preview').remove()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>`
-    : `<button onclick="compartirConstancia()" class="btn btn-primary" style="flex:1">📤 Compartir / Enviar</button>
-       <button onclick="cerrarPreviewYSalir()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>`;
+  const esAdmin = STATE.rol === 'admin';
+  const estado = CONST_STATE.estadoConstancia || 'borrador';
+  const enviada = estado === 'enviada';
+  // Botón modificar en header
+  let btnModificar = '';
+  if (!enviada) {
+    btnModificar = `<button onclick="modificarConstancia()" style="background:rgba(255,215,64,0.15);border:1px solid rgba(255,215,64,0.3);color:var(--yellow);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">✏ Modificar</button>`;
+  } else if (esAdmin) {
+    btnModificar = `<button onclick="modificarConstancia()" style="background:rgba(255,145,0,0.15);border:1px solid rgba(255,145,0,0.3);color:var(--orange);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer">✏ Editar (admin)</button>`;
+  } else {
+    btnModificar = `<span style="font-size:11px;background:rgba(0,212,255,0.15);color:var(--accent);padding:4px 10px;border-radius:8px;font-weight:600">📤 Enviada</span>`;
+  }
+  // Botones footer
+  let btnFooter = '';
+  if (enviada) {
+    btnFooter = `<button onclick="compartirConstancia()" class="btn btn-primary" style="flex:1">📤 Reenviar</button>
+                 <button onclick="cerrarPreviewYSalir()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>`;
+  } else {
+    btnFooter = `<button onclick="compartirConstancia()" class="btn btn-primary" style="flex:1">📤 Compartir / Enviar</button>
+                 <button onclick="cerrarPreviewYSalir()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>`;
+  }
   overlay.innerHTML = `
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">
       <button onclick="document.getElementById('modal-constancia-preview').remove()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer">←</button>
-      <div style="flex:1;font-size:15px;font-weight:700">Constancia${soloLectura?' — Solo lectura':''}</div>
+      <div style="flex:1;font-size:15px;font-weight:700">Constancia${enviada?' — 📤 Enviada':''}</div>
       ${btnModificar}
     </div>
     <div style="flex:1;overflow-y:auto;padding:0">
