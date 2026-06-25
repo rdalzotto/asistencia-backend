@@ -4032,8 +4032,11 @@ function guardarDatosPasoActual() {
 
 function renderConstanciaPaso() {
   const paso = CONST_PASOS[CONST_STATE.pasoActual].id;
-  document.getElementById('const-btn-anterior').style.display = CONST_STATE.pasoActual===0?'none':'flex';
-  document.getElementById('const-btn-siguiente').textContent = CONST_STATE.pasoActual===CONST_PASOS.length-1?'✓ Finalizar':'Siguiente →';
+  // Asegurar que los botones de navegación siempre estén visibles y con el texto correcto
+  const btnAnt = document.getElementById('const-btn-anterior');
+  const btnSig = document.getElementById('const-btn-siguiente');
+  if (btnAnt) { btnAnt.style.display = CONST_STATE.pasoActual===0?'none':'flex'; btnAnt.style.visibility='visible'; }
+  if (btnSig) { btnSig.textContent = CONST_STATE.pasoActual===CONST_PASOS.length-1?'✓ Finalizar':'Siguiente →'; btnSig.style.display='flex'; btnSig.style.visibility='visible'; }
   const renders = {datos:renderPasoDatos,tipo:renderPasoTipo,personal:renderPasoPersonal,actividades:renderPasoActividades,acciones:renderPasoAcciones,normativa:renderPasoNormativa,observaciones:renderPasoObservaciones,desvios:renderPasoDesvios,firmas:renderPasoFirmas};
   try {
     document.getElementById('const-paso-contenido').innerHTML = renders[paso]?renders[paso]():'';
@@ -4302,10 +4305,48 @@ function usarTodosDestinos() {
   CONST_STATE.datos.establecimiento_sector = nombres;
 }
 
+// Textos sugeridos por actividad (se inyectan en acciones.verificaciones al marcar)
+const TEXTOS_SUGERIDOS_ACTIVIDAD = {
+  'medicion': 'Se elaborará informe de las mediciones realizadas según protocolos de aplicación.',
+  'mediciones': 'Se elaborará informe de las mediciones realizadas según protocolos de aplicación.',
+  'capacitacion': 'Se realizó capacitación al personal presente. Se adjuntará registro de asistencia y material utilizado.',
+  'capacitación': 'Se realizó capacitación al personal presente. Se adjuntará registro de asistencia y material utilizado.',
+  'auditoria': 'Se realizó auditoría de condiciones de seguridad e higiene en el establecimiento.',
+  'auditoría': 'Se realizó auditoría de condiciones de seguridad e higiene en el establecimiento.',
+  'relevamiento': 'Se realizó relevamiento de campo y relevamiento fotográfico de las instalaciones.',
+  'inspeccion': 'Se realizó inspección de las instalaciones y equipos de trabajo.',
+  'inspección': 'Se realizó inspección de las instalaciones y equipos de trabajo.',
+  'investigacion': 'Se realizó investigación del incidente/accidente según metodología aplicable. Se elaborará informe.',
+  'investigación': 'Se realizó investigación del incidente/accidente según metodología aplicable. Se elaborará informe.',
+};
+
+function obtenerTextoSugeridoActividad(textoActividad) {
+  if (!textoActividad) return null;
+  const lower = textoActividad.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  for (const [clave, texto] of Object.entries(TEXTOS_SUGERIDOS_ACTIVIDAD)) {
+    if (lower.includes(clave)) return texto;
+  }
+  return null;
+}
+
 function toggleSeleccion(categoria,itemId,texto,checked) {
   if(!CONST_STATE.selecciones[categoria]) CONST_STATE.selecciones[categoria]=[];
-  if(checked){if(!CONST_STATE.selecciones[categoria].find(s=>s.item_id==itemId)) CONST_STATE.selecciones[categoria].push({item_id:itemId,texto_libre:null,nivel_riesgo:null,normativa_frente:null});}
-  else{CONST_STATE.selecciones[categoria]=CONST_STATE.selecciones[categoria].filter(s=>s.item_id!=itemId);}
+  if(checked){
+    if(!CONST_STATE.selecciones[categoria].find(s=>s.item_id==itemId)) CONST_STATE.selecciones[categoria].push({item_id:itemId,texto_libre:null,nivel_riesgo:null,normativa_frente:null});
+    // Inyectar texto sugerido en acciones si es actividad
+    if (categoria === 'actividad') {
+      const itemTexto = texto || (CONST_STATE.itemsMenu.actividad||[]).find(a=>a.id==itemId)?.texto || '';
+      const sugerido = obtenerTextoSugeridoActividad(itemTexto);
+      if (sugerido) {
+        if (!CONST_STATE.acciones.verificaciones) CONST_STATE.acciones.verificaciones = '';
+        if (!CONST_STATE.acciones.verificaciones.includes(sugerido)) {
+          CONST_STATE.acciones.verificaciones = (CONST_STATE.acciones.verificaciones ? CONST_STATE.acciones.verificaciones + '\n' : '') + sugerido;
+        }
+      }
+    }
+  } else {
+    CONST_STATE.selecciones[categoria]=CONST_STATE.selecciones[categoria].filter(s=>s.item_id!=itemId);
+  }
 }
 
 function actualizarFrenteExtra(itemId,campo,valor){const sel=CONST_STATE.selecciones.frente_trabajo?.find(s=>s.item_id==itemId);if(sel)sel[campo]=valor;}
@@ -4363,7 +4404,9 @@ async function confirmarItemNuevo() {
     }
     if (modal) { modal.classList.remove('active'); delete modal.dataset.editId; }
     if (textoInput) textoInput.value = '';
+    renderConstanciaPasos();
     renderConstanciaPaso();
+    guardarConstanciaActual().catch(()=>{});
     toast(editId ? 'Ítem actualizado ✓' : 'Ítem agregado ✓', 'success');
   } catch(e) {
     toast('Error al guardar — reintentá', 'error');
