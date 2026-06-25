@@ -494,6 +494,24 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
   </div>
 
+
+  <!-- MODAL EDITAR RECURSO -->
+  <div class="modal-overlay" id="modal-editar-recurso">
+    <div class="modal" style="max-height:90vh;overflow-y:auto">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Editar recurso</div>
+      <input type="hidden" id="edit-rec-id">
+      <div class="form-group"><label>Nombre del recurso</label><input type="text" id="edit-rec-nombre" placeholder="Ej: Camioneta Ford, Cañón EPSON..."></div>
+      <div class="form-group"><label>Tipo</label><select id="edit-rec-tipo"><option value="vehiculo">🚗 Vehículo</option><option value="didactico">📽 Recurso didáctico</option><option value="instrumental">🔧 Instrumental</option><option value="otro">📦 Otro</option></select></div>
+      <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="edit-rec-desc" placeholder="Detalles adicionales..."></div>
+      <div class="form-group"><label>Accesorios del equipo (opcional)</label><input type="text" id="edit-rec-accesorios" placeholder="Ej: cajita herramientas, tester, cable largo..."></div>
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-editar-recurso')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarEdicionRecurso()">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL RESERVAR RECURSO -->
   <div class="modal-overlay" id="modal-reservar-recurso">
     <div class="modal" style="max-height:90vh;overflow-y:auto">
@@ -2348,7 +2366,7 @@ async function cargarRecursosAdmin() {
       const btnRetorno = enUso
         ? `<button class="btn btn-sm btn-warning" onclick="registrarRetorno(${disp.reserva_id},'${r.nombre.replace(/'/g,"\\'")}')">📥 Registrar retorno</button>`
         : '';
-      return '<div style="padding:10px;border:1px solid '+(tieneAdv?'var(--orange)':enUso?'rgba(255,145,0,0.4)':'var(--border)')+';border-radius:var(--radius-sm);margin-bottom:8px;background:'+(enUso?'rgba(255,145,0,0.04)':tieneAdv?'rgba(255,145,0,0.05)':'')+'"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px"><div style="flex:1"><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+r.descripcion+'</div>':'')+'<div style="margin-top:6px">'+estadoBadge+'</div></div>'+(tieneAdv?'<span class="badge badge-orange" style="font-size:10px;margin-left:8px">⚠ '+advertenciasMap[r.id]+'</span>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+btnRetorno+'<button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\')" style="color:var(--orange)">⚠ Reportar</button>'+(tieneAdv?'<button class="btn btn-sm btn-secondary" onclick="verAdvertencias('+r.id+')">Ver avisos</button>':'')+'<button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>';
+      return '<div style="padding:10px;border:1px solid '+(tieneAdv?'var(--orange)':enUso?'rgba(255,145,0,0.4)':'var(--border)')+';border-radius:var(--radius-sm);margin-bottom:8px;background:'+(enUso?'rgba(255,145,0,0.04)':tieneAdv?'rgba(255,145,0,0.05)':'')+'"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px"><div style="flex:1"><div style="font-size:13px;font-weight:600">'+(iconos[r.tipo]||'📦')+' '+r.nombre+'</div>'+(r.descripcion?'<div style="font-size:12px;color:var(--text2);margin-top:2px">'+r.descripcion+'</div>':'')+'<div style="margin-top:6px">'+estadoBadge+'</div></div>'+(tieneAdv?'<span class="badge badge-orange" style="font-size:10px;margin-left:8px">⚠ '+advertenciasMap[r.id]+'</span>':'')+'</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+btnRetorno+'<button class="btn btn-sm btn-primary" onclick="abrirModalReservar('+r.id+')">Reservar</button><button class="btn btn-sm btn-secondary" onclick="abrirModalAdvertencia('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\')" style="color:var(--orange)">⚠ Reportar</button>'+(tieneAdv?'<button class="btn btn-sm btn-secondary" onclick="verAdvertencias('+r.id+')">Ver avisos</button>':'')+'<button class="btn btn-sm btn-secondary" onclick="abrirEditarRecurso('+r.id+',\''+r.nombre.replace(/'/g,"\\'")+'\',' +'\''+((r.tipo||'').replace(/'/g,"\\'"))+'\',' +'\''+((r.descripcion||'').replace(/'/g,"\\'"))+'\',' +'\''+((r.accesorios||'').replace(/'/g,"\\'"))+'\')" style="color:var(--accent)">✏️</button>'+'<button class="btn btn-sm btn-danger" onclick="eliminarRecurso('+r.id+')">✕</button></div></div>';
     }).join('');
   } catch { cont.innerHTML = '<p style="color:var(--text3);font-size:13px;text-align:center;padding:8px">Error cargando recursos</p>'; }
   finally { _cargandoRecursos = false; }
@@ -2511,6 +2529,33 @@ async function eliminarRecurso(id) {
   try { await api('/recursos/'+id,{method:'DELETE'}); await cargarRecursosAdmin(); toast('Recurso eliminado','info'); }
   catch(e) { toast(e.message,'error'); }
 }
+
+function abrirEditarRecurso(id, nombre, tipo, descripcion, accesorios) {
+  document.getElementById('edit-rec-id').value = id;
+  document.getElementById('edit-rec-nombre').value = nombre || '';
+  document.getElementById('edit-rec-tipo').value = tipo || 'otro';
+  document.getElementById('edit-rec-desc').value = descripcion || '';
+  document.getElementById('edit-rec-accesorios').value = accesorios || '';
+  abrirModal('modal-editar-recurso');
+}
+
+async function guardarEdicionRecurso() {
+  const id = document.getElementById('edit-rec-id').value;
+  const nombre = document.getElementById('edit-rec-nombre').value.trim();
+  if (!nombre) return toast('El nombre es obligatorio', 'error');
+  try {
+    await api('/recursos/'+id, {method:'PATCH', body:JSON.stringify({
+      nombre,
+      tipo: document.getElementById('edit-rec-tipo').value,
+      descripcion: document.getElementById('edit-rec-desc').value.trim() || null,
+      accesorios: document.getElementById('edit-rec-accesorios').value.trim() || null
+    })});
+    cerrarModal('modal-editar-recurso');
+    await cargarRecursosAdmin();
+    toast('Recurso actualizado ✓', 'success');
+  } catch(e) { toast(e.message || 'Error al guardar', 'error'); }
+}
+
 
 async function cargarCheckboxRecursos(contenedorId) {
   const cont = document.getElementById(contenedorId); if (!cont) return;
