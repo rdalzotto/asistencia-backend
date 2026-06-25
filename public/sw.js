@@ -2,8 +2,8 @@
 // Estrategia: Cache First para assets estáticos, Network First para API.
 // Al actualizar la app, el nuevo SW espera a que no haya tabs abiertos.
 
-const CACHE_NAME = 'asistencia-v1';
-const EXTINTORES_CACHE = 'extintores-v1';
+const CACHE_NAME = 'asistencia-v2';
+const EXTINTORES_CACHE = 'extintores-v2';
 
 // Assets que se cachean al instalar el SW (app shell)
 const SHELL_ASSETS = [
