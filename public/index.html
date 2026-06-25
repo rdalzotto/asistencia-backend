@@ -4492,11 +4492,31 @@ async function subirFotoDesvio(idx,nro,input) {
 async function guardarConstanciaActual(mostrarToast=false) {
   guardarDatosPasoActual();
   const id=CONST_STATE.constanciaId;
-  if(String(id).startsWith('offline_')){localStorage.setItem('constancia_pendiente_'+id,JSON.stringify(CONST_STATE));if(mostrarToast)toast('Guardado localmente','info');return;}
+  if (!id) return;
+  // Sin conexión desde el inicio — solo localStorage
+  if (String(id).startsWith('offline_')) {
+    localStorage.setItem('constancia_pendiente_'+id, JSON.stringify({...CONST_STATE, _tipo:'offline'}));
+    if (mostrarToast) toast('Sin conexión — guardado localmente 📴','info');
+    return;
+  }
+  // Tiene ID real — intentar servidor, si falla guardar en localStorage
   try {
-    await api('/constancias/'+id+'/guardar-completo',{method:'POST',body:JSON.stringify({datos:CONST_STATE.datos,selecciones:CONST_STATE.selecciones,personal:CONST_STATE.personal,equipos:CONST_STATE.equipos,acciones:CONST_STATE.acciones,desvios:CONST_STATE.desvios})});
-    if(mostrarToast) toast('Guardado ✓','success',1500);
-  } catch { if(mostrarToast) toast('Error al guardar','error'); }
+    await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:JSON.stringify({
+      datos:CONST_STATE.datos, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
+      equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios
+    })});
+    // Limpiar backup local si existía
+    localStorage.removeItem('constancia_pendiente_sync_'+id);
+    if (mostrarToast) toast('Guardado ✓','success',1500);
+  } catch {
+    // Guardar localmente como respaldo — se sincroniza al reconectarse
+    localStorage.setItem('constancia_pendiente_sync_'+id, JSON.stringify({
+      constanciaId: id, visitaId: CONST_STATE.visitaId,
+      datos:CONST_STATE.datos, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
+      equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios
+    }));
+    if (mostrarToast) toast('Sin conexión — guardado localmente 📴','info');
+  }
 }
 
 // ── FIRMA DIGITAL ─────────────────────────────────────────────────
@@ -5126,19 +5146,31 @@ function generarHTMLConstancia() {
 }
 
 
-window.addEventListener('online',async()=>{
-  const keys=Object.keys(localStorage).filter(k=>k.startsWith('constancia_pendiente_'));
-  for(const key of keys){
-    try{
-      const st=JSON.parse(localStorage.getItem(key));
-      const data=await api('/constancias',{method:'POST',body:JSON.stringify({visita_id:st.visitaId})});
-      const id=data.constancia.id;
-      await api('/constancias/'+id+'/guardar-completo',{method:'POST',body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
+window.addEventListener('online', async () => {
+  // Tipo A: constancias creadas sin conexión (ID offline_xxx) — crear en servidor
+  const keysOffline = Object.keys(localStorage).filter(k => k.startsWith('constancia_pendiente_offline_'));
+  for (const key of keysOffline) {
+    try {
+      const st = JSON.parse(localStorage.getItem(key));
+      const data = await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:st.visitaId})});
+      const id = data.constancia.id;
+      await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
       localStorage.removeItem(key);
-      toast('Constancia sincronizada ✓','success');
-    }catch{}
+      toast('Constancia sincronizada ✓', 'success');
+    } catch {}
+  }
+  // Tipo B: constancias con ID real que fallaron al guardar estando offline
+  const keysSync = Object.keys(localStorage).filter(k => k.startsWith('constancia_pendiente_sync_'));
+  for (const key of keysSync) {
+    try {
+      const st = JSON.parse(localStorage.getItem(key));
+      await api('/constancias/'+st.constanciaId+'/guardar-completo', {method:'POST', body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
+      localStorage.removeItem(key);
+      toast('Constancia sincronizada ✓', 'success');
+    } catch {}
   }
 });
+
 
 // ── EGRESO MANUAL RETROACTIVO (admin) ────────────────────────────────────────
 function abrirEgresoManual(empleadoId, nombre) {
