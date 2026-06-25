@@ -5044,29 +5044,30 @@ function generarHTMLConstancia() {
     @media print{body{padding:10px}}
   </style></head><body>
 
-    <!-- HEADER: logo EXIT | título | número + fecha | logo cliente -->
-    <div style="border:2px solid #1a6aaa;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
-      <!-- Logo EXIT: altura fija, ancho máximo controlado -->
-      <div style="flex:0 0 auto">
-        <img data-logo-exit="1" src="" style="height:44px;max-width:130px;width:auto;object-fit:contain;display:block">
+    <!-- HEADER: fila superior logos + fecha | fila inferior título -->
+    <div style="border:2px solid #1a6aaa;border-radius:6px;padding:10px 14px;margin-bottom:14px">
+      <!-- Fila superior: logo EXIT | espacio | número+fecha | logo cliente -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+        <div style="flex:0 0 auto">
+          <img data-logo-exit="1" src="" style="height:40px;max-width:160px;width:auto;object-fit:contain;display:block">
+        </div>
+        <div style="flex:1"></div>
+        <div style="flex:0 0 auto;text-align:right">
+          <div style="font-size:13px;font-weight:700;color:#1a6aaa">${numero}</div>
+          <div style="font-size:10px;color:#555;margin-top:1px">${fecha}</div>
+        </div>
+        ${CONST_STATE.logoCliente ? `
+        <div style="flex:0 0 auto;border-left:1px solid #d0dae8;padding-left:12px">
+          <img data-logo-cliente="1" src="" style="height:40px;max-width:120px;width:auto;object-fit:contain;display:block">
+        </div>` : `<img data-logo-cliente="1" src="" style="display:none">`}
       </div>
-      <!-- Separador vertical -->
-      <div style="width:1px;background:#d0dae8;align-self:stretch;flex:0 0 auto"></div>
-      <!-- Título y subtítulo -->
-      <div style="flex:1;min-width:0">
+      <!-- Separador horizontal -->
+      <div style="height:1px;background:#d0dae8;margin-bottom:8px"></div>
+      <!-- Fila inferior: título centrado -->
+      <div style="text-align:center">
         <div style="font-size:15px;font-weight:700;color:#1a1a1a;line-height:1.2">Constancia de Visita a Establecimiento</div>
         <div style="font-size:10.5px;color:#555;margin-top:2px">EXIT S.A. — Higiene y Seguridad en el Trabajo</div>
       </div>
-      <!-- Número y fecha -->
-      <div style="flex:0 0 auto;text-align:right;min-width:90px">
-        <div style="font-size:15px;font-weight:700;color:#1a6aaa">${numero}</div>
-        <div style="font-size:10px;color:#555;margin-top:2px">${fecha}</div>
-      </div>
-      <!-- Logo cliente (solo si existe) -->
-      ${CONST_STATE.logoCliente ? `
-      <div style="flex:0 0 auto;border-left:1px solid #d0dae8;padding-left:12px">
-        <img data-logo-cliente="1" src="" style="height:44px;max-width:110px;width:auto;object-fit:contain;display:block">
-      </div>` : `<img data-logo-cliente="1" src="" style="display:none">`}
     </div>
 
     <h2>1. Datos generales</h2>
