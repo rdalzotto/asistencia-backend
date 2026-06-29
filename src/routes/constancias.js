@@ -245,6 +245,17 @@ router.post('/', auth, async (req, res) => {
     if (visita_id) {
       const { rows: exist } = await db.query(`SELECT id FROM public.constancias WHERE visita_id = $1 AND empleador_id = $2 ORDER BY creado_en DESC LIMIT 1`, [visita_id, req.user.empleadorId]);
       if (exist.length) return res.json({ ok: true, constancia: exist[0], existente: true });
+      // Verificar ventana de 24hs para técnicos (admin siempre puede)
+      if (req.user.rol !== 'admin') {
+        const { rows: [v] } = await db.query(`SELECT fecha FROM public.visitas WHERE id = $1 AND empleador_id = $2`, [visita_id, req.user.empleadorId]);
+        if (v) {
+          const fechaVisita = new Date(v.fecha + 'T00:00:00-03:00');
+          const finVentana = new Date(fechaVisita.getTime() + 48 * 60 * 60 * 1000); // 24hs después del fin del día de la visita
+          if (new Date() > finVentana) {
+            return res.status(403).json({ error: 'El período para crear la constancia venció (24hs). Solicitá autorización al administrador.' });
+          }
+        }
+      }
     }
     const anio = new Date().getFullYear();
     const { rows: [cnt] } = await db.query(`SELECT COUNT(*) FROM public.constancias WHERE empleador_id = $1 AND EXTRACT(YEAR FROM creado_en) = $2`, [req.user.empleadorId, anio]);
