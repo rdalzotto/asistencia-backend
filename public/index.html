@@ -3240,16 +3240,20 @@ function abrirRendicion(visitaId, destinos) {
 async function guardarRendicion() {
   const visitaId=document.getElementById('rendir-visita-id').value;
   const km=parseFloat(document.getElementById('rendir-km').value)||0;
-  const monto=parseFloat(document.getElementById('rendir-viatico').value)||0;
+  const montoRaw=document.getElementById('rendir-viatico').value.trim();
+  const monto=montoRaw===''?null:parseFloat(montoRaw)||0;
   const desc=document.getElementById('rendir-desc').value.trim();
-  if (!monto) { toast('Ingresá el monto gastado','error'); return; }
-  if (!desc) { toast('Ingresá una descripción del gasto','error'); return; }
+  // Si hubo gasto (monto > 0), la descripción es obligatoria
+  if (monto===null) { toast('Ingresá el monto gastado (puede ser 0 si no hubo gastos)','error'); return; }
+  if (monto > 0 && !desc) { toast('Ingresá una descripción del gasto','error'); return; }
   const file=document.getElementById('rendir-foto').files[0];
   let fotoBase64=null;
   if (file) { fotoBase64=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file);}); }
   try {
     await api('/visitas/'+visitaId,{method:'PATCH',body:JSON.stringify({km_reales:km,viatico_real:monto,estado:'completada'})});
-    await api('/visitas/'+visitaId+'/gastos',{method:'POST',body:JSON.stringify({descripcion:desc,monto,foto_comprobante:fotoBase64})});
+    if (monto > 0 || desc) {
+      await api('/visitas/'+visitaId+'/gastos',{method:'POST',body:JSON.stringify({descripcion:desc||'Sin gastos',monto,foto_comprobante:fotoBase64})});
+    }
     cerrarModal('modal-rendir-visita'); toast('Rendición guardada ✓','success');
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
   } catch(e) { toast(e.message,'error'); }
@@ -5143,23 +5147,23 @@ function generarHTMLConstancia() {
     : `<tr><td colspan="4">${d.establecimiento_sector||'—'}</td></tr>`;
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Constancia ${numero}</title><style>
-    body{font-family:Arial,sans-serif;font-size:12.5px;color:#1a1a1a;margin:0;padding:18px 22px;max-width:794px;box-sizing:border-box}
-    h2{font-size:11.5px;font-weight:700;text-transform:uppercase;color:#1a6aaa;border-bottom:2px solid #1a6aaa;padding-bottom:3px;margin:16px 0 8px;page-break-after:avoid}
+    body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;margin:0;padding:12px 18px;max-width:794px;box-sizing:border-box}
+    h2{font-size:11px;font-weight:700;text-transform:uppercase;color:#1a6aaa;border-bottom:2px solid #1a6aaa;padding-bottom:2px;margin:10px 0 5px;page-break-after:avoid}
     table{width:100%;border-collapse:collapse;margin-bottom:10px;page-break-inside:avoid}
-    td,th{border:1px solid #ddd;padding:5px 9px;font-size:12px;vertical-align:top}
+    td,th{border:1px solid #ddd;padding:4px 7px;font-size:11.5px;vertical-align:top}
     th{background:#f0f4f8;text-align:left;font-weight:700;white-space:nowrap;width:28%}
     .tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:2px 9px;font-size:11px;margin:2px}
-    .firma-row{display:flex;gap:10px;margin-top:10px;page-break-inside:avoid}
+    .firma-row{display:flex;gap:8px;margin-top:6px;page-break-inside:avoid}
     .seccion{page-break-inside:avoid}
     @media print{body{padding:10px}}
   </style></head><body>
 
     <!-- HEADER: fila superior logos + fecha | fila inferior título -->
-    <div style="border:2px solid #1a6aaa;border-radius:6px;padding:10px 14px;margin-bottom:14px">
+    <div style="border:2px solid #1a6aaa;border-radius:6px;padding:7px 12px;margin-bottom:10px">
       <!-- Fila superior: logo EXIT | espacio | número+fecha | logo cliente -->
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
         <div style="flex:0 0 auto">
-          <img data-logo-exit="1" src="" style="height:40px;max-width:160px;width:auto;object-fit:contain;display:block">
+          <img data-logo-exit="1" src="" style="height:34px;max-width:140px;width:auto;object-fit:contain;display:block">
         </div>
         <div style="flex:1"></div>
         <div style="flex:0 0 auto;text-align:right">
@@ -5168,14 +5172,14 @@ function generarHTMLConstancia() {
         </div>
         ${CONST_STATE.logoCliente ? `
         <div style="flex:0 0 auto;border-left:1px solid #d0dae8;padding-left:12px">
-          <img data-logo-cliente="1" src="" style="height:40px;max-width:120px;width:auto;object-fit:contain;display:block">
+          <img data-logo-cliente="1" src="" style="height:34px;max-width:110px;width:auto;object-fit:contain;display:block">
         </div>` : `<img data-logo-cliente="1" src="" style="display:none">`}
       </div>
       <!-- Separador horizontal -->
       <div style="height:1px;background:#d0dae8;margin-bottom:8px"></div>
       <!-- Fila inferior: título centrado -->
       <div style="text-align:center">
-        <div style="font-size:15px;font-weight:700;color:#1a1a1a;line-height:1.2">Constancia de Visita a Establecimiento</div>
+        <div style="font-size:13px;font-weight:700;color:#1a1a1a;line-height:1.2">Constancia de Visita a Establecimiento</div>
         <div style="font-size:10.5px;color:#555;margin-top:2px">EXIT S.A. — Higiene y Seguridad en el Trabajo</div>
       </div>
     </div>
@@ -5201,11 +5205,11 @@ function generarHTMLConstancia() {
     ${actividades.length?`<div class="seccion"><h2>4. Actividades realizadas</h2><div>${actividades.map(a=>`<span class="tag">✓ ${a}</span>`).join('')}</div></div>`:''}
     ${(CONST_STATE.acciones.verificaciones||CONST_STATE.acciones.indicaciones||CONST_STATE.acciones.charla||CONST_STATE.acciones.documentacion)?`<div class="seccion"><h2>5. Acciones del asesor</h2><table>${CONST_STATE.acciones.verificaciones?`<tr><th>Verificaciones</th><td>${CONST_STATE.acciones.verificaciones}</td></tr>`:''} ${CONST_STATE.acciones.indicaciones?`<tr><th>Indicaciones</th><td>${CONST_STATE.acciones.indicaciones}</td></tr>`:''} ${CONST_STATE.acciones.charla?`<tr><th>Charla / capacitación</th><td>${CONST_STATE.acciones.charla}</td></tr>`:''} ${CONST_STATE.acciones.documentacion?`<tr><th>Documentación revisada</th><td>${CONST_STATE.acciones.documentacion}</td></tr>`:''}</table></div>`:''}
     ${normativas.length?`<div class="seccion"><h2>6. Marco normativo</h2><div>${normativas.map(n=>`<span class="tag">⚖ ${n}</span>`).join('')}</div></div>`:''}
-    ${d.observaciones_generales?`<div class="seccion"><h2>7. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:10px 12px;background:#fafafa;margin:0">${d.observaciones_generales}</p></div>`:''}
+    ${d.observaciones_generales?`<div class="seccion"><h2>7. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:7px 10px;background:#fafafa;margin:0">${d.observaciones_generales}</p></div>`:''}
     ${CONST_STATE.desvios.length?`<h2>8. Desvíos detectados</h2>${CONST_STATE.desvios.map((dev,i)=>`<div class="seccion" style="border:1px solid ${dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc'};border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-weight:700;font-size:12.5px">Desvío N° ${i+1}: ${dev.titulo}</div><div style="font-size:11px;color:#666;margin:3px 0">Severidad: ${dev.severidad} · Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:5px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:3px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:3px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}</div>`).join('')}`:''}
     <div class="seccion"><h2>9. Firmas</h2>
     <div class="firma-row">${firmaBloque(fC,'Responsable del cliente')}${firmaBloque(fT,'Asesor EXIT S.A.')}${firmaBloque(fE,'Responsable del servicio EXIT S.A.')}</div></div>
-    <div style="text-align:center;font-size:10px;color:#aaa;margin-top:24px;border-top:1px solid #eee;padding-top:8px">Documento generado por AsistenciaAR — EXIT S.A. — ${fecha}</div>
+    <div style="text-align:center;font-size:10px;color:#aaa;margin-top:12px;border-top:1px solid #eee;padding-top:6px">Documento generado por AsistenciaAR — EXIT S.A. — ${fecha}</div>
   </body></html>`;
 }
 
