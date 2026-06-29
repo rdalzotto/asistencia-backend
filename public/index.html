@@ -2902,11 +2902,18 @@ function renderTarjetaVisita(v, esAdmin) {
   const esPendiente = v.estado==='pendiente_aprobacion';
   const puedeSuspender = (v.estado==='programada' || v.estado==='en_curso') && !fechaPasada;
   const puedeEditarOEliminar = ['programada','en_curso'].includes(v.estado) && !fechaPasada;
-  // Técnico: constancia solo si visita en_curso o completada (no programada pasada)
-  // Admin: puede abrir constancia en cualquier estado activo
+  // Técnico: constancia solo el día de la visita (hasta 14hs del día siguiente)
+  // Admin: puede siempre (es el que otorga permiso de modificación posterior)
+  const fechaVisitaObj = new Date(fechaVisita + 'T00:00:00');
+  const ahora = new Date();
+  const vencimiento24h = new Date(fechaVisitaObj.getTime() + 48*60*60*1000); // medianoche del día siguiente + 24hs = 48hs desde inicio del día de visita
+  // Más simple: técnico puede hasta las 23:59 del día siguiente a la visita
+  const finVentana = new Date(fechaVisita + 'T23:59:59');
+  finVentana.setDate(finVentana.getDate() + 1); // 23:59 del día siguiente
+  const dentroDeVentana = ahora <= finVentana; // técnico tiene hasta 24hs después de la visita
   const puedeConstancia = esAdmin
     ? ['en_curso','completada','programada'].includes(v.estado)
-    : ['en_curso','completada'].includes(v.estado) || (v.estado==='programada' && !fechaPasada);
+    : (['en_curso','completada'].includes(v.estado) || (v.estado==='programada' && !fechaPasada)) && dentroDeVentana;
 
   let bloqueSuspension = '';
   if (v.estado==='suspendida') {
@@ -2946,7 +2953,7 @@ function renderTarjetaVisita(v, esAdmin) {
       ${puedeSuspender?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':''}
       ${puedeEditarOEliminar?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':''}
       ${v.estado==='programada'?'<button class="btn btn-sm btn-danger" onclick="eliminarVisitaProgramada('+v.id+')">🗑 Eliminar</button>':''}
-      ${puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+','+JSON.stringify({destinos:v.destinos||[],hora_estimada_salida:v.hora_estimada_salida||null,emp_nombre:v.emp_nombre||'',emp_apellido:v.emp_apellido||''}).replace(/"/g,'&quot;')+')">📋 Constancia</button>':''}
+      ${puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+','+JSON.stringify({destinos:v.destinos||[],hora_estimada_salida:v.hora_estimada_salida||null,emp_nombre:v.emp_nombre||'',emp_apellido:v.emp_apellido||''}).replace(/"/g,'&quot;')+')">📋 Constancia</button>':(!esAdmin&&['en_curso','completada'].includes(v.estado)&&!dentroDeVentana?'<span style="font-size:11px;color:var(--text3);background:rgba(0,0,0,0.12);padding:3px 8px;border-radius:6px" title="Período de edición cerrado — contactar al administrador">📋 Constancia bloqueada</span>':'')}
     </div>
   </div>`;
 }
@@ -4695,6 +4702,10 @@ async function confirmarFinalizarConstancia() {
       await api('/constancias/'+id, {method:'PATCH', body:JSON.stringify({estado:'completada'})});
       CONST_STATE.estadoConstancia = 'completada';
       actualizarBadgeEstadoConstancia();
+      // Si la visita está vinculada y no está completada aún, marcarla como completada
+      if (CONST_STATE.visitaId) {
+        try { await api('/visitas/'+CONST_STATE.visitaId, {method:'PATCH', body:JSON.stringify({estado:'completada'})}); } catch {}
+      }
     }
   } catch {}
   mostrarVistaPreviewConstancia();
