@@ -1044,7 +1044,15 @@ async function init() {
 
   // Load data in parallel
   try {
-    const [destinos, auditorias, colegas] = await Promise.all([\n      apiExt('/api/config/destinos').catch(()=>[]),\n      apiExt('/api/extintores/auditorias').catch(()=>[]),\n      AUTH.empleadoId ? apiExt('/api/extintores/colegas').catch(()=>[]) : Promise.resolve([]),\n    ]);\n    APP.destinos   = destinos;\n    APP.auditorias = auditorias;\n    APP.colegas    = colegas;\n  } catch(e) { console.error('Data load error:', e); }
+    const [destinos, auditorias, colegas] = await Promise.all([
+      apiExt('/api/config/destinos').catch(()=>[]),
+      apiExt('/api/extintores/auditorias').catch(()=>[]),
+      AUTH.empleadoId ? apiExt('/api/extintores/colegas').catch(()=>[]) : Promise.resolve([]),
+    ]);
+    APP.destinos   = destinos;
+    APP.auditorias = auditorias;
+    APP.colegas    = colegas;
+  } catch(e) { console.error('Data load error:', e); }
 
   // Restore offline drafts
   try {
