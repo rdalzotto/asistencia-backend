@@ -170,7 +170,6 @@
   <!-- App funciona 100% offline: jsPDF embebido, sin dependencias externas -->
 </head>
 <body>
-<div id="diag-panel" style="position:fixed;top:0;left:0;right:0;background:#000;color:#0f0;font-family:monospace;font-size:12px;padding:10px;z-index:9999;max-height:60vh;overflow-y:auto;display:none;border-bottom:2px solid #0f0;"></div>
 
 <!-- TOP BAR -->
 <div class="topbar" style="justify-content:space-between;">
@@ -1006,19 +1005,13 @@ let sigCtx = null, sigDrawing = false;
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
-  mostrarDiag('=== INICIO DIAGNÓSTICO ===');
-  mostrarDiag('token: ' + (localStorage.getItem('ar_token') ? 'OK' : 'FALTA'));
-  mostrarDiag('rol: ' + localStorage.getItem('ar_rol'));
-  mostrarDiag('cache: ' + (localStorage.getItem('ar_auth_cache') ? 'OK' : 'FALTA'));
   AUTH.token = localStorage.getItem('ar_token');
   AUTH.rol   = localStorage.getItem('ar_rol');
   if (!AUTH.token) { window.location.href = '/'; return; }
 
   // Intentar validar con el servidor; si no hay red, usar datos cacheados del token
   try {
-    mostrarDiag('llamando /api/auth/me...');
     const me = await apiExt('/api/auth/me');
-    mostrarDiag('auth/me OK: ' + me?.empleado?.nombre);
     AUTH.empleadoId  = me.empleado?.id || null;
     AUTH.empleadorId = me.usuario?.empleador_id || null;
     AUTH.nombre      = me.empleado?.nombre  || 'Admin';
@@ -1056,7 +1049,6 @@ async function init() {
       apiExt('/api/extintores/auditorias').catch(()=>[]),
       AUTH.empleadoId ? apiExt('/api/extintores/colegas').catch(()=>[]) : Promise.resolve([]),
     ]);
-    mostrarDiag('destinos: ' + destinos.length + ' cargados');
     APP.destinos   = destinos;
     APP.auditorias = auditorias;
     APP.colegas    = colegas;
@@ -1089,10 +1081,7 @@ async function init() {
   if (navigator.onLine && queue.length > 0) {
     setTimeout(procesarOfflineQueue, 2000);
   }
-  mostrarDiag('=== INIT COMPLETO ===');
-  mostrarDiag('Toca aqui para cerrar');
-  const dp=document.getElementById('diag-panel');
-  if(dp) dp.onclick=()=>dp.style.display='none';
+
 }
 
 // ── SYNC STATUS ──────────────────────────────────────────────────────────────
@@ -1244,7 +1233,6 @@ function switchTab(tab) {
 }
 
 function initNewAudit() {
-  try {
   APP.currentAudit = {
     id: 'DRAFT-'+Date.now(),
     fecha: new Date().toISOString().split('T')[0],
@@ -1266,7 +1254,6 @@ function initNewAudit() {
   document.getElementById('f_planta').value = '';
   document.getElementById('f_direccion').value = '';
   showScreen('audit'); switchTab('datos'); renderExtList();
-  } catch(e) { alert('initNewAudit error:\n' + e.message + '\nlinea aprox: ' + (e.stack||'')); console.error(e); }
 }
 
 function addExtinguisherObj(num) {
@@ -1975,20 +1962,8 @@ function restoreLogoAuditada(){if(APP.currentAudit&&APP.currentAudit.logoAuditad
 
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show';setTimeout(()=>{t.className='toast';},2800);}
 
-function mostrarDiag(msg) {
-  const p = document.getElementById('diag-panel');
-  if (p) { p.style.display='block'; p.innerHTML += msg + '<br>'; }
-  console.log('[DIAG]', msg);
-}
 window.addEventListener('load', init);
 window.addEventListener('beforeunload', ()=>{ saveAuditData(); });
-window.onerror = function(msg, src, line, col, err) {
-  alert('❌ Error JS línea ' + line + ':\n' + msg);
-  console.error('JS Error:', msg, src, line, col, err);
-};
-window.addEventListener('unhandledrejection', function(e) {
-  alert('❌ Promise error:\n' + (e.reason?.message || e.reason || 'desconocido'));
-});
 
 // ── Registro del Service Worker (soporte offline + PWA) ──────────────────────
 if ('serviceWorker' in navigator) {
