@@ -1232,6 +1232,7 @@ function switchTab(tab) {
 }
 
 function initNewAudit() {
+  try {
   APP.currentAudit = {
     id: 'DRAFT-'+Date.now(),
     fecha: new Date().toISOString().split('T')[0],
@@ -1244,10 +1245,8 @@ function initNewAudit() {
   };
   for (let i=1; i<=3; i++) addExtinguisherObj(i);
   setTodayDate();
-  // Populate tecnico field
   const tec = document.getElementById('f_tecnico');
   if (tec) tec.value = AUTH.nombre + ' ' + AUTH.apellido;
-  // Reset empresa select
   const sel = document.getElementById('f_empresa_sel');
   if (sel) sel.value = '';
   document.getElementById('nuevo-cliente-form').style.display = 'none';
@@ -1255,6 +1254,7 @@ function initNewAudit() {
   document.getElementById('f_planta').value = '';
   document.getElementById('f_direccion').value = '';
   showScreen('audit'); switchTab('datos'); renderExtList();
+  } catch(e) { alert('initNewAudit error:\n' + e.message + '\nlinea aprox: ' + (e.stack||'')); console.error(e); }
 }
 
 function addExtinguisherObj(num) {
@@ -1965,6 +1965,13 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 
 window.addEventListener('load', init);
 window.addEventListener('beforeunload', ()=>{ saveAuditData(); });
+window.onerror = function(msg, src, line, col, err) {
+  alert('❌ Error JS línea ' + line + ':\n' + msg);
+  console.error('JS Error:', msg, src, line, col, err);
+};
+window.addEventListener('unhandledrejection', function(e) {
+  alert('❌ Promise error:\n' + (e.reason?.message || e.reason || 'desconocido'));
+});
 
 // ── Registro del Service Worker (soporte offline + PWA) ──────────────────────
 if ('serviceWorker' in navigator) {
