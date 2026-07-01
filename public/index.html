@@ -4202,6 +4202,7 @@ async function abrirConstancia(visitaId, visitaDatos) {
   renderConstanciaPasos(); renderConstanciaPaso();
   const modal = document.getElementById('modal-constancia');
   modal.style.display = 'flex'; modal.classList.add('active');
+  iniciarConstanciaAutosave();
 }
 
 function cargarDatosConstanciaExistente(c) {
@@ -4223,11 +4224,40 @@ function cargarDatosConstanciaExistente(c) {
 }
 
 function cerrarConstancia() {
+  detenerConstanciaAutosave();
   document.getElementById('modal-constancia').classList.remove('active');
   document.getElementById('modal-constancia').style.display = '';
   // Restaurar navegación inferior
   document.getElementById('nav-empleado')?.style.removeProperty('display');
   document.getElementById('nav-admin')?.style.removeProperty('display');
+}
+
+// ── AUTOSAVE PERIÓDICO DE CONSTANCIA ─────────────────────────────────────────
+// Antes solo se guardaba al cambiar de paso o con el botón manual. Si el
+// técnico se quedaba mucho tiempo en un mismo paso (ej: cargando varios
+// desvíos con fotos) y el dispositivo se apagaba o se colgaba la app, se
+// perdía todo ese trabajo. Ahora se guarda cada 20s mientras la constancia
+// está abierta, además de al completar cada acción (ver más abajo).
+let _constAutosaveInterval = null;
+function iniciarConstanciaAutosave() {
+  if (_constAutosaveInterval) clearInterval(_constAutosaveInterval);
+  _constAutosaveInterval = setInterval(() => {
+    if (!CONST_STATE.constanciaId) return;
+    guardarDatosPasoActual();
+    guardarConstanciaActual().catch(()=>{});
+  }, 20000);
+}
+function detenerConstanciaAutosave() {
+  if (_constAutosaveInterval) { clearInterval(_constAutosaveInterval); _constAutosaveInterval = null; }
+}
+// Guardado inmediato tras completar una acción puntual (agregar/quitar un
+// desvío, subir una foto, agregar personal o equipo, firmar). A diferencia
+// del autosave periódico, no espera los 20s — se dispara una sola vez por
+// acción, no en cada tecla, para no saturar de pedidos al servidor.
+function guardarConstanciaTrasAccion() {
+  if (!CONST_STATE.constanciaId) return;
+  guardarDatosPasoActual();
+  guardarConstanciaActual().catch(()=>{});
 }
 
 function actualizarBadgeEstadoConstancia() {
@@ -4678,11 +4708,11 @@ async function confirmarItemNuevo() {
   }
 }
 
-function agregarPersonal(){CONST_STATE.personal.push({nombre_apellido:'',funcion_cargo:'',habilitacion:'',estado_habilitacion:'conforme'});document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
-function quitarPersonal(i){CONST_STATE.personal.splice(i,1);document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');}
+function agregarPersonal(){CONST_STATE.personal.push({nombre_apellido:'',funcion_cargo:'',habilitacion:'',estado_habilitacion:'conforme'});document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');guardarConstanciaTrasAccion();}
+function quitarPersonal(i){CONST_STATE.personal.splice(i,1);document.getElementById('ci-personal-lista').innerHTML=CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('');guardarConstanciaTrasAccion();}
 function actualizarPersonal(i,campo,valor){CONST_STATE.personal[i][campo]=valor;}
-function agregarEquipo(){CONST_STATE.equipos.push({descripcion:'',items_total:0,items_conformes:0,detalle:[]});document.getElementById('ci-equipos-lista').innerHTML=CONST_STATE.equipos.map((e,i)=>renderFilaEquipo(e,i)).join('');}
-function quitarEquipo(i){CONST_STATE.equipos.splice(i,1);document.getElementById('ci-equipos-lista').innerHTML=CONST_STATE.equipos.map((e,i)=>renderFilaEquipo(e,i)).join('');}
+function agregarEquipo(){CONST_STATE.equipos.push({descripcion:'',items_total:0,items_conformes:0,detalle:[]});document.getElementById('ci-equipos-lista').innerHTML=CONST_STATE.equipos.map((e,i)=>renderFilaEquipo(e,i)).join('');guardarConstanciaTrasAccion();}
+function quitarEquipo(i){CONST_STATE.equipos.splice(i,1);document.getElementById('ci-equipos-lista').innerHTML=CONST_STATE.equipos.map((e,i)=>renderFilaEquipo(e,i)).join('');guardarConstanciaTrasAccion();}
 function actualizarEquipo(i,campo,valor){CONST_STATE.equipos[i][campo]=campo.includes('items')?parseInt(valor)||0:valor;}
 
 function agregarItemEquipo(i) {
@@ -4695,6 +4725,7 @@ function agregarItemEquipo(i) {
   CONST_STATE.equipos[i].items_conformes = CONST_STATE.equipos[i].detalle.filter(it=>it.conforme).length;
   input.value = '';
   document.getElementById('ci-equipos-lista').innerHTML = CONST_STATE.equipos.map((e,idx)=>renderFilaEquipo(e,idx)).join('');
+  guardarConstanciaTrasAccion();
 }
 
 function toggleItemEquipo(equipoIdx, itemIdx, conforme) {
@@ -4712,16 +4743,17 @@ function quitarItemEquipo(equipoIdx, itemIdx) {
   CONST_STATE.equipos[equipoIdx].items_total = CONST_STATE.equipos[equipoIdx].detalle.length;
   CONST_STATE.equipos[equipoIdx].items_conformes = CONST_STATE.equipos[equipoIdx].detalle.filter(it=>it.conforme).length;
   document.getElementById('ci-equipos-lista').innerHTML = CONST_STATE.equipos.map((e,idx)=>renderFilaEquipo(e,idx)).join('');
+  guardarConstanciaTrasAccion();
 }
 
-function agregarDesvio(){CONST_STATE.desvios.push({titulo:'',severidad:'MEDIA',estado:'pendiente',normativa_incumplida:'',descripcion:'',accion_correctiva:'',plazo:'',foto_1:null,foto_2:null});document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');}
-function quitarDesvio(i){CONST_STATE.desvios.splice(i,1);document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');}
+function agregarDesvio(){CONST_STATE.desvios.push({titulo:'',severidad:'MEDIA',estado:'pendiente',normativa_incumplida:'',descripcion:'',accion_correctiva:'',plazo:'',foto_1:null,foto_2:null});document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');guardarConstanciaTrasAccion();}
+function quitarDesvio(i){CONST_STATE.desvios.splice(i,1);document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');guardarConstanciaTrasAccion();}
 function actualizarDesvio(i,campo,valor){CONST_STATE.desvios[i][campo]=valor;}
 
 async function subirFotoDesvio(idx,nro,input) {
   const file=input.files[0]; if(!file) return;
   const reader=new FileReader();
-  reader.onload=e=>{CONST_STATE.desvios[idx]['foto_'+nro]=e.target.result;document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');};
+  reader.onload=e=>{CONST_STATE.desvios[idx]['foto_'+nro]=e.target.result;document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');guardarConstanciaTrasAccion();};
   reader.readAsDataURL(file);
 }
 
@@ -4877,6 +4909,7 @@ async function confirmarFirma() {
   if(tipo==='tecnico'||tipo==='responsable_exit') {
     api('/constancias/firma-guardada',{method:'POST',body:JSON.stringify({nombre_apellido:nombre,cargo,matricula,firma_svg,tipo})}).catch(()=>{});
   }
+  guardarConstanciaTrasAccion();
 }
 
 async function finalizarConstancia() {
