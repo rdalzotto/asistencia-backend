@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#2D6A2D">
 <link rel="manifest" href="/manifest.json">
+<script src="js/ar-storage.js"></script>
 <title>EXIT S.A. — Relevamiento de Extintores</title>
 <style>
   :root {
@@ -1008,6 +1009,11 @@ async function init() {
   AUTH.token = localStorage.getItem('ar_token');
   AUTH.rol   = localStorage.getItem('ar_rol');
   if (!AUTH.token) { window.location.href = '/'; return; }
+  // Migración única: si este dispositivo tiene un borrador o cola pendiente
+  // de la versión vieja (localStorage), los pasamos a IndexedDB antes de
+  // seguir, para no perder auditorías que ya estaban esperando sincronización.
+  await ARStorage.migrarDesdeLocalStorage(['ext_draft', 'ext_offline_queue']);
+
 
   // Intentar validar con el servidor; si no hay red, usar datos cacheados del token
   try {
@@ -1056,8 +1062,8 @@ async function init() {
 
   // Restore offline drafts
   try {
-    const draft = localStorage.getItem('ext_draft');
-    if (draft) APP.currentAudit = JSON.parse(draft);
+    const draft = await ARStorage.get('ext_draft');
+    if (draft) APP.currentAudit = draft;
   } catch(e) {}
 
   renderDestinosSelect();
@@ -1070,7 +1076,7 @@ async function init() {
   iniciarAutosave(); // guardar al servidor cada 30s si hay conexión
 
   // Mostrar pendientes al inicio
-  const queue = JSON.parse(localStorage.getItem('ext_offline_queue')||'[]');
+  const queue = (await ARStorage.get('ext_offline_queue')) || [];
   if (queue.length > 0) {
     setSyncStatus('pending');
     showToast('⚠ Hay '+queue.length+' auditoría(s) pendiente(s) de sincronizar. Tocá el indicador ☁ para reintentar.');
@@ -1103,7 +1109,7 @@ function setSyncStatus(estado) {
 
 function saveToStorage() {
   if (APP.currentAudit) {
-    try { localStorage.setItem('ext_draft', JSON.stringify(APP.currentAudit)); } catch(e) {}
+    ARStorage.set('ext_draft', APP.currentAudit).catch(()=>{});
   }
 }
 
@@ -1333,7 +1339,7 @@ async function _enviarAuditServidor(audit, isFinal=false) {
   }
   if (isFinal) {
     // Borrar draft local solo si el servidor confirmó la recepción
-    localStorage.removeItem('ext_draft');
+    await ARStorage.del('ext_draft');
     APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
     renderHistorial();
     renderHistorialFull();
@@ -1349,7 +1355,7 @@ async function saveAuditToAPI() {
 
   if (!navigator.onLine) {
     // Encolar para cuando haya conexión
-    _encolarOffline(_buildPayload(audit));
+    await _encolarOffline(_buildPayload(audit));
     setSyncStatus('offline');
     showToast('📴 Sin conexión — se sincronizará automáticamente al reconectarse');
     return null;
@@ -1362,27 +1368,27 @@ async function saveAuditToAPI() {
     return auditoria;
   } catch(e) {
     // Si falla, encolar y avisar
-    _encolarOffline(_buildPayload(audit));
+    await _encolarOffline(_buildPayload(audit));
     setSyncStatus('pending');
     showToast('⚠ No se pudo guardar en el servidor — queda pendiente de sincronización');
     return null;
   }
 }
 
-function _encolarOffline(payload) {
+async function _encolarOffline(payload) {
   try {
     // Evitar duplicados por _ts similar (misma auditoría ya en cola)
-    const queue = JSON.parse(localStorage.getItem('ext_offline_queue')||'[]');
+    const queue = (await ARStorage.get('ext_offline_queue')) || [];
     // Si ya hay un item con el mismo server_id o sin server_id (misma sesión), reemplazarlo
     const idx = queue.findIndex(q => q._ts && payload._ts && Math.abs(q._ts - payload._ts) < 5000);
     if (idx >= 0) queue[idx] = payload;
     else queue.push(payload);
-    localStorage.setItem('ext_offline_queue', JSON.stringify(queue));
+    await ARStorage.set('ext_offline_queue', queue);
   } catch(e) { console.error('[offline queue]', e); }
 }
 
 async function procesarOfflineQueue() {
-  const queue = JSON.parse(localStorage.getItem('ext_offline_queue')||'[]');
+  const queue = (await ARStorage.get('ext_offline_queue')) || [];
   if (!queue.length) { setSyncStatus('saved'); return; }
   setSyncStatus('saving');
   let synced = 0;
@@ -1395,7 +1401,7 @@ async function procesarOfflineQueue() {
       remaining.push(payload);
     }
   }
-  localStorage.setItem('ext_offline_queue', JSON.stringify(remaining));
+  await ARStorage.set('ext_offline_queue', remaining);
   if (synced > 0) {
     showToast('☁ '+synced+' auditoría'+(synced>1?'s':'')+' sincronizada'+(synced>1?'s':''));
     APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
