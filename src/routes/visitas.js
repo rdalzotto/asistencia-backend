@@ -316,23 +316,25 @@ router.patch('/:id', auth, async (req, res) => {
           AND es_remoto = TRUE AND validado = FALSE AND fecha = CURRENT_DATE
       `, [visitaActual.empleado_id, req.user.empleadorId]);
     }
-    // Al completar una visita, calcular tiempo real de viaje y actualizar promedio del destino
-    if (estado === 'completada' && v.hora_inicio_real && v.hora_llegada_destino) {
+    // Al completar una visita, calcular tiempo real de viaje hacia el primer
+    // destino (usando la hora de llegada que carga el técnico con "Llegué")
+    // y actualizar el promedio aprendido para ese destino.
+    if (estado === 'completada' && v.hora_inicio_real) {
       try {
-        const minutos = Math.round((new Date(v.hora_llegada_destino) - new Date(v.hora_inicio_real)) / 60000);
-        if (minutos > 0 && minutos < 600) { // entre 0 y 10 horas = viaje válido
-          const { rows: destRows } = await client.query(`
-            SELECT vd.id, de.id as destino_externo_id, de.tiempo_viaje_estimado_min
-            FROM public.visita_destinos vd
-            LEFT JOIN public.destinos_externos de ON de.nombre = vd.cliente_nombre AND de.empleador_id = $2
-            WHERE vd.visita_id = $1 AND vd.orden = 1
-          `, [req.params.id, req.user.empleadorId]);
-          if (destRows[0]?.destino_externo_id) {
-            const anterior = destRows[0].tiempo_viaje_estimado_min;
+        const { rows: [primerDestino] } = await client.query(`
+          SELECT vd.hora_llegada, de.id as destino_externo_id, de.tiempo_viaje_estimado_min
+          FROM public.visita_destinos vd
+          LEFT JOIN public.destinos_externos de ON de.nombre = vd.cliente_nombre AND de.empleador_id = $2
+          WHERE vd.visita_id = $1 AND vd.orden = 1
+        `, [req.params.id, req.user.empleadorId]);
+        if (primerDestino?.hora_llegada) {
+          const minutos = Math.round((new Date(primerDestino.hora_llegada) - new Date(v.hora_inicio_real)) / 60000);
+          if (minutos > 0 && minutos < 600 && primerDestino.destino_externo_id) { // entre 0 y 10 horas = viaje válido
+            const anterior = primerDestino.tiempo_viaje_estimado_min;
             const nuevo = anterior ? Math.round(anterior * 0.7 + minutos * 0.3) : minutos;
             await client.query(
               `UPDATE public.destinos_externos SET tiempo_viaje_estimado_min = $1 WHERE id = $2`,
-              [nuevo, destRows[0].destino_externo_id]);
+              [nuevo, primerDestino.destino_externo_id]);
           }
         }
       } catch {} // No crítico — si falla no interrumpe la rendición
