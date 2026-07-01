@@ -13,6 +13,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="js/ar-storage.js"></script>
 <style>
 :root {
   --bg:#0f1923;--bg2:#162030;--bg3:#1e2d40;--border:rgba(255,255,255,0.08);
@@ -234,6 +235,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button onclick="abrirSalidaJustificada('manual')" style="background:none;border:none;color:var(--text3);font-size:12px;text-decoration:underline;cursor:pointer;padding:4px">¿Olvidaste registrar la salida?</button>
       </div>
     </div>
+    <div id="banner-mov-pendiente" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:var(--orange);text-align:center;cursor:pointer" onclick="sincronizarMovimientosPendientes()"></div>
     <div class="card">
       <div class="card-title">Hoy</div>
       <div id="movimientos-hoy"><p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Sin movimientos registrados</p></div>
@@ -517,6 +519,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="modal" style="max-height:90vh;overflow-y:auto">
       <div class="modal-handle"></div>
       <div class="modal-title">Reservar recursos</div>
+      <div id="banner-reserva-pendiente" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:10px;font-size:12.5px;color:var(--orange);text-align:center;cursor:pointer" onclick="sincronizarReservasPendientes()"></div>
       <div class="form-group"><label>Recursos a reservar</label><div id="res-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;max-height:240px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
       <div id="res-advertencias-panel" style="display:none;background:rgba(255,82,82,0.08);border:1px solid var(--red);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px">
         <div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:8px">⚠ Advertencias activas en recursos seleccionados</div>
@@ -1099,6 +1102,12 @@ async function irADashboard(rol) {
   const token = localStorage.getItem('ar_token');
   const rol = localStorage.getItem('ar_rol');
   if (!token) return;
+  // Migración única: si este dispositivo tiene constancias pendientes de
+  // sincronizar guardadas con el sistema viejo (localStorage), las pasamos
+  // a IndexedDB antes de seguir usando la app.
+  await ARStorage.migrarDesdeLocalStorage([], ['constancia_pendiente_offline_', 'constancia_pendiente_sync_']);
+  if (navigator.onLine) setTimeout(procesarMovimientosPendientes, 1500);
+  if (navigator.onLine) setTimeout(procesarReservasPendientes, 1800);
   STATE.token = token; STATE.rol = rol;
   try {
     const me = await api('/auth/me');
@@ -1171,6 +1180,7 @@ async function cargarDashboardEmpleado() {
       document.getElementById('emp-avatar').textContent = STATE.nombre.charAt(0).toUpperCase();
     }
     cargarEquipoEstado();
+    mostrarPendientesMovimientos();
   } catch(e) { console.error(e); }
 }
 
@@ -1454,6 +1464,57 @@ async function reintentarGPS() {
   }
 }
 
+// ── FICHAJE OFFLINE: si falla por falta de conexión, se guarda localmente
+// (IndexedDB vía ARStorage) y se reintenta solo al volver la señal, en vez
+// de perderse el fichaje sin aviso.
+function esErrorDeConexion(e) {
+  return !navigator.onLine || e instanceof TypeError;
+}
+
+async function encolarMovimientoOffline(body) {
+  const key = 'movimiento_pendiente_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  await ARStorage.set(key, body);
+}
+
+async function mostrarPendientesMovimientos() {
+  const banner = document.getElementById('banner-mov-pendiente');
+  if (!banner) return;
+  const keys = await ARStorage.keys('movimiento_pendiente_');
+  if (keys.length > 0) {
+    banner.style.display = 'block';
+    banner.textContent = '⚠ ' + keys.length + ' fichaje' + (keys.length>1?'s':'') + ' pendiente' + (keys.length>1?'s':'') + ' de sincronizar — tocá para reintentar';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// Procesa la cola en orden cronológico. Si el fichaje más viejo sigue
+// fallando por falta de señal, corta ahí — no tiene sentido mandar un
+// egreso antes que el ingreso que todavía está esperando su turno.
+async function procesarMovimientosPendientes() {
+  const keys = (await ARStorage.keys('movimiento_pendiente_')).sort();
+  for (const key of keys) {
+    try {
+      const body = await ARStorage.get(key);
+      await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
+      await ARStorage.del(key);
+    } catch(e) {
+      if (esErrorDeConexion(e)) break; // seguimos sin señal — se reintenta más tarde
+      // Error de validación real del servidor (ej: fichaje duplicado) — no tiene
+      // sentido seguir reintentándolo solo, se descarta y se avisa.
+      await ARStorage.del(key);
+      toast('⚠ Un fichaje pendiente no se pudo sincronizar: ' + e.message, 'error', 6000);
+    }
+  }
+  await mostrarPendientesMovimientos();
+  if (STATE.rol === 'empleado' || STATE.rol === 'admin') { try { await cargarDashboardEmpleado(); } catch {} }
+}
+
+async function sincronizarMovimientosPendientes() {
+  toast('Sincronizando fichajes pendientes...', 'info', 2000);
+  await procesarMovimientosPendientes();
+}
+
 async function confirmarMovimiento() {
   const tipo = document.getElementById('reg-tipo').value;
   const catId = document.getElementById('reg-categoria').value;
@@ -1462,10 +1523,10 @@ async function confirmarMovimiento() {
   const esRemoto = tipo === 'inicio_jornada_remota';
   const btn = document.getElementById('btn-confirmar-mov');
   btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+  const body = {tipo, lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:esRemoto};
+  if (tipo === 'salida_externa') { body.categoria_salida_id = catId||null; body.destino_id = destId||null; body.destino_descripcion = desc||null; }
+  if (esRemoto) { body.domicilio_partida_lat = STATE.gpsCoords?.lat; body.domicilio_partida_lng = STATE.gpsCoords?.lng; }
   try {
-    const body = {tipo, lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:esRemoto};
-    if (tipo === 'salida_externa') { body.categoria_salida_id = catId||null; body.destino_id = destId||null; body.destino_descripcion = desc||null; }
-    if (esRemoto) { body.domicilio_partida_lat = STATE.gpsCoords?.lat; body.domicilio_partida_lng = STATE.gpsCoords?.lng; }
     const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
@@ -1477,7 +1538,12 @@ async function confirmarMovimiento() {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
     }
   } catch(e) {
-    if (e.message && e.message.includes('GPS fuera del área')) {
+    if (esErrorDeConexion(e)) {
+      await encolarMovimientoOffline(body);
+      cerrarModal('modal-registro');
+      toast('📴 Sin conexión — el fichaje quedó guardado y se enviará solo al reconectar', 'info', 5000);
+      await mostrarPendientesMovimientos();
+    } else if (e.message && e.message.includes('GPS fuera del área')) {
       btn.innerHTML = 'Confirmar'; btn.disabled = false;
       const tipoActual = document.getElementById('reg-tipo').value;
       if (tipoActual === 'egreso' || tipoActual === 'fin_jornada_remota') {
@@ -1486,6 +1552,7 @@ async function confirmarMovimiento() {
       } else {
         mostrarOpcionRemota();
       }
+      return;
     } else { toast(e.message, 'error'); }
   } finally { btn.innerHTML = 'Confirmar'; btn.disabled = false; }
 }
@@ -1506,13 +1573,20 @@ async function registrarComoRemoto() {
   btn.disabled = true;
   const banner = document.getElementById('banner-remoto');
   if (banner) banner.remove();
+  const body = {tipo:'inicio_jornada_remota', lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:true, domicilio_partida_lat:STATE.gpsCoords?.lat, domicilio_partida_lng:STATE.gpsCoords?.lng};
   try {
-    const body = {tipo:'inicio_jornada_remota', lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:true, domicilio_partida_lat:STATE.gpsCoords?.lat, domicilio_partida_lng:STATE.gpsCoords?.lng};
     await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
     mostrarExito('inicio_jornada_remota');
-  } catch(e) { toast(e.message, 'error'); }
+  } catch(e) {
+    if (esErrorDeConexion(e)) {
+      await encolarMovimientoOffline(body);
+      cerrarModal('modal-registro');
+      toast('📴 Sin conexión — el fichaje quedó guardado y se enviará solo al reconectar', 'info', 5000);
+      await mostrarPendientesMovimientos();
+    } else { toast(e.message, 'error'); }
+  }
   finally { btn.disabled = false; }
 }
 </script>
@@ -2603,6 +2677,7 @@ async function abrirModalReservar(recursoId) {
   document.getElementById('res-conflicto').style.display='none';
   document.getElementById('res-advertencias-panel').style.display='none';
   document.getElementById('res-checklist-panel').style.display='none';
+  await mostrarPendientesReservas();
   await cargarCheckboxRecursos('res-recursos-checks');
   if (recursoId) {
     const cb=document.querySelector('#res-recursos-checks input[value="'+recursoId+'"]');
@@ -2644,6 +2719,54 @@ async function actualizarInfoReserva() {
   } else { chkPanel.style.display='none'; }
 }
 
+// ── RESERVAS OFFLINE ──────────────────────────────────────────────────────
+// A diferencia de un fichaje, una reserva de recurso SÍ puede chocar con algo
+// que otra persona reservó mientras uno estaba sin conexión — el chequeo de
+// choque de horarios es server-side y no se puede validar en el dispositivo.
+// Por eso cada reserva pendiente se vuelve a validar contra el servidor recién
+// al sincronizar, y si aparece un conflicto real se avisa explícitamente en
+// vez de reintentar sola — hay que decidir manualmente qué hacer con esa reserva.
+async function encolarReservaOffline(body) {
+  const key = 'reserva_pendiente_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  await ARStorage.set(key, body);
+}
+
+async function mostrarPendientesReservas() {
+  const banner = document.getElementById('banner-reserva-pendiente');
+  if (!banner) return;
+  const keys = await ARStorage.keys('reserva_pendiente_');
+  if (keys.length > 0) {
+    banner.style.display = 'block';
+    banner.textContent = '⚠ ' + keys.length + ' reserva' + (keys.length>1?'s':'') + ' pendiente' + (keys.length>1?'s':'') + ' de confirmar — tocá para reintentar';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+async function procesarReservasPendientes() {
+  const keys = (await ARStorage.keys('reserva_pendiente_')).sort();
+  for (const key of keys) {
+    try {
+      const body = await ARStorage.get(key);
+      await api('/recursos/reservas', {method:'POST', body:JSON.stringify(body)});
+      await ARStorage.del(key);
+    } catch(e) {
+      if (esErrorDeConexion(e)) break; // seguimos sin señal — se reintenta más tarde
+      // Conflicto real (ej: alguien más reservó ese recurso en ese horario) —
+      // no tiene sentido reintentarlo solo, hay que resolverlo a mano.
+      await ARStorage.del(key);
+      toast('⚠ Una reserva pendiente no se pudo confirmar — revisala de nuevo: ' + e.message, 'error', 7000);
+    }
+  }
+  await mostrarPendientesReservas();
+  try { await cargarReservasHoy(); } catch {}
+}
+
+async function sincronizarReservasPendientes() {
+  toast('Sincronizando reservas pendientes...', 'info', 2000);
+  await procesarReservasPendientes();
+}
+
 async function confirmarReserva() {
   const recursosIds = getCheckboxSeleccionados('res-recursos-checks');
   const fecha_desde = document.getElementById('res-fecha-desde').value;
@@ -2653,21 +2776,33 @@ async function confirmarReserva() {
   const motivo = document.getElementById('res-motivo').value.trim();
   if (!recursosIds.length) { toast('Seleccioná al menos un recurso','error'); return; }
   if (!fecha_desde||!hora_desde||!hora_hasta) { toast('Completá fecha y horarios','error'); return; }
-  const errores=[];
+  const errores=[]; let encoladas=0;
   for (const recurso_id of recursosIds) {
-    try { await api('/recursos/reservas',{method:'POST',body:JSON.stringify({recurso_id,fecha_desde,fecha_hasta,hora_desde,hora_hasta,motivo})}); }
-    catch(e) { errores.push(e.message); }
+    const body = {recurso_id,fecha_desde,fecha_hasta,hora_desde,hora_hasta,motivo};
+    try {
+      await api('/recursos/reservas',{method:'POST',body:JSON.stringify(body)});
+    } catch(e) {
+      if (esErrorDeConexion(e)) { await encolarReservaOffline(body); encoladas++; }
+      else errores.push(e.message);
+    }
   }
   if (errores.length) {
     const el=document.getElementById('res-conflicto');
     el.style.display='block'; el.innerHTML=errores.map(e=>'⚠ '+e).join('<br>');
     if (errores.length<recursosIds.length) toast('Algunos recursos reservados, otros con conflicto','info');
-  } else { cerrarModal('modal-reservar-recurso'); await cargarReservasHoy(); toast('Recursos reservados ✓','success'); }
+  } else {
+    cerrarModal('modal-reservar-recurso');
+    await cargarReservasHoy().catch(()=>{});
+    if (encoladas) toast('📴 Sin conexión — queda pendiente de confirmar. El horario se valida recién al sincronizar.', 'info', 6000);
+    else toast('Recursos reservados ✓','success');
+  }
+  if (encoladas) await mostrarPendientesReservas();
 }
 
 async function navEmpleadoRecursos() {
   await cargarCheckboxRecursos('res-recursos-checks');
   await cargarReservasHoy();
+  await mostrarPendientesReservas();
   abrirModal('modal-reservar-recurso');
 }
 
@@ -2926,6 +3061,26 @@ function renderTarjetaVisita(v, esAdmin) {
     ? `<div style="font-size:11px;color:var(--text3);margin-bottom:6px">↩ ${v.observaciones} <button onclick="irAVisitaVinculada(${v.observaciones.replace(/\D/g,'')})" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:11px;text-decoration:underline">ver original</button></div>`
     : '';
 
+  // ── Salida real y llegada a destinos (GPS) ──────────────────────────────
+  // Encuentra el primer destino sin marcar como llegado — es al que le
+  // corresponde el botón "Llegué" (los destinos se registran en orden).
+  const primerPendiente = destinos.findIndex(d => !d.completado);
+  let infoTrayecto = '';
+  if (v.hora_inicio_real) {
+    const horaSalida = new Date(v.hora_inicio_real).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    const primerLlegada = destinos.find(d => d.completado && d.hora_llegada);
+    if (primerLlegada) {
+      const minViaje = Math.round((new Date(primerLlegada.hora_llegada) - new Date(v.hora_inicio_real)) / 60000);
+      infoTrayecto = `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">🚗 Salió ${horaSalida} · Llegó al 1er destino en ${minViaje} min</div>`;
+    } else if (v.estado==='en_curso') {
+      const minTranscurridos = Math.round((Date.now() - new Date(v.hora_inicio_real).getTime()) / 60000);
+      const tardando = minTranscurridos > 90; // umbral simple — sin comparar contra el promedio aprendido todavía
+      infoTrayecto = `<div style="font-size:11px;margin-bottom:6px;color:${tardando?'var(--orange)':'var(--text2)'}">🚗 Salió ${horaSalida} · ${minTranscurridos} min en camino${tardando?' ⚠ tarda más de lo habitual':''}</div>`;
+    } else {
+      infoTrayecto = `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">🚗 Salió ${horaSalida}</div>`;
+    }
+  }
+
   return `<div class="card" data-visita-id="${v.id}" style="margin-bottom:12px;border-left:3px solid ${colores[v.estado]||'var(--border)'}">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
       <div>
@@ -2936,7 +3091,19 @@ function renderTarjetaVisita(v, esAdmin) {
       <span style="font-size:11px;font-weight:600;color:${colores[v.estado]||'var(--text3)'}">● ${labels[v.estado]||v.estado}</span>
     </div>
     ${origenReprogramacion}
-    ${destinos.map((d,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px"><span style="color:var(--accent);font-weight:700">${i+1}.</span><span style="flex:1">${d.cliente_nombre}${d.domicilio?' — '+d.domicilio:''}${d.motivo?' · '+d.motivo:''}</span></div>`).join('')}
+    ${infoTrayecto}
+    ${destinos.map((d,i)=>{
+      const yaLlego = d.completado && d.hora_llegada;
+      const marca = yaLlego
+        ? '<span style="color:var(--green);font-size:11px;margin-left:6px">✓ Llegó '+new Date(d.hora_llegada).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})+'</span>'
+        : '';
+      const mostrarBoton = !esAdmin && v.estado==='en_curso' && i===primerPendiente;
+      return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px">
+        <span style="color:var(--accent);font-weight:700">${i+1}.</span>
+        <span style="flex:1">${d.cliente_nombre}${d.domicilio?' — '+d.domicilio:''}${d.motivo?' · '+d.motivo:''}${marca}</span>
+        ${mostrarBoton?'<button class="btn btn-sm btn-success" style="padding:3px 8px;font-size:11px" onclick="marcarLlegadaDestino('+v.id+','+d.id+')">📍 Llegué</button>':''}
+      </div>`;
+    }).join('')}
     ${recursos.length?'<div style="font-size:12px;color:var(--text2);margin-bottom:6px">🔧 '+recursos.map(r=>r.nombre).join(', ')+'</div>':''}
     <div style="display:flex;gap:12px;font-size:12px;color:var(--text2);margin-bottom:8px">
       ${v.km_estimados?'<span>🛣 Est: '+v.km_estimados+' km</span>':''}
@@ -2947,7 +3114,7 @@ function renderTarjetaVisita(v, esAdmin) {
     ${v.motivo_rechazo?'<div style="font-size:12px;color:var(--red);margin-bottom:6px;background:rgba(255,82,82,0.08);padding:6px 8px;border-radius:6px">✗ Rechazada: '+v.motivo_rechazo+'</div>':''}
     ${bloqueSuspension}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
-      ${puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="cambiarEstadoVisita('+v.id+',\'en_curso\')">▶ Iniciar viaje</button>':''}
+      ${puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="iniciarViajeVisita('+v.id+')">▶ Iniciar viaje</button>':''}
       ${v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':''}
       ${esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':''}
       ${puedeSuspender?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':''}
@@ -2956,6 +3123,43 @@ function renderTarjetaVisita(v, esAdmin) {
       ${puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+','+JSON.stringify({destinos:v.destinos||[],hora_estimada_salida:v.hora_estimada_salida||null,emp_nombre:v.emp_nombre||'',emp_apellido:v.emp_apellido||''}).replace(/"/g,'&quot;')+')">📋 Constancia</button>':(!esAdmin&&['en_curso','completada'].includes(v.estado)&&!dentroDeVentana?'<span style="font-size:11px;color:var(--text3);background:rgba(0,0,0,0.12);padding:3px 8px;border-radius:6px" title="Período de edición cerrado — contactar al administrador">📋 Constancia bloqueada</span>':'')}
     </div>
   </div>`;
+}
+
+// ── INICIO DE VIAJE Y LLEGADA A DESTINO (GPS real) ───────────────────────────
+async function iniciarViajeVisita(id) {
+  let lat=null, lng=null;
+  try {
+    const pos = await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,enableHighAccuracy:true}));
+    lat = pos.coords.latitude; lng = pos.coords.longitude;
+  } catch(e) {
+    toast('No se pudo obtener tu ubicación — el viaje inicia igual, sin punto de partida GPS','info');
+  }
+  try {
+    await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify({
+      estado:'en_curso',
+      lat_inicio_real: lat, lng_inicio_real: lng,
+      hora_inicio_real: new Date().toISOString(),
+    })});
+    toast('¡Viaje iniciado!'+(lat?' Punto de partida registrado 📍':''), 'success');
+    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function marcarLlegadaDestino(visitaId, destinoId) {
+  let lat=null, lng=null;
+  try {
+    const pos = await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:10000,enableHighAccuracy:true}));
+    lat = pos.coords.latitude; lng = pos.coords.longitude;
+  } catch(e) {
+    toast('No se pudo obtener tu ubicación — se registra igual la hora de llegada','info');
+  }
+  try {
+    await api('/visitas/'+visitaId+'/destinos/'+destinoId, {method:'PATCH', body:JSON.stringify({
+      completado: true, lat_llegada: lat, lng_llegada: lng, hora_llegada: new Date().toISOString(),
+    })});
+    toast('📍 Llegada registrada'+(lat?'':' (sin GPS)'), 'success');
+    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
+  } catch(e) { toast(e.message,'error'); }
 }
 
 async function eliminarVisitaProgramada(id) {
@@ -4525,28 +4729,28 @@ async function guardarConstanciaActual(mostrarToast=false) {
   guardarDatosPasoActual();
   const id=CONST_STATE.constanciaId;
   if (!id) return;
-  // Sin conexión desde el inicio — solo localStorage
+  // Sin conexión desde el inicio — solo almacenamiento local
   if (String(id).startsWith('offline_')) {
-    localStorage.setItem('constancia_pendiente_'+id, JSON.stringify({...CONST_STATE, _tipo:'offline'}));
+    await ARStorage.set('constancia_pendiente_'+id, {...CONST_STATE, _tipo:'offline'});
     if (mostrarToast) toast('Sin conexión — guardado localmente 📴','info');
     return;
   }
-  // Tiene ID real — intentar servidor, si falla guardar en localStorage
+  // Tiene ID real — intentar servidor, si falla guardar localmente
   try {
     await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:JSON.stringify({
       datos:CONST_STATE.datos, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
       equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios
     })});
-    // Limpiar backup local si existía
-    localStorage.removeItem('constancia_pendiente_sync_'+id);
+    // Limpiar respaldo local si existía
+    await ARStorage.del('constancia_pendiente_sync_'+id);
     if (mostrarToast) toast('Guardado ✓','success',1500);
   } catch {
     // Guardar localmente como respaldo — se sincroniza al reconectarse
-    localStorage.setItem('constancia_pendiente_sync_'+id, JSON.stringify({
+    await ARStorage.set('constancia_pendiente_sync_'+id, {
       constanciaId: id, visitaId: CONST_STATE.visitaId,
       datos:CONST_STATE.datos, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
       equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios
-    }));
+    });
     if (mostrarToast) toast('Sin conexión — guardado localmente 📴','info');
   }
 }
@@ -5226,25 +5430,29 @@ function generarHTMLConstancia() {
 
 
 window.addEventListener('online', async () => {
+  // Fichajes de jornada pendientes de sincronizar
+  await procesarMovimientosPendientes();
+  // Reservas de recursos pendientes de sincronizar
+  await procesarReservasPendientes();
   // Tipo A: constancias creadas sin conexión (ID offline_xxx) — crear en servidor
-  const keysOffline = Object.keys(localStorage).filter(k => k.startsWith('constancia_pendiente_offline_'));
+  const keysOffline = await ARStorage.keys('constancia_pendiente_offline_');
   for (const key of keysOffline) {
     try {
-      const st = JSON.parse(localStorage.getItem(key));
+      const st = await ARStorage.get(key);
       const data = await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:st.visitaId})});
       const id = data.constancia.id;
       await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
-      localStorage.removeItem(key);
+      await ARStorage.del(key);
       toast('Constancia sincronizada ✓', 'success');
     } catch {}
   }
   // Tipo B: constancias con ID real que fallaron al guardar estando offline
-  const keysSync = Object.keys(localStorage).filter(k => k.startsWith('constancia_pendiente_sync_'));
+  const keysSync = await ARStorage.keys('constancia_pendiente_sync_');
   for (const key of keysSync) {
     try {
-      const st = JSON.parse(localStorage.getItem(key));
+      const st = await ARStorage.get(key);
       await api('/constancias/'+st.constanciaId+'/guardar-completo', {method:'POST', body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
-      localStorage.removeItem(key);
+      await ARStorage.del(key);
       toast('Constancia sincronizada ✓', 'success');
     } catch {}
   }
