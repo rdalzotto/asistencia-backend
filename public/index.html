@@ -1184,6 +1184,20 @@ async function cargarDashboardEmpleado() {
   } catch(e) { console.error(e); }
 }
 
+// Formatea "hace cuánto" sincronizó por última vez la tablet de un técnico.
+// Da una señal de salud aunque no haya GPS/fichaje en tiempo real ese rato
+// (tablets WiFi-only trabajando offline lejos del vehículo/Starlink).
+function formatoUltimaSinc(fechaISO) {
+  if (!fechaISO) return '☁ Sin datos de sincronización';
+  const minutos = Math.floor((Date.now() - new Date(fechaISO).getTime()) / 60000);
+  if (minutos < 2) return '☁ Sincronizado recién';
+  if (minutos < 60) return '☁ Sincronizó hace ' + minutos + ' min';
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return horas < 3 ? '⚠ Sincronizó hace ' + horas + 'h' : '⚠ Sin sincronizar hace ' + horas + 'h';
+  const dias = Math.floor(horas / 24);
+  return '🔴 Sin sincronizar hace ' + dias + (dias===1?' día':' días');
+}
+
 async function cargarEquipoEstado() {
   const cont = document.getElementById('lista-equipo-estado');
   if (!cont) return;
@@ -1198,6 +1212,7 @@ async function cargarEquipoEstado() {
         <div class="emp-info">
           <div class="emp-nombre">${e.nombre||''} ${e.apellido||''}</div>
           <div class="emp-detalle">${e.ultima_hora ? new Date(e.ultima_hora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '--'}</div>
+          <div class="emp-detalle" style="font-size:10.5px;color:var(--text3)">${formatoUltimaSinc(e.ultima_sincronizacion)}</div>
         </div>
         <span class="badge ${colEstado[e.estado]||'badge-gray'}">${lblEstado[e.estado]||e.estado}</span>
       </div>
@@ -5489,6 +5504,9 @@ window.addEventListener('online', async () => {
       toast('Constancia sincronizada ✓', 'success');
     } catch {}
   }
+  // Avisa al servidor que esta tablet sincronizó, para que el admin vea
+  // "última sincronización" del técnico en el panel de equipo.
+  try { await api('/config/sync-ping', {method:'POST'}); } catch {}
 });
 
 
