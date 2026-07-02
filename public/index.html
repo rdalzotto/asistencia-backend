@@ -599,6 +599,11 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <div class="form-group"><label>Fecha de ingreso</label><input type="date" id="editar-ingreso"></div>
         <div class="form-group"><label>Salario base ($)</label><input type="number" id="editar-salario"></div>
       </div>
+      <div class="form-section"><div class="form-section-title">Firma en constancias de visita</div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Se precarga automáticamente al firmar cualquier constancia, en cualquier cliente. El técnico puede modificarlo puntualmente si hace falta.</p>
+        <div class="form-group"><label>Título / cargo profesional</label><input type="text" id="editar-cargo" placeholder="Ej: Asesor técnico en Higiene y Seguridad"></div>
+        <div class="form-group"><label>Matrícula profesional</label><input type="text" id="editar-matricula" placeholder="Ej: CIEER 41011 - 41473 - E210"></div>
+      </div>
       <div class="form-section"><div class="form-section-title">Horario</div>
         <div class="form-group"><label>Modalidad</label><select id="editar-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option><option value="flexible">Flexible</option></select></div>
         <div class="form-group"><label>Hora ingreso</label><input type="time" id="editar-hora-ingreso"></div>
@@ -3672,6 +3677,8 @@ async function abrirEditarEmpleado(id) {
     document.getElementById('editar-sector').value=e.sector||'tecnico';
     document.getElementById('editar-ingreso').value=e.fecha_ingreso?String(e.fecha_ingreso).slice(0,10):'';
     document.getElementById('editar-salario').value=e.salario_base||'';
+    document.getElementById('editar-cargo').value=e.cargo||'';
+    document.getElementById('editar-matricula').value=e.matricula||'';
     document.getElementById('editar-modalidad').value=e.modalidad||'corrida';
     document.getElementById('editar-hora-ingreso').value=e.hora_ingreso||'';
     document.getElementById('editar-hora-egreso').value=e.hora_egreso||'';
@@ -3692,6 +3699,8 @@ async function guardarEdicionEmpleado() {
     sector:document.getElementById('editar-sector').value,
     fecha_ingreso:document.getElementById('editar-ingreso').value,
     salario_base:document.getElementById('editar-salario').value||null,
+    cargo:document.getElementById('editar-cargo').value.trim(),
+    matricula:document.getElementById('editar-matricula').value.trim(),
     modalidad:document.getElementById('editar-modalidad').value,
     hora_ingreso:document.getElementById('editar-hora-ingreso').value,
     hora_egreso:document.getElementById('editar-hora-egreso').value,
@@ -5426,7 +5435,7 @@ function generarHTMLConstancia() {
       <!-- Fila superior: logo EXIT | espacio | número+fecha | logo cliente -->
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
         <div style="flex:0 0 auto">
-          <img data-logo-exit="1" src="" style="height:34px;max-width:140px;width:auto;object-fit:contain;display:block">
+          <img data-logo-exit="1" src="" style="max-height:34px;max-width:150px;width:auto;height:auto;object-fit:contain;display:block">
         </div>
         <div style="flex:1"></div>
         <div style="flex:0 0 auto;text-align:right">
@@ -5435,7 +5444,7 @@ function generarHTMLConstancia() {
         </div>
         ${CONST_STATE.logoCliente ? `
         <div style="flex:0 0 auto;border-left:1px solid #d0dae8;padding-left:12px">
-          <img data-logo-cliente="1" src="" style="height:34px;max-width:110px;width:auto;object-fit:contain;display:block">
+          <img data-logo-cliente="1" src="" style="max-height:34px;max-width:120px;width:auto;height:auto;object-fit:contain;display:block">
         </div>` : `<img data-logo-cliente="1" src="" style="display:none">`}
       </div>
       <!-- Separador horizontal -->
