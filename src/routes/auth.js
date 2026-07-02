@@ -70,12 +70,15 @@ router.get('/me', auth, async (req, res) => {
       'SELECT id, email, rol, empleador_id, ultimo_acceso FROM public.usuarios WHERE id = $1',
       [req.user.id]
     );
+    // Se busca el registro de empleado sin importar el rol: un admin (como
+    // Rogelio) también puede tener su propio empleado_id y necesita ver su
+    // cargo/matrícula por defecto al firmar constancias.
     let empleado = null;
-    if (req.user.rol === 'empleado') {
+    {
       const { rows: [e] } = await db.query(
         'SELECT * FROM public.empleados WHERE usuario_id = $1', [req.user.id]
       );
-      empleado = e;
+      empleado = e || null;
     }
     res.json({ usuario: usr, empleado });
   } catch (err) {
