@@ -510,12 +510,36 @@ router.get('/equipo-estado', auth, async (req, res) => {
   try {
     const empleadorId = await getEmpleadorId(req);
     const { rows } = await db.query(
-      'SELECT empleado_id, nombre, apellido, estado, ultima_hora FROM public.v_estado_empleados WHERE empleador_id = $1 ORDER BY nombre',
+      `SELECT v.empleado_id, v.nombre, v.apellido, v.estado, v.ultima_hora, e.ultima_sincronizacion
+       FROM public.v_estado_empleados v
+       JOIN public.empleados e ON e.id = v.empleado_id
+       WHERE v.empleador_id = $1
+       ORDER BY v.nombre`,
       [empleadorId]
     );
     res.json(rows);
   } catch (err) {
     console.error('[CFG] Equipo estado error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /config/sync-ping — el frontend llama esto cada vez que la tablet
+// recupera conexión y termina de vaciar su cola offline. Sirve para que el
+// admin vea "hace cuánto no sincroniza" cada técnico en el panel de equipo,
+// aun cuando no haya GPS ni fichaje en tiempo real ese rato (tablets WiFi-only
+// sin SIM propia, offline mientras el técnico está lejos del vehículo/Starlink).
+router.post('/sync-ping', auth, async (req, res) => {
+  try {
+    const empleadoId = req.user.empleadoId;
+    if (!empleadoId) return res.status(400).json({ error: 'Usuario sin empleado asociado' });
+    await db.query(
+      'UPDATE public.empleados SET ultima_sincronizacion = NOW() WHERE id = $1',
+      [empleadoId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[CFG] Sync ping error:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
