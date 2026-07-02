@@ -128,7 +128,7 @@ router.patch('/empleados/:id', auth, async (req, res) => {
     legajo, categoria, sector, fecha_ingreso, salario_base, tipo_contrato,
     jornada_config_id, activo,
     nombre, apellido, dni, cuil, domicilio, localidad, provincia, telefono,
-    foto_perfil_url, domicilio_lat, domicilio_lng,
+    foto_perfil_url, domicilio_lat, domicilio_lng, cargo, matricula,
   } = req.body;
 
   try {
@@ -152,6 +152,11 @@ router.patch('/empleados/:id', auth, async (req, res) => {
       addField('tipo_contrato', tipo_contrato);
       addField('jornada_config_id', jornada_config_id);
       addField('activo', activo);
+      // Título/cargo profesional y matrícula: se usan como valor por defecto
+      // al firmar constancias de visita (editable por el técnico en cada
+      // constancia, pero precargado para no tener que tipearlo cada vez).
+      addField('cargo', cargo);
+      addField('matricula', matricula);
     }
 
     addField('nombre', nombre);
