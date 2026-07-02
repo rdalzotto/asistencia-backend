@@ -159,5 +159,39 @@
     }
   }
 
-  global.ARStorage = { set, get, del, keys, migrarDesdeLocalStorage };
+  // Pide al navegador almacenamiento persistente: evita que el sistema
+  // operativo borre IndexedDB automáticamente si el dispositivo se queda
+  // corto de espacio (limpieza silenciosa que existe en varios navegadores
+  // móviles). No garantiza que se conceda, pero en una tablet dedicada a
+  // esta app el navegador normalmente lo otorga sin pedir nada al usuario.
+  // Segura de llamar varias veces; no hace nada si ya estaba concedido.
+  async function pedirPersistencia() {
+    try {
+      if (!navigator.storage || !navigator.storage.persist) return null;
+      const yaPersistente = await navigator.storage.persisted();
+      if (yaPersistente) return true;
+      return await navigator.storage.persist();
+    } catch (e) {
+      console.error('[ARStorage.pedirPersistencia]', e);
+      return null;
+    }
+  }
+
+  // Devuelve el espacio usado/disponible estimado (en MB), si el navegador
+  // lo soporta. Útil para mostrar un indicador de capacidad al técnico.
+  async function estimarUso() {
+    try {
+      if (!navigator.storage || !navigator.storage.estimate) return null;
+      const { usage, quota } = await navigator.storage.estimate();
+      return {
+        usadoMB: Math.round((usage || 0) / 1048576),
+        totalMB: Math.round((quota || 0) / 1048576),
+      };
+    } catch (e) { return null; }
+  }
+
+  // Se pide apenas se carga el módulo en cualquier página que lo incluya.
+  pedirPersistencia();
+
+  global.ARStorage = { set, get, del, keys, migrarDesdeLocalStorage, pedirPersistencia, estimarUso };
 })(window);
