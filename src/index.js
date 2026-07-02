@@ -286,11 +286,97 @@ function iniciarCronCierre() {
   console.log('[CRON] Cron de jornada inteligente iniciado (cada 60s)');
 }
 
+// ─── Auto-reparación al arrancar ───────────────────────────────────────────────
+// Si la tabla usuarios aparece vacía al iniciar (por ejemplo tras una pérdida de
+// datos en la base), se recrean el empleador y el usuario admin usando las
+// variables de entorno de Railway (que no dependen de Supabase y no se pierden
+// con la base). Es la misma lógica de src/db/seed.js pero sin cerrar el pool de
+// conexiones, para poder correr dentro del servidor ya arrancado. Es seguro
+// ejecutar esto en cada arranque: si ya hay usuarios, no hace nada.
+async function autoRepararSiVacio() {
+  try {
+    const { rows: [{ count }] } = await db.query('SELECT COUNT(*)::int AS count FROM public.usuarios');
+    if (count > 0) return; // hay datos, no se toca nada
+
+    console.warn('[AUTO-REPARO] Tabla usuarios vacía — recreando empleador y admin desde variables de entorno...');
+    const bcrypt = require('bcryptjs');
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      const { rows: [emp] } = await client.query(`
+        INSERT INTO public.empleadores (
+          razon_social, nombre_fantasia, cuit, domicilio,
+          localidad, provincia, emails_admin
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (cuit) DO UPDATE SET razon_social = EXCLUDED.razon_social
+        RETURNING id
+      `, [
+        process.env.RAZON_SOCIAL || 'EXIT SRL',
+        process.env.NOMBRE_FANTASIA || 'EXIT',
+        process.env.CUIT || '30-00000000-0',
+        process.env.DOMICILIO || 'Dirección de la empresa',
+        process.env.LOCALIDAD || 'Concordia',
+        process.env.PROVINCIA || 'Entre Ríos',
+        [process.env.ADMIN_EMAIL || 'ingrogeliodalzotto@gmail.com'],
+      ]);
+
+      const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'CambiarEstaPassword123!', 12);
+      await client.query(`
+        INSERT INTO public.usuarios (empleador_id, email, password_hash, rol)
+        VALUES ($1,$2,$3,'admin')
+        ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+      `, [emp.id, process.env.ADMIN_EMAIL || 'ingrogeliodalzotto@gmail.com', hash]);
+
+      const categorias = [
+        { sector: 'tecnico', nombre: 'Visita a empresa — Técnica', requiere_destino: true, orden: 1 },
+        { sector: 'tecnico', nombre: 'Visita a empresa — Reunión de Coordinación', requiere_destino: true, orden: 2 },
+        { sector: 'tecnico', nombre: 'Visita para cotización', requiere_destino: false, orden: 3 },
+        { sector: 'tecnico', nombre: 'Reunión con solicitante de servicio', requiere_destino: false, orden: 4 },
+        { sector: 'tecnico', nombre: 'Otras gestiones (describir)', requiere_destino: false, orden: 5 },
+        { sector: 'administrativo', nombre: 'Gestión bancaria', requiere_destino: false, orden: 1 },
+        { sector: 'administrativo', nombre: 'Gestión de cobro', requiere_destino: false, orden: 2 },
+        { sector: 'administrativo', nombre: 'Compra de insumos de oficina', requiere_destino: false, orden: 3 },
+        { sector: 'administrativo', nombre: 'Pagos', requiere_destino: false, orden: 4 },
+        { sector: 'administrativo', nombre: 'Otras gestiones (describir)', requiere_destino: false, orden: 5 },
+        { sector: 'todos', nombre: 'Trámite administrativo general', requiere_destino: false, orden: 10 },
+      ];
+      for (const cat of categorias) {
+        await client.query(`
+          INSERT INTO public.categorias_salida (empleador_id, sector, nombre, requiere_destino, orden)
+          VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING
+        `, [emp.id, cat.sector, cat.nombre, cat.requiere_destino, cat.orden]);
+      }
+
+      await client.query(`
+        INSERT INTO public.jornadas_config (
+          modalidad, hora_ingreso, hora_egreso,
+          incluye_almuerzo, hora_almuerzo_inicio, hora_almuerzo_fin,
+          dias_laborables, horas_diarias_objetivo
+        ) VALUES ('corrida','07:30','16:30',true,'12:00','13:00','{1,2,3,4,5,6}',8)
+        ON CONFLICT DO NOTHING
+      `);
+
+      await client.query('COMMIT');
+      console.warn('[AUTO-REPARO] ✓ Empleador, admin, categorías y jornada por defecto recreados. Empleador id:', emp.id);
+      console.warn('[AUTO-REPARO] ⚠ Los técnicos (empleados) y el historial de fichajes NO se recrean automáticamente — requieren reconstrucción manual.');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('[AUTO-REPARO] Error, se revirtió todo:', err.message);
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('[AUTO-REPARO] No se pudo verificar/reparar:', err.message);
+  }
+}
+
 
 // ─── Iniciar servidor ─────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🚀 AsistenciaAR Backend v2.3 corriendo en puerto ${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/health\n`);
+  autoRepararSiVacio();
   iniciarCronCierre();
 });
 
