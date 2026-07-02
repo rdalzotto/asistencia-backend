@@ -1414,6 +1414,9 @@ async function procesarOfflineQueue() {
 window.addEventListener('online', async () => {
   showToast('📶 Conexión restaurada — sincronizando...');
   await procesarOfflineQueue();
+  // Avisa al servidor que esta tablet sincronizó, para que el admin vea
+  // "última sincronización" del técnico en el panel de equipo.
+  try { await apiExt('/api/config/sync-ping', {method:'POST'}); } catch {}
 });
 
 // Al perder conexión: avisar
