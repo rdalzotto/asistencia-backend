@@ -33,6 +33,27 @@ router.post('/registrar', auth, async (req, res) => {
     const hoy     = new Date().toISOString().split('T')[0];
     const feriado = await jornada.esFeriado(hoy);
 
+    // ─ Bloqueo: no se puede fichar si tiene vacaciones o ausencia APROBADA para hoy ─
+    if (await jornada.tieneAusenciaOVacacionHoy(empleadoId, client)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'Tenés vacaciones o una ausencia aprobada para hoy — no podés fichar.'
+      });
+    }
+
+    // ─ Validar secuencia lógica del fichaje: solo se puede registrar el tipo que
+    //   corresponde según el último movimiento del día (no se puede, por ej.,
+    //   marcar "Salida externa" sin haber fichado "Ingreso" antes) ─
+    const ultimoMov = await jornada.obtenerUltimoMovimientoHoy(empleadoId, client);
+    if (!jornada.tipoMovimientoPermitido(ultimoMov?.tipo || null, tipo)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: ultimoMov
+          ? `No podés registrar "${tipo}" ahora. Tu último movimiento de hoy fue "${ultimoMov.tipo}".`
+          : `No podés registrar "${tipo}" sin haber fichado Ingreso antes.`
+      });
+    }
+
     // ─ Normalizar lat/lng: tratamos undefined, null y string vacío como "sin GPS" (NULL real en la base,
     // nunca NaN). parseFloat(null) da NaN en JS, por eso antes quedaba guardado "NaN" en vez de NULL. ─
     const latNum = (lat !== undefined && lat !== null && lat !== '') ? parseFloat(lat) : NaN;
