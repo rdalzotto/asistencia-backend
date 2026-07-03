@@ -1347,6 +1347,14 @@ async function _enviarAuditServidor(audit, isFinal=false) {
   return result?.auditoria || null;
 }
 
+// Distingue una falla real de conexión (no llegó a golpear el servidor) de un
+// rechazo del servidor (ej: 403 por no tener fichaje). Solo la primera tiene
+// sentido reintentarla más tarde — la segunda hay que mostrarla y listo, porque
+// reintentarla no la va a resolver sola.
+function esErrorDeConexionExt(e) {
+  return !navigator.onLine || e instanceof TypeError;
+}
+
 async function saveAuditToAPI() {
   saveAuditData();
   const audit = APP.currentAudit;
@@ -1367,10 +1375,17 @@ async function saveAuditToAPI() {
     setSyncStatus('saved');
     return auditoria;
   } catch(e) {
-    // Si falla, encolar y avisar
-    await _encolarOffline(_buildPayload(audit));
-    setSyncStatus('pending');
-    showToast('⚠ No se pudo guardar en el servidor — queda pendiente de sincronización');
+    if (esErrorDeConexionExt(e)) {
+      // Falla de red real — encolar y reintentar más tarde
+      await _encolarOffline(_buildPayload(audit));
+      setSyncStatus('pending');
+      showToast('⚠ No se pudo guardar en el servidor — queda pendiente de sincronización');
+    } else {
+      // El servidor respondió y rechazó el envío (ej: falta fichaje) — no tiene
+      // sentido encolarlo para reintentar solo, mostramos el motivo real.
+      setSyncStatus('error');
+      showToast('⚠ ' + e.message, 'error', 6000);
+    }
     return null;
   }
 }
@@ -1392,13 +1407,21 @@ async function procesarOfflineQueue() {
   if (!queue.length) { setSyncStatus('saved'); return; }
   setSyncStatus('saving');
   let synced = 0;
+  let rechazadas = 0;
   const remaining = [];
   for (const payload of queue) {
     try {
       await apiExt('/api/extintores/auditorias', { method:'POST', body: JSON.stringify(payload) });
       synced++;
     } catch(e) {
-      remaining.push(payload);
+      if (esErrorDeConexionExt(e)) {
+        remaining.push(payload); // seguimos sin señal — se reintenta más tarde
+      } else {
+        // Rechazo real del servidor (ej: ese día no fichó ingreso) — no lo
+        // dejamos reintentando para siempre, se descarta y se avisa.
+        rechazadas++;
+        console.error('[EXT offline queue] Auditoría rechazada:', e.message);
+      }
     }
   }
   await ARStorage.set('ext_offline_queue', remaining);
@@ -1407,8 +1430,12 @@ async function procesarOfflineQueue() {
     APP.auditorias = await apiExt('/api/extintores/auditorias').catch(()=>APP.auditorias);
     renderHistorial(); renderHistorialFull();
   }
+  if (rechazadas > 0) {
+    showToast('⚠ '+rechazadas+' auditoría'+(rechazadas>1?'s':'')+' pendiente'+(rechazadas>1?'s':'')+' no se pudo sincronizar (revisá el fichaje de ese día)', 'error', 8000);
+  }
   setSyncStatus(remaining.length > 0 ? 'pending' : 'saved');
 }
+
 
 // Al reconectarse: sincronizar queue automáticamente
 window.addEventListener('online', async () => {
