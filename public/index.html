@@ -1225,16 +1225,45 @@ async function cargarEquipoEstado() {
   } catch { cont.innerHTML = '<p style="color:var(--red);font-size:13px;text-align:center;padding:16px 0">Error cargando equipo</p>'; }
 }
 
+// Transiciones válidas de fichaje — debe coincidir con TRANSICIONES_FICHAJE del backend
+// (jornadaService.js). Define qué tipos se pueden marcar según el último movimiento de hoy.
+const TRANSICIONES_FICHAJE = {
+  null:                  ['ingreso','inicio_jornada_remota'],
+  ingreso:               ['salida_almuerzo','salida_externa','egreso'],
+  salida_almuerzo:       ['regreso_almuerzo'],
+  regreso_almuerzo:      ['salida_externa','egreso'],
+  salida_externa:        ['regreso_externo'],
+  regreso_externo:       ['salida_externa','egreso'],
+  egreso:                ['ingreso'],
+  inicio_jornada_remota: ['fin_jornada_remota'],
+  fin_jornada_remota:    ['ingreso'],
+};
+
+function tiposPermitidosAhora() {
+  return TRANSICIONES_FICHAJE[STATE.ultimoMovimiento || null] || ['ingreso'];
+}
+
 function detectarProximoTipo(movs) {
-  if (!movs || !movs.length) return 'ingreso';
+  if (!movs || !movs.length) return TRANSICIONES_FICHAJE[null][0];
   const ultimo = movs[movs.length - 1].tipo;
-  const siguiente = {
-    'ingreso': 'salida_almuerzo','salida_almuerzo': 'regreso_almuerzo',
-    'regreso_almuerzo': 'egreso','salida_externa': 'regreso_externo',
-    'regreso_externo': 'egreso','inicio_jornada_remota': 'fin_jornada_remota',
-    'egreso': 'ingreso','fin_jornada_remota': 'ingreso',
-  };
-  return siguiente[ultimo] || 'ingreso';
+  const permitidos = TRANSICIONES_FICHAJE[ultimo] || TRANSICIONES_FICHAJE[null];
+  return permitidos[0];
+}
+
+// Muestra en el combo de fichaje solo los tipos que corresponden ahora, según
+// el último movimiento del día — así el técnico no puede elegir algo incoherente
+// (ej. "Salida externa" sin haber marcado "Ingreso" antes).
+function actualizarOpcionesTipoMovimiento() {
+  const permitidos = tiposPermitidosAhora();
+  const sel = document.getElementById('reg-tipo');
+  let primeraVisible = null;
+  [...sel.options].forEach(opt => {
+    const visible = permitidos.includes(opt.value);
+    opt.hidden = !visible;
+    opt.disabled = !visible;
+    if (visible && !primeraVisible) primeraVisible = opt.value;
+  });
+  if (primeraVisible && !permitidos.includes(sel.value)) sel.value = primeraVisible;
 }
 
 function renderMovimientosHoy(movs) {
@@ -1404,9 +1433,7 @@ async function abrirModalRegistro() {
     selD.innerHTML = '<option value="">— Sin destino específico —</option>' +
       STATE.destinos.map(d => '<option value="'+d.id+'">'+d.nombre+' ('+(d.localidad||'')+')</option>').join('');
   } catch {}
-  const proximoTipo = detectarProximoTipo(STATE.ultimoMovimiento ? [{tipo:STATE.ultimoMovimiento}] : []);
-  const selTipo = document.getElementById('reg-tipo');
-  selTipo.value = proximoTipo;
+  actualizarOpcionesTipoMovimiento();
   cambiarTipoMovimiento();
   abrirModal('modal-registro');
   iniciarVerificacion();
