@@ -69,16 +69,91 @@ router.get('/ausencias', auth, async (req, res) => {
 // ════════════════════════════════════════════════════════════════
 
 // GET /licencias/vacaciones/saldo — debe ir ANTES de /vacaciones
+// Nota: NO usamos la vista v_saldo_vacaciones para el cálculo principal porque
+// esa vista calcula la antigüedad "a hoy" (AGE(CURRENT_DATE,...)), y la LCT
+// pide la antigüedad al 31/12 del año que corresponden las vacaciones. Acá lo
+// calculamos bien, y además sumamos lo que haya quedado pendiente del año
+// anterior (arrastre), que la vista tampoco contemplaba.
 router.get('/vacaciones/saldo', auth, async (req, res) => {
   const { empleado_id } = req.query;
   try {
-    let query = 'SELECT * FROM public.v_saldo_vacaciones WHERE empleador_id = $1';
-    const params = [req.user.empleadorId];
-    if (req.user.rol === 'empleado') { params.push(req.user.empleadoId); query += ` AND empleado_id = $2`; }
-    else if (empleado_id) { params.push(empleado_id); query += ` AND empleado_id = $2`; }
-    const { rows } = await db.query(query, params);
-    res.json(rows);
-  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+    const empleadorId = req.user.empleadorId;
+    const anioActual = new Date().getFullYear();
+    const anioAnterior = anioActual - 1;
+
+    let where = 'WHERE e.empleador_id = $1 AND e.activo = TRUE';
+    const params = [empleadorId];
+    if (req.user.rol === 'empleado') { params.push(req.user.empleadoId); where += ` AND e.id = $${params.length}`; }
+    else if (empleado_id) { params.push(empleado_id); where += ` AND e.id = $${params.length}`; }
+
+    const { rows: empleados } = await db.query(`
+      SELECT e.id AS empleado_id, e.empleador_id, e.nombre, e.apellido, e.fecha_ingreso,
+             EXTRACT(YEAR FROM AGE(CURRENT_DATE, e.fecha_ingreso))::INTEGER AS anios_antiguedad,
+             c.vacaciones_hasta_5_anios, c.vacaciones_hasta_10_anios,
+             c.vacaciones_hasta_20_anios, c.vacaciones_mas_20_anios
+      FROM public.empleados e
+      JOIN public.empleadores emp ON emp.id = e.empleador_id
+      JOIN public.convenios c ON c.id = emp.convenio_id
+      ${where}
+      ORDER BY e.nombre
+    `, params);
+
+    const diasPorAntiguedad = (anios, c) => {
+      if (anios < 5) return c.vacaciones_hasta_5_anios;
+      if (anios < 10) return c.vacaciones_hasta_10_anios;
+      if (anios < 20) return c.vacaciones_hasta_20_anios;
+      return c.vacaciones_mas_20_anios;
+    };
+    const antiguedadAlCierre = (fechaIngreso, anio) => {
+      const cierre = new Date(`${anio}-12-31`);
+      const ingreso = new Date(fechaIngreso);
+      let anios = cierre.getFullYear() - ingreso.getFullYear();
+      const antesDeAniversario =
+        (cierre.getMonth() < ingreso.getMonth()) ||
+        (cierre.getMonth() === ingreso.getMonth() && cierre.getDate() < ingreso.getDate());
+      if (antesDeAniversario) anios--;
+      return Math.max(0, anios);
+    };
+
+    const resultado = [];
+    for (const e of empleados) {
+      const diasCorresponden = diasPorAntiguedad(antiguedadAlCierre(e.fecha_ingreso, anioActual), e);
+      const diasCorrespondianAnioAnterior = diasPorAntiguedad(antiguedadAlCierre(e.fecha_ingreso, anioAnterior), e);
+
+      const { rows: [tAnioActual] } = await db.query(`
+        SELECT COALESCE(SUM(dias_corridos),0) as total FROM public.vacaciones_tomadas
+        WHERE empleado_id = $1 AND anio = $2 AND estado = 'aprobada'
+      `, [e.empleado_id, anioActual]);
+      const { rows: [tAnioAnterior] } = await db.query(`
+        SELECT COALESCE(SUM(dias_corridos),0) as total FROM public.vacaciones_tomadas
+        WHERE empleado_id = $1 AND anio = $2 AND estado = 'aprobada'
+      `, [e.empleado_id, anioAnterior]);
+
+      const diasTomadosAnioActual = Number(tAnioActual.total);
+      const diasTomadosAnioAnterior = Number(tAnioAnterior.total);
+      const arrastreAnioAnterior = Math.max(0, diasCorrespondianAnioAnterior - diasTomadosAnioAnterior);
+
+      resultado.push({
+        empleado_id: e.empleado_id,
+        empleador_id: e.empleador_id,
+        nombre: e.nombre,
+        apellido: e.apellido,
+        fecha_ingreso: e.fecha_ingreso,
+        anios_antiguedad: e.anios_antiguedad,
+        dias_correspondientes: diasCorresponden,
+        dias_tomados: diasTomadosAnioActual,
+        dias_disponibles: Math.max(0, diasCorresponden - diasTomadosAnioActual),
+        arrastre_anio_anterior: arrastreAnioAnterior,
+        anio_anterior: anioAnterior,
+        saldo_total_disponible: Math.max(0, diasCorresponden - diasTomadosAnioActual) + arrastreAnioAnterior,
+      });
+    }
+
+    res.json(resultado);
+  } catch (err) {
+    console.error('[LIC] Saldo vacaciones error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 // GET /licencias/vacaciones — listar vacaciones
