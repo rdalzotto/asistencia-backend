@@ -1,6 +1,7 @@
-const router = require('express').Router();
-const db     = require('../db');
+const router  = require('express').Router();
+const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
+const jornada = require('../services/jornadaService');
 
 // ── HELPERS DE FECHA/HORA ARGENTINA (el servidor en Railway corre en UTC; no usar new Date() directo) ──
 // Argentina es UTC-3 todo el año (sin horario de verano), así que restamos 3hs al UTC del servidor.
@@ -250,6 +251,17 @@ router.patch('/:id', auth, async (req, res) => {
   }
   if (!sets.length && !destinos && !recursos_ids) return res.status(400).json({ error: 'Nada que actualizar' });
 
+  // "en_curso" y "completada" representan la ejecución real de la visita en el cliente
+  // (no la planificación), así que un técnico solo puede marcarlas con jornada activa.
+  // Agendar/editar detalles (fecha, destinos, recursos, etc.) sigue libre sin fichar.
+  if (['en_curso', 'completada'].includes(estado) && req.user.rol === 'empleado') {
+    if (!(await jornada.jornadaActivaHoy(req.user.empleadoId))) {
+      return res.status(403).json({
+        error: 'Tenés que fichar Ingreso antes de marcar la visita como en curso o completada.'
+      });
+    }
+  }
+
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -348,6 +360,16 @@ router.patch('/:id', auth, async (req, res) => {
          FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos
       FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id WHERE v.id = $1
     `, [req.params.id]);
+
+    // Al completar, informamos cuántas horas lleva trabajadas hoy (hasta este momento)
+    if (estado === 'completada' && completa?.empleado_id) {
+      try {
+        completa.horas_trabajadas_hoy = await jornada.calcularHorasJornada(
+          completa.empleado_id, fechaHoyArgentina(), null, true
+        );
+      } catch { /* no crítico */ }
+    }
+
     res.json(completa);
   } catch (e) {
     await client.query('ROLLBACK');
