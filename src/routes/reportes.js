@@ -82,16 +82,13 @@ router.get('/mensual', auth, async (req, res) => {
       const ausencia  = ausencias.find(a => fecha >= a.fecha_inicio && fecha <= a.fecha_fin);
       const tardanza  = movsDia.find(m => m.es_tardanza);
 
-      // Calcular horas trabajadas del día
+      // Calcular horas trabajadas del día usando los movimientos reales (ingreso→egreso),
+      // descontando el almuerzo SOLO si el empleado efectivamente marcó salida/regreso de
+      // almuerzo (con su duración real) — si no lo marcó (ej. almuerza en oficina mientras
+      // trabaja), esas horas siguen contando normalmente, sin descuento fijo de 1 hora.
       let horasTrabajadas = 0;
       if (ingreso && egreso) {
-        horasTrabajadas = Math.round(
-          (new Date(egreso.hora) - new Date(ingreso.hora)) / 3600000 * 100
-        ) / 100;
-        // Descontar almuerzo si aplica
-        if (emp.incluye_almuerzo && horasTrabajadas > 4) {
-          horasTrabajadas = Math.max(0, horasTrabajadas - 1);
-        }
+        horasTrabajadas = calcularHorasDesdeMovimientos(movsDia);
       }
 
       diasDelMes.push({
@@ -304,5 +301,37 @@ router.get('/libro-lct', auth, soloAdmin, async (req, res) => {
     res.status(500).json({ error: 'Error interno' });
   }
 });
+
+// ─── Calcular horas trabajadas de un día a partir de sus movimientos ordenados ──
+// Misma lógica que jornadaService.calcularHorasJornada, pero operando sobre
+// movimientos ya cargados en memoria (evita una query extra por cada día del mes).
+// El almuerzo solo se descuenta si hay un tramo real salida_almuerzo→regreso_almuerzo.
+function calcularHorasDesdeMovimientos(movsDia) {
+  let totalMinutos = 0;
+  let horaEntrada = null;
+
+  for (const m of movsDia) {
+    switch (m.tipo) {
+      case 'ingreso':
+      case 'regreso_almuerzo':
+      case 'regreso_externo':
+      case 'inicio_jornada_remota':
+        horaEntrada = new Date(m.hora);
+        break;
+
+      case 'salida_almuerzo':
+      case 'salida_externa':
+      case 'egreso':
+      case 'fin_jornada_remota':
+        if (horaEntrada) {
+          totalMinutos += (new Date(m.hora) - horaEntrada) / 60000;
+          horaEntrada = null;
+        }
+        break;
+    }
+  }
+
+  return Math.round((totalMinutos / 60) * 100) / 100;
+}
 
 module.exports = router;
