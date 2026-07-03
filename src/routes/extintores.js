@@ -1,6 +1,7 @@
-const router = require('express').Router();
-const db     = require('../db');
+const router   = require('express').Router();
+const db       = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
+const jornada  = require('../services/jornadaService');
 
 const DEFAULT_CHECKLIST = [
   { clave:'manguera',       etiqueta:'Manguera',                            orden:1 },
@@ -127,9 +128,24 @@ router.get('/auditorias/:id', auth, async (req, res) => {
 
 // ─── POST /api/extintores/auditorias ─────────────────────────────────────────
 router.post('/auditorias', auth, async (req, res) => {
+  const { fecha } = req.body;
+  // El relevamiento de extintores es trabajo de campo durante la jornada: si es
+  // un técnico (no admin), exigimos que haya fichado Ingreso ESE día. Usamos la
+  // fecha del relevamiento (no "ahora mismo") porque este módulo tiene cola
+  // offline propia — puede sincronizarse horas después, cuando el técnico ya
+  // fichó egreso — y no queremos rechazar trabajo que sí se hizo en jornada.
+  if (req.user.rol === 'empleado') {
+    const fechaAValidar = fecha ? String(fecha).slice(0,10) : new Date().toISOString().split('T')[0];
+    if (!(await jornada.tuvoIngresoEnFecha(req.user.empleadoId, fechaAValidar))) {
+      return res.status(403).json({
+        error: 'Tenés que fichar Ingreso ese día antes de cargar un relevamiento de extintores.'
+      });
+    }
+  }
+
   const {
     destino_id, cliente_nombre, cliente_sector, cliente_planta, cliente_direccion, cliente_logo,
-    fecha, hora, gps, observaciones, plano_img, firma_tecnico,
+    hora, gps, observaciones, plano_img, firma_tecnico,
     total_extintores=0, ok_count=0, nok_count=0, warn_count=0, resultado_pct=0,
     extintores=[]
   } = req.body;
