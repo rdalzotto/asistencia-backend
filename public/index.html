@@ -608,7 +608,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <div class="form-group"><label>Modalidad</label><select id="editar-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option><option value="flexible">Flexible</option></select></div>
         <div class="form-group"><label>Hora ingreso</label><input type="time" id="editar-hora-ingreso"></div>
         <div class="form-group"><label>Hora egreso</label><input type="time" id="editar-hora-egreso"></div>
-        <div class="form-group"><label>Días vacaciones/año</label><input type="number" id="editar-vacaciones" placeholder="14"></div>
+        <div class="form-group"><label>Días vacaciones/año</label><input type="number" id="editar-vacaciones" placeholder="14" disabled style="opacity:0.7"><p style="font-size:11px;color:var(--text3);margin-top:4px">Se calcula solo según antigüedad (fecha de ingreso) y convenio — no es editable acá. Para corregirlo, ajustá la fecha de ingreso arriba.</p></div>
       </div>
       <div class="form-section" id="editar-seccion-reset">
         <div class="form-section-title">Acceso al sistema</div>
@@ -871,12 +871,31 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Solicitar vacaciones / días</div>
+
+    <div id="vac-resumen-saldo" style="background:rgba(0,200,255,0.08);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px;margin-bottom:12px;display:none">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Te corresponden este año</span><strong id="vac-r-corresponden">--</strong></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Ya tomaste este año</span><strong id="vac-r-tomados">--</strong></div>
+      <div id="vac-r-arrastre-fila" style="display:none;justify-content:space-between;margin-bottom:4px;color:var(--orange)"><span>Pendientes del año anterior</span><strong id="vac-r-arrastre">--</strong></div>
+      <div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid var(--border);margin-top:2px"><span>Disponibles ahora</span><strong id="vac-r-disponibles" style="color:var(--accent)">--</strong></div>
+    </div>
+
+    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:11.5px;color:var(--text2);margin-bottom:12px;line-height:1.5">
+      <strong style="color:var(--text1)">Condiciones según Convenio de Comercio (LCT):</strong>
+      <ul style="margin:6px 0 0 16px;padding:0">
+        <li>Los días son <strong>corridos</strong> (incluyen fines de semana y feriados dentro del período, no se suman aparte).</li>
+        <li>El período debe ser <strong>continuo</strong>, de un mínimo de <strong>7 días corridos</strong> por bloque.</li>
+        <li>Debe <strong>comenzar un lunes</strong> (o el hábil siguiente si el lunes es feriado).</li>
+        <li>No se pueden fraccionar en varios bloques cortos salteando fines de semana.</li>
+      </ul>
+    </div>
+
     <div class="form-group"><label>Tipo</label><select id="vac-tipo" onchange="toggleTipoVac()"><option value="vacaciones">🌴 Vacaciones anuales</option><option value="dias_particulares">📅 Días particulares</option><option value="vacaciones_admin">💻 Vacaciones administrativo</option></select></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group"><label>Desde</label><input type="date" id="vac-desde" onchange="calcularDiasVac()"></div>
       <div class="form-group"><label>Hasta</label><input type="date" id="vac-hasta" onchange="calcularDiasVac()"></div>
     </div>
     <div id="vac-dias-info" style="font-size:13px;color:var(--accent);margin-bottom:8px;display:none"></div>
+    <div id="vac-condicion-warn" style="display:none;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:8px"></div>
     <div id="vac-anticipacion-warn" style="display:none;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:8px">⚠ Las vacaciones deben solicitarse con al menos 15 días de anticipación.</div>
     <div class="form-group"><label>Motivo (opcional)</label><input type="text" id="vac-motivo" placeholder="Ej: Viaje familiar"></div>
     <div id="vac-admin-info" style="display:none;background:rgba(0,200,255,0.08);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--text2);margin-bottom:8px">💻 En caso de urgencia, estarás disponible en forma remota.</div>
@@ -1862,7 +1881,7 @@ async function enviarAusencia() {
   } catch(e) { toast(e.message, 'error'); }
 }
 
-function abrirModalVacaciones() {
+async function abrirModalVacaciones() {
   const minFecha = new Date(); minFecha.setDate(minFecha.getDate()+15);
   const minStr = minFecha.toISOString().split('T')[0];
   document.getElementById('vac-desde').value = minStr;
@@ -1871,9 +1890,28 @@ function abrirModalVacaciones() {
   document.getElementById('vac-hasta').min = minStr;
   document.getElementById('vac-dias-info').style.display = 'none';
   document.getElementById('vac-anticipacion-warn').style.display = 'none';
+  document.getElementById('vac-condicion-warn').style.display = 'none';
   document.getElementById('vac-admin-info').style.display = 'none';
   document.getElementById('vac-motivo').value = '';
+  document.getElementById('vac-resumen-saldo').style.display = 'none';
   abrirModal('modal-vacaciones');
+  try {
+    const saldo = await api('/licencias/vacaciones/saldo');
+    const s = saldo[0];
+    if (s) {
+      document.getElementById('vac-r-corresponden').textContent = s.dias_correspondientes + ' días';
+      document.getElementById('vac-r-tomados').textContent = s.dias_tomados + ' días';
+      document.getElementById('vac-r-disponibles').textContent = s.saldo_total_disponible + ' días';
+      const filaArrastre = document.getElementById('vac-r-arrastre-fila');
+      if (s.arrastre_anio_anterior > 0) {
+        filaArrastre.style.display = 'flex';
+        document.getElementById('vac-r-arrastre').textContent = s.arrastre_anio_anterior + ' días (de ' + s.anio_anterior + ')';
+      } else {
+        filaArrastre.style.display = 'none';
+      }
+      document.getElementById('vac-resumen-saldo').style.display = 'block';
+    }
+  } catch(e) { console.error('Error cargando saldo de vacaciones:', e); }
 }
 
 function toggleTipoVac() {
@@ -1890,6 +1928,21 @@ function calcularDiasVac() {
   info.style.display = 'block'; info.textContent = '📅 ' + dias + ' día' + (dias>1?'s':'');
   const diasAnticipacion = Math.round((new Date(desde)-new Date())/86400000);
   document.getElementById('vac-anticipacion-warn').style.display = diasAnticipacion<15 ? 'block' : 'none';
+
+  // Aviso (no bloquea el envío) si no cumple las condiciones del convenio:
+  // mínimo 7 días corridos y arranque en lunes.
+  const warn = document.getElementById('vac-condicion-warn');
+  const avisos = [];
+  if (dias < 7) avisos.push('el convenio pide un mínimo de 7 días corridos por período');
+  // getUTCDay para evitar corrimiento de zona horaria al parsear "YYYY-MM-DD"
+  const diaSemanaInicio = new Date(desde + 'T00:00:00').getDay(); // 0=dom,1=lun...
+  if (diaSemanaInicio !== 1) avisos.push('el convenio pide que arranque un lunes');
+  if (avisos.length) {
+    warn.style.display = 'block';
+    warn.textContent = '⚠ Este pedido no cumple lo que marca el convenio: ' + avisos.join(' y ') + '. Podés enviarlo igual, pero quedará sujeto a que el admin lo evalúe puntualmente.';
+  } else {
+    warn.style.display = 'none';
+  }
 }
 
 async function enviarVacaciones() {
@@ -3731,7 +3784,6 @@ async function guardarEdicionEmpleado() {
     modalidad:document.getElementById('editar-modalidad').value,
     hora_ingreso:document.getElementById('editar-hora-ingreso').value,
     hora_egreso:document.getElementById('editar-hora-egreso').value,
-    dias_vacaciones:parseInt(document.getElementById('editar-vacaciones').value)||14,
   };
   try {
     await api('/config/empleados/'+id,{method:'PATCH',body:JSON.stringify(payload)});
