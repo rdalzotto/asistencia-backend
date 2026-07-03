@@ -44,7 +44,10 @@ function calcularTardanza(horaIngreso, jornadaConfig, convenio) {
 }
 
 // ─── Calcular horas trabajadas en una jornada ────────────────────────────────
-async function calcularHorasJornada(empleadoId, fecha, client) {
+// contarAbierta=true: si la jornada sigue abierta (no fichó egreso todavía),
+// suma también el tramo abierto hasta el momento actual. Útil para mostrarle
+// al técnico "cuántas horas llevás" antes de que cierre el día.
+async function calcularHorasJornada(empleadoId, fecha, client, contarAbierta = false) {
   // Obtener todos los movimientos del día ordenados
   const queryFn = client ? client.query.bind(client) : db.query.bind(db);
   const { rows: movs } = await queryFn(`
@@ -93,6 +96,11 @@ async function calcularHorasJornada(empleadoId, fecha, client) {
         }
         break;
     }
+  }
+
+  // Tramo todavía abierto (no fichó egreso) — solo si se pidió explícitamente
+  if (contarAbierta && horaEntrada) {
+    totalMinutos += (new Date() - horaEntrada) / 60000;
   }
 
   return Math.round((totalMinutos / 60) * 100) / 100;
@@ -268,6 +276,80 @@ function generarHash(datos) {
   return crypto.createHash('sha256').update(str).digest('hex');
 }
 
+// ─── Secuencia lógica válida de fichaje ──────────────────────────────────────
+// Define qué tipo de movimiento puede registrarse a continuación según el
+// último movimiento del día. Usamos null como clave para "todavía no fichó nada hoy".
+const TRANSICIONES_FICHAJE = {
+  null:                   ['ingreso', 'inicio_jornada_remota'],
+  ingreso:                ['salida_almuerzo', 'salida_externa', 'egreso'],
+  salida_almuerzo:        ['regreso_almuerzo'],
+  regreso_almuerzo:       ['salida_externa', 'egreso'],
+  salida_externa:         ['regreso_externo'],
+  regreso_externo:        ['salida_externa', 'egreso'],
+  egreso:                 ['ingreso'],
+  inicio_jornada_remota:  ['fin_jornada_remota'],
+  fin_jornada_remota:     ['ingreso'],
+};
+
+function tipoMovimientoPermitido(ultimoTipo, tipoNuevo) {
+  // 'trabajo_feriado' es un flag informativo aparte, no forma parte de la secuencia de fichaje
+  if (tipoNuevo === 'trabajo_feriado') return true;
+  const permitidos = TRANSICIONES_FICHAJE[ultimoTipo || null] || [];
+  return permitidos.includes(tipoNuevo);
+}
+
+// ─── Último movimiento de hoy de un empleado ────────────────────────────────
+async function obtenerUltimoMovimientoHoy(empleadoId, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const { rows } = await queryFn(`
+    SELECT tipo, hora FROM public.movimientos
+    WHERE empleado_id = $1 AND fecha = CURRENT_DATE
+    ORDER BY hora DESC LIMIT 1
+  `, [empleadoId]);
+  return rows[0] || null;
+}
+
+// ─── ¿Tiene jornada activa ahora mismo? (fichó ingreso/remoto y no cerró) ────
+async function jornadaActivaHoy(empleadoId, client) {
+  const ultimo = await obtenerUltimoMovimientoHoy(empleadoId, client);
+  if (!ultimo) return false;
+  return !['egreso', 'fin_jornada_remota'].includes(ultimo.tipo);
+}
+
+// ─── ¿Fichó Ingreso (o inició jornada remota) en una fecha dada? ─────────────
+// A diferencia de jornadaActivaHoy (estado EN ESTE INSTANTE), esto chequea si
+// hubo fichaje ESE DÍA sin importar si ya cerró jornada. Se usa para validar
+// acciones que pueden sincronizarse tarde por conexión offline (ej. un
+// relevamiento de extintores cargado sin señal y sincronizado horas después,
+// cuando el técnico ya fichó egreso) — así no se rechaza trabajo legítimo
+// solo porque la sincronización llegó después de cerrar el día.
+async function tuvoIngresoEnFecha(empleadoId, fecha, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const { rows } = await queryFn(`
+    SELECT 1 FROM public.movimientos
+    WHERE empleado_id = $1 AND fecha = $2
+      AND tipo IN ('ingreso', 'inicio_jornada_remota')
+    LIMIT 1
+  `, [empleadoId, fecha]);
+  return rows.length > 0;
+}
+
+// ─── ¿Tiene vacaciones o ausencia APROBADA para hoy? ─────────────────────────
+async function tieneAusenciaOVacacionHoy(empleadoId, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const { rows } = await queryFn(`
+    SELECT 1 FROM public.ausencias
+    WHERE empleado_id = $1 AND estado = 'aprobada'
+      AND CURRENT_DATE BETWEEN fecha_inicio AND fecha_fin
+    UNION ALL
+    SELECT 1 FROM public.vacaciones_tomadas
+    WHERE empleado_id = $1 AND estado = 'aprobada'
+      AND CURRENT_DATE BETWEEN fecha_inicio AND fecha_fin
+    LIMIT 1
+  `, [empleadoId]);
+  return rows.length > 0;
+}
+
 module.exports = {
   esFeriado,
   getJornadaConfig,
@@ -277,4 +359,10 @@ module.exports = {
   verificarLimitesExtra,
   actualizarBancoHoras,
   generarHash,
+  TRANSICIONES_FICHAJE,
+  tipoMovimientoPermitido,
+  obtenerUltimoMovimientoHoy,
+  jornadaActivaHoy,
+  tuvoIngresoEnFecha,
+  tieneAusenciaOVacacionHoy,
 };
