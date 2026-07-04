@@ -877,6 +877,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Ya tomaste este año</span><strong id="vac-r-tomados">--</strong></div>
       <div id="vac-r-arrastre-fila" style="display:none;justify-content:space-between;margin-bottom:4px;color:var(--orange)"><span>Pendientes del año anterior</span><strong id="vac-r-arrastre">--</strong></div>
       <div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px solid var(--border);margin-top:2px"><span>Disponibles ahora</span><strong id="vac-r-disponibles" style="color:var(--accent)">--</strong></div>
+      <div id="vac-r-vencido-fila" style="display:none;margin-top:6px;padding-top:6px;border-top:1px dashed var(--red);color:var(--red);font-size:11.5px;line-height:1.4"></div>
     </div>
 
     <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:11.5px;color:var(--text2);margin-bottom:12px;line-height:1.5">
@@ -886,6 +887,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <li>El período debe ser <strong>continuo</strong>, de un mínimo de <strong>7 días corridos</strong> por bloque.</li>
         <li>Debe <strong>comenzar un lunes</strong> (o el hábil siguiente si el lunes es feriado).</li>
         <li>No se pueden fraccionar en varios bloques cortos salteando fines de semana.</li>
+        <li>Lo pendiente de un año se puede arrastrar al siguiente, pero solo hasta el <strong>31 de mayo</strong>; pasada esa fecha caduca y no se acumula más (nunca se arrastra de más de un año atrás).</li>
       </ul>
     </div>
 
@@ -1903,11 +1905,18 @@ async function abrirModalVacaciones() {
       document.getElementById('vac-r-tomados').textContent = s.dias_tomados + ' días';
       document.getElementById('vac-r-disponibles').textContent = s.saldo_total_disponible + ' días';
       const filaArrastre = document.getElementById('vac-r-arrastre-fila');
-      if (s.arrastre_anio_anterior > 0) {
+      if (s.arrastre_anio_anterior > 0 && !s.arrastre_vencido) {
         filaArrastre.style.display = 'flex';
-        document.getElementById('vac-r-arrastre').textContent = s.arrastre_anio_anterior + ' días (de ' + s.anio_anterior + ')';
+        document.getElementById('vac-r-arrastre').textContent = s.arrastre_anio_anterior + ' días (de ' + s.anio_anterior + ', vencen el ' + s.fecha_limite_arrastre + ')';
       } else {
         filaArrastre.style.display = 'none';
+      }
+      const filaVencido = document.getElementById('vac-r-vencido-fila');
+      if (s.arrastre_vencido) {
+        filaVencido.style.display = 'block';
+        filaVencido.textContent = '⚠ Tenías ' + s.arrastre_anio_anterior + ' días pendientes de ' + s.anio_anterior + ' que caducaron el ' + s.fecha_limite_arrastre + ' (art. 157/162 LCT) y ya no suman al disponible. Si la demora no fue tuya, consultá con administración.';
+      } else {
+        filaVencido.style.display = 'none';
       }
       document.getElementById('vac-resumen-saldo').style.display = 'block';
     }
