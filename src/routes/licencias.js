@@ -78,8 +78,18 @@ router.get('/vacaciones/saldo', auth, async (req, res) => {
   const { empleado_id } = req.query;
   try {
     const empleadorId = req.user.empleadorId;
-    const anioActual = new Date().getFullYear();
+    const hoy = new Date();
+    const anioActual = hoy.getFullYear();
     const anioAnterior = anioActual - 1;
+
+    // ─ Tope de arrastre según LCT (art. 157/162): el saldo pendiente de un año
+    //   solo puede tomarse hasta el 31/5 del año siguiente. Pasada esa fecha,
+    //   caduca — no se suma más al disponible (aunque se sigue mostrando como
+    //   dato informativo/histórico). Nunca se mira más de un año hacia atrás,
+    //   así el arrastre no se acumula indefinidamente.
+    const limiteArrastre = new Date(`${anioActual}-05-31T23:59:59`);
+    const arrastreVencido = hoy > limiteArrastre;
+    const fechaLimiteArrastre = `${anioActual}-05-31`;
 
     let where = 'WHERE e.empleador_id = $1 AND e.activo = TRUE';
     const params = [empleadorId];
@@ -132,6 +142,10 @@ router.get('/vacaciones/saldo', auth, async (req, res) => {
       const diasTomadosAnioActual = Number(tAnioActual.total);
       const diasTomadosAnioAnterior = Number(tAnioAnterior.total);
       const arrastreAnioAnterior = Math.max(0, diasCorrespondianAnioAnterior - diasTomadosAnioAnterior);
+      // Solo cuenta para el disponible si todavía no venció (31/5). Si venció,
+      // se informa aparte para que el admin decida si corresponde igual
+      // otorgarlo (ej. si la demora fue por no habérselo ofrecido a tiempo).
+      const arrastreValido = arrastreVencido ? 0 : arrastreAnioAnterior;
 
       resultado.push({
         empleado_id: e.empleado_id,
@@ -144,8 +158,11 @@ router.get('/vacaciones/saldo', auth, async (req, res) => {
         dias_tomados: diasTomadosAnioActual,
         dias_disponibles: Math.max(0, diasCorresponden - diasTomadosAnioActual),
         arrastre_anio_anterior: arrastreAnioAnterior,
+        arrastre_valido: arrastreValido,
+        arrastre_vencido: arrastreVencido && arrastreAnioAnterior > 0,
+        fecha_limite_arrastre: fechaLimiteArrastre,
         anio_anterior: anioAnterior,
-        saldo_total_disponible: Math.max(0, diasCorresponden - diasTomadosAnioActual) + arrastreAnioAnterior,
+        saldo_total_disponible: Math.max(0, diasCorresponden - diasTomadosAnioActual) + arrastreValido,
       });
     }
 
