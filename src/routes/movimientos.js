@@ -453,7 +453,9 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[MOV] Validar remoto error:', err.message);
-    res.status(500).json({ error: 'Error interno' });
+    // Se expone el mensaje real (endpoint protegido por soloAdmin) para poder
+    // diagnosticar sin depender de tener los logs de Railway a mano.
+    res.status(500).json({ error: 'Error interno: ' + err.message });
   } finally {
     client.release();
   }
