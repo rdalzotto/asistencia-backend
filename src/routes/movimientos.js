@@ -425,8 +425,11 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
   const { id } = req.params;
   const { aprobado, observacion } = req.body;
 
+  const client = await db.connect();
   try {
-    const { rows: [mov] } = await db.query(`
+    await client.query('BEGIN');
+
+    const { rows: [mov] } = await client.query(`
       UPDATE public.movimientos SET
         validado = $1,
         validado_por = $2,
@@ -436,21 +439,23 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
       RETURNING *
     `, [aprobado !== false, req.user.id, observacion || null, id, req.user.empleadorId]);
 
-    if (!mov) return res.status(404).json({ error: 'Movimiento no encontrado' });
-
-    if (aprobado !== false) {
-      const client = await db.connect();
-      try {
-        await client.query('BEGIN');
-        await jornada.actualizarBancoHoras(mov.empleado_id, mov.fecha, client);
-        await client.query('COMMIT');
-      } finally { client.release(); }
+    if (!mov) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Movimiento no encontrado' });
     }
 
+    if (aprobado !== false) {
+      await jornada.actualizarBancoHoras(mov.empleado_id, mov.fecha, client);
+    }
+
+    await client.query('COMMIT');
     res.json({ ok: true, movimiento: mov });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('[MOV] Validar remoto error:', err.message);
     res.status(500).json({ error: 'Error interno' });
+  } finally {
+    client.release();
   }
 });
 
