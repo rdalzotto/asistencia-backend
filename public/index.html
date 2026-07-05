@@ -2062,8 +2062,11 @@ async function validarRemoto(id, aprobado) {
   try {
     await api('/movimientos/validar-remoto/'+id, {method:'POST', body:JSON.stringify({aprobado})});
     toast(aprobado ? 'Jornada validada ✓' : 'Jornada rechazada', aprobado ? 'success' : 'info');
+  } catch(e) {
+    toast(e.message, 'error');
+  } finally {
     cargarDashboardAdmin();
-  } catch(e) { toast(e.message, 'error'); }
+  }
 }
 </script>
 
