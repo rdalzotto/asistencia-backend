@@ -34,6 +34,11 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
     emails_admin, convenio_id,
   } = req.body;
 
+  // La librería pg no acepta `undefined` como parámetro (solo null) — los
+  // campos que el formulario no envía llegan como undefined al desestructurar
+  // desde req.body, así que los normalizamos todos a null antes de usarlos.
+  const n = v => v === undefined ? null : v;
+
   try {
     const empleadorId = await getEmpleadorId(req);
     if (!empleadorId) return res.status(400).json({ error: 'Sin empleador asignado' });
@@ -64,17 +69,17 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
         actualizado_en     = NOW()
       WHERE id = $22 RETURNING *
     `, [
-      razon_social, nombre_fantasia, cuit, domicilio, localidad, provincia,
-      codigo_postal, telefono, email, actividad, nro_inscripcion,
-      logo_url, color_primario, color_secundario, nombre_sistema,
-      oficina_lat, oficina_lng, oficina_radio_m,
-      emails_admin, convenio_id, subtitulo_sistema,
+      n(razon_social), n(nombre_fantasia), n(cuit), n(domicilio), n(localidad), n(provincia),
+      n(codigo_postal), n(telefono), n(email), n(actividad), n(nro_inscripcion),
+      n(logo_url), n(color_primario), n(color_secundario), n(nombre_sistema),
+      n(oficina_lat), n(oficina_lng), n(oficina_radio_m),
+      n(emails_admin), n(convenio_id), n(subtitulo_sistema),
       empleadorId,
     ]);
     res.json(emp || {});
   } catch (err) {
     console.error('[CFG] Empleador patch error:', err.message);
-    res.status(500).json({ error: 'Error interno' });
+    res.status(500).json({ error: 'Error interno: ' + err.message });
   }
 });
 
