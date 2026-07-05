@@ -167,8 +167,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <p id="login-sistema-subtitulo">Registro de asistencia, visitas y reserva de recursos</p>
   </div>
   <div class="login-card">
-    <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" autocomplete="email"></div>
-    <div class="form-group"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"></div>
+    <div class="form-group"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="new-password" readonly onfocus="this.removeAttribute('readonly')"></div>
     <button class="btn btn-primary" onclick="doLogin()" id="btn-login">Ingresar</button>
     <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text3)">Si es tu primer acceso, abrí el link que te enviaron por WhatsApp.</p>
   </div>
@@ -1017,12 +1017,22 @@ let STATE = {
 async function api(path, opts={}) {
   const headers = {'Content-Type':'application/json'};
   if (STATE.token) headers['Authorization'] = 'Bearer ' + STATE.token;
+  let r;
   try {
-    const r = await fetch(API + path, {...opts, headers:{...headers,...opts.headers}});
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Error ' + r.status);
-    return data;
-  } catch(e) { throw e; }
+    r = await fetch(API + path, {...opts, headers:{...headers,...opts.headers}});
+  } catch (e) {
+    // Falla de red (sin conexión, timeout, etc.) — no es un problema de sesión.
+    const netErr = new Error('Sin conexión con el servidor');
+    netErr.isNetworkError = true;
+    throw netErr;
+  }
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(data.error || 'Error ' + r.status);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
 }
 
 function toast(msg, type='info', dur=3000) {
@@ -1104,6 +1114,10 @@ function doLogout() {
   STATE = {token:null,rol:null,empleadoId:null,empleadorId:null,nombre:null,gpsCoords:null,fotoBlob:null,fotoBase64:null,categorias:[],destinos:[],camStream:null,ultimoMovimiento:null};
   localStorage.removeItem('ar_token');
   localStorage.removeItem('ar_rol');
+  const inpEmail = document.getElementById('login-email');
+  const inpPass = document.getElementById('login-pass');
+  if (inpEmail) { inpEmail.value = ''; inpEmail.setAttribute('readonly', ''); }
+  if (inpPass) { inpPass.value = ''; inpPass.setAttribute('readonly', ''); }
   mostrarScreen('login');
 }
 
@@ -1144,7 +1158,31 @@ async function irADashboard(rol) {
     STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
     STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
     irADashboard(rol);
-  } catch { doLogout(); }
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) {
+      // Token realmente inválido/expirado — ahí sí corresponde cerrar sesión.
+      doLogout();
+    } else {
+      // Falla de red o el servidor tardó/falló momentáneamente: NO deslogueamos.
+      // Entramos igual con los datos que ya teníamos guardados y reintentamos
+      // en segundo plano, para no perder la sesión por un problema transitorio.
+      toast('Sin conexión con el servidor — reintentando...', 'error');
+      irADashboard(rol);
+      setTimeout(async () => {
+        try {
+          const me = await api('/auth/me');
+          STATE.empleadoId = me.empleado?.id || null;
+          STATE.empleadorId = me.usuario.empleador_id;
+          STATE.nombre = me.empleado ? me.empleado.nombre : 'Admin';
+          STATE.apellido = me.empleado ? (me.empleado.apellido || '') : '';
+          STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
+          STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
+        } catch (e2) {
+          if (e2.status === 401 || e2.status === 403) doLogout();
+        }
+      }, 4000);
+    }
+  }
 })();
 
 function tomarFotoPerfil() { document.getElementById('foto-input').click(); }
