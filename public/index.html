@@ -1141,6 +1141,19 @@ async function irADashboard(rol) {
 }
 
 (async function autoLogin() {
+  try {
+    await autoLoginInterno();
+  } catch (eFatal) {
+    // Cualquier error no previsto en todo el proceso de autologueo: antes
+    // quedaba mudo, pegado en la pantalla de login por defecto, sin ningún
+    // aviso. Ahora al menos se ve en pantalla que pasó algo, en vez de
+    // parecer un logout silencioso.
+    console.error('[AUTOLOGIN] Error no previsto:', eFatal);
+    toast('No se pudo restaurar la sesión automáticamente (' + (eFatal?.message || 'error desconocido') + ') — iniciá sesión de nuevo', 'error', 6000);
+  }
+})();
+
+async function autoLoginInterno() {
   // Le pedimos al navegador que NO borre los datos guardados de este sitio
   // (token de sesión incluido) cuando el celular ande escaso de espacio.
   // Sin esto, Chrome puede evictar el localStorage silenciosamente — sin
@@ -1172,8 +1185,15 @@ async function irADashboard(rol) {
   if (!token) return;
   // Migración única: si este dispositivo tiene constancias pendientes de
   // sincronizar guardadas con el sistema viejo (localStorage), las pasamos
-  // a IndexedDB antes de seguir usando la app.
-  await ARStorage.migrarDesdeLocalStorage([], ['constancia_pendiente_offline_', 'constancia_pendiente_sync_']);
+  // a IndexedDB antes de seguir usando la app. Blindado: si esto falla por
+  // cualquier motivo (IndexedDB bloqueado, cuota, etc.) NO puede cortar el
+  // resto del autologueo — antes sí lo hacía, en silencio, dejando a la
+  // persona pegada en la pantalla de login sin ningún aviso.
+  try {
+    await ARStorage.migrarDesdeLocalStorage([], ['constancia_pendiente_offline_', 'constancia_pendiente_sync_']);
+  } catch (eMig) {
+    console.warn('[MIGRACIÓN] Falló, se ignora y se sigue con el login:', eMig);
+  }
   if (navigator.onLine) setTimeout(procesarMovimientosPendientes, 1500);
   if (navigator.onLine) setTimeout(procesarReservasPendientes, 1800);
   STATE.token = token; STATE.rol = rol;
@@ -1221,7 +1241,7 @@ async function irADashboard(rol) {
       }, 4000);
     }
   }
-})();
+}
 
 function tomarFotoPerfil() { document.getElementById('foto-input').click(); }
 
