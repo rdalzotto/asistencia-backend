@@ -790,6 +790,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <option value="salida_externa">📍 Salida externa</option>
         <option value="regreso_externo">↩ Regreso de externo</option>
         <option value="inicio_jornada_remota">🏠 Inicio jornada remota</option>
+        <option value="fin_jornada_remota">🏁 Fin jornada remota</option>
         <option value="egreso">🔴 Egreso</option>
       </select>
     </div>
@@ -1185,7 +1186,11 @@ async function irADashboard(rol) {
           STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
           STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
         } catch (e2) {
-          if (e2.status === 401 || e2.status === 403) doLogout();
+          if (e2.status === 401 || e2.status === 403) {
+            console.warn('[SESIÓN] Cerrada por el servidor (reintento). Motivo:', e2.motivo || e2.message);
+            toast('Sesión cerrada por el servidor (' + (e2.motivo || 'motivo desconocido') + ') — iniciá sesión de nuevo', 'error', 6000);
+            doLogout();
+          }
         }
       }, 4000);
     }
@@ -1633,7 +1638,7 @@ async function confirmarMovimiento() {
   const catId = document.getElementById('reg-categoria').value;
   const destId = document.getElementById('reg-destino').value;
   const desc = document.getElementById('reg-descripcion').value;
-  const esRemoto = tipo === 'inicio_jornada_remota';
+  const esRemoto = tipo === 'inicio_jornada_remota' || tipo === 'fin_jornada_remota';
   const btn = document.getElementById('btn-confirmar-mov');
   btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
   const body = {tipo, lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:esRemoto};
