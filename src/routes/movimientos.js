@@ -10,8 +10,12 @@ router.post('/registrar', auth, async (req, res) => {
     tipo, lat, lng, foto_url,
     categoria_salida_id, destino_id, destino_descripcion,
     es_remoto, domicilio_partida_lat, domicilio_partida_lng,
-    consentimiento_extra,
+    consentimiento_extra, contexto_remoto,
   } = req.body;
+
+  // 'domicilio' = arrancó la jornada trabajando desde su casa
+  // 'externo'    = arrancó la jornada viajando directo hacia un cliente (sin pasar por oficina)
+  const contextoRemotoVal = ['domicilio', 'externo'].includes(contexto_remoto) ? contexto_remoto : null;
 
   const TIPOS_VALIDOS = [
     'ingreso', 'salida_almuerzo', 'regreso_almuerzo', 'egreso',
@@ -130,7 +134,8 @@ router.post('/registrar', auth, async (req, res) => {
         es_tardanza, minutos_tardanza,
         es_feriado,
         consentimiento_extra, consentimiento_hora,
-        validado, hash_sha256, observacion_admin
+        validado, hash_sha256, observacion_admin,
+        contexto_remoto
       ) VALUES (
         $1,$2,$3,CURRENT_DATE,NOW(),
         $4,$5,$6,$7,
@@ -140,7 +145,8 @@ router.post('/registrar', auth, async (req, res) => {
         $16,$17,
         $18,
         $19, CASE WHEN $19 THEN NOW() ELSE NULL END,
-        $20,$21,$22
+        $20,$21,$22,
+        $23
       ) RETURNING *
     `, [
       empleadoId, req.user.empleadorId, tipo,
@@ -159,6 +165,7 @@ router.post('/registrar', auth, async (req, res) => {
       es_remoto ? false : gpsValido,
       hash,
       observacionAuto,
+      contextoRemotoVal,
     ]);
 
     // ─ Actualizar banco de horas ─
