@@ -1694,7 +1694,8 @@ async function confirmarMovimiento() {
     const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
-    mostrarExito(tipo);
+    const km = resp?.movimiento?.km_estimados;
+    mostrarExito(tipo, (tipo === 'fin_jornada_remota' && km != null) ? `Recorriste aproximadamente ${km} km hoy.` : null);
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
       setTimeout(() => toast('Se registró sin señal GPS — quedará pendiente de validación del admin', 'info', 5000), 800);
     }
@@ -4004,10 +4005,10 @@ const TITULOS_EXITO={
   regreso_externo:'Regreso registrado',fin_jornada_remota:'Fin de jornada remota'
 };
 
-function mostrarExito(tipo) {
+function mostrarExito(tipo, subtitulo) {
   const overlay=document.getElementById('overlay-exito');
   document.getElementById('exito-titulo').textContent=TITULOS_EXITO[tipo]||'Movimiento registrado';
-  document.getElementById('exito-subtitulo').textContent='Tu movimiento fue registrado y firmado correctamente.';
+  document.getElementById('exito-subtitulo').textContent=subtitulo || 'Tu movimiento fue registrado y firmado correctamente.';
   _exitoSegundos=5;
   document.getElementById('exito-contador').textContent=_exitoSegundos;
   overlay.classList.add('visible');
