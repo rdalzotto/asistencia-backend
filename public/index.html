@@ -1104,6 +1104,7 @@ async function doLogin() {
     STATE.nombre = data.nombre; STATE.apellido = data.apellido || '';
     localStorage.setItem('ar_token', data.token);
     localStorage.setItem('ar_rol', data.rol);
+    try { await ARStorage.set('ar_token_backup', {token: data.token, rol: data.rol}); } catch {}
     if (!data.onboarding) { mostrarScreen('onboarding'); return; }
     irADashboard(data.rol);
   } catch(e) { toast(e.message || 'Error de conexión', 'error'); }
@@ -1116,6 +1117,7 @@ function doLogout() {
   STATE = {token:null,rol:null,empleadoId:null,empleadorId:null,nombre:null,gpsCoords:null,fotoBlob:null,fotoBase64:null,categorias:[],destinos:[],camStream:null,ultimoMovimiento:null};
   localStorage.removeItem('ar_token');
   localStorage.removeItem('ar_rol');
+  try { ARStorage.del('ar_token_backup'); } catch {}
   const inpEmail = document.getElementById('login-email');
   const inpPass = document.getElementById('login-pass');
   if (inpEmail) inpEmail.value = '';
@@ -1139,10 +1141,34 @@ async function irADashboard(rol) {
 }
 
 (async function autoLogin() {
+  // Le pedimos al navegador que NO borre los datos guardados de este sitio
+  // (token de sesión incluido) cuando el celular ande escaso de espacio.
+  // Sin esto, Chrome puede evictar el localStorage silenciosamente — sin
+  // avisar nada — y eso desloguea aunque no haya ningún problema con el token.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().then(granted => {
+      console.log('[STORAGE] Almacenamiento persistente:', granted ? 'concedido' : 'no concedido');
+    }).catch(() => {});
+  }
   const urlToken = new URLSearchParams(location.search).get('token');
   if (urlToken) { mostrarScreen('onboarding'); return; }
-  const token = localStorage.getItem('ar_token');
-  const rol = localStorage.getItem('ar_rol');
+  let token = localStorage.getItem('ar_token');
+  let rol = localStorage.getItem('ar_rol');
+  if (!token) {
+    // localStorage puede haber sido evictado por el navegador (borrado
+    // silencioso por espacio) sin que hayamos pasado por doLogout(). Antes
+    // de mandar al login, probamos recuperar la copia de respaldo guardada
+    // en IndexedDB al momento del último login exitoso.
+    try {
+      const backup = await ARStorage.get('ar_token_backup');
+      if (backup && backup.token) {
+        token = backup.token; rol = backup.rol;
+        localStorage.setItem('ar_token', token);
+        localStorage.setItem('ar_rol', rol);
+        console.log('[SESIÓN] Token recuperado desde respaldo IndexedDB (localStorage lo había perdido)');
+      }
+    } catch {}
+  }
   if (!token) return;
   // Migración única: si este dispositivo tiene constancias pendientes de
   // sincronizar guardadas con el sistema viejo (localStorage), las pasamos
