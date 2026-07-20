@@ -100,6 +100,47 @@ router.post('/registrar', auth, async (req, res) => {
       }
     }
 
+    // ─ Km recorridos (tramos entre puntos ya conocidos, sin GPS continuo) ─
+    // Al cerrar una jornada remota/externa, en vez de una sola línea recta
+    // punto-a-punto (que subestima mucho si hubo varias paradas), sumamos
+    // los tramos: domicilio de arranque → cada visita marcada "en curso" ese
+    // día (ya tienen GPS real capturado al iniciar el viaje) → punto de
+    // cierre. Sigue siendo aproximado (línea recta entre puntos, no la ruta
+    // real que manejó entre uno y otro), pero se acerca bastante más al
+    // itinerario real sin necesitar tracking continuo, batería extra, ni
+    // ninguna API paga.
+    let kmEstimados = null;
+    if (tipo === 'fin_jornada_remota' && tieneGps) {
+      const { rows: [inicioHoy] } = await client.query(`
+        SELECT domicilio_partida_lat, domicilio_partida_lng, hora
+        FROM public.movimientos
+        WHERE empleado_id = $1 AND fecha = CURRENT_DATE AND tipo = 'inicio_jornada_remota'
+        ORDER BY hora DESC LIMIT 1
+      `, [empleadoId]);
+      if (inicioHoy && inicioHoy.domicilio_partida_lat != null && inicioHoy.domicilio_partida_lng != null) {
+        const { rows: visitasHoy } = await client.query(`
+          SELECT lat_inicio_real, lng_inicio_real
+          FROM public.visitas
+          WHERE empleado_id = $1
+            AND hora_inicio_real IS NOT NULL
+            AND hora_inicio_real >= $2 AND hora_inicio_real::DATE = CURRENT_DATE
+            AND lat_inicio_real IS NOT NULL AND lng_inicio_real IS NOT NULL
+          ORDER BY hora_inicio_real ASC
+        `, [empleadoId, inicioHoy.hora]);
+
+        const puntos = [
+          { lat: parseFloat(inicioHoy.domicilio_partida_lat), lng: parseFloat(inicioHoy.domicilio_partida_lng) },
+          ...visitasHoy.map(v => ({ lat: parseFloat(v.lat_inicio_real), lng: parseFloat(v.lng_inicio_real) })),
+          { lat: latVal, lng: lngVal },
+        ];
+        let metros = 0;
+        for (let i = 1; i < puntos.length; i++) {
+          metros += calcularDistancia(puntos[i-1].lat, puntos[i-1].lng, puntos[i].lat, puntos[i].lng);
+        }
+        kmEstimados = Math.round((metros / 1000) * 10) / 10; // 1 decimal
+      }
+    }
+
     // ─ Calcular tardanza (solo para ingreso habitual) ─
     let esTardanza    = false;
     let minutosTardanza = 0;
@@ -135,7 +176,7 @@ router.post('/registrar', auth, async (req, res) => {
         es_feriado,
         consentimiento_extra, consentimiento_hora,
         validado, hash_sha256, observacion_admin,
-        contexto_remoto
+        contexto_remoto, km_estimados
       ) VALUES (
         $1,$2,$3,CURRENT_DATE,NOW(),
         $4,$5,$6,$7,
@@ -146,7 +187,7 @@ router.post('/registrar', auth, async (req, res) => {
         $18,
         $19, CASE WHEN $19 THEN NOW() ELSE NULL END,
         $20,$21,$22,
-        $23
+        $23,$24
       ) RETURNING *
     `, [
       empleadoId, req.user.empleadorId, tipo,
@@ -166,6 +207,7 @@ router.post('/registrar', auth, async (req, res) => {
       hash,
       observacionAuto,
       contextoRemotoVal,
+      kmEstimados,
     ]);
 
     // ─ Actualizar banco de horas ─
