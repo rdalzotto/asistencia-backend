@@ -1136,7 +1136,7 @@ async function irADashboard(rol) {
     iniciarReloj();
     cargarDashboardEmpleado();
     registrarSW();
-    setTimeout(verificarConsultaEgreso, 2000);
+    setTimeout(() => verificarConsultaEgreso(), 2000);
   }
 }
 
@@ -1194,8 +1194,8 @@ async function autoLoginInterno() {
   } catch (eMig) {
     console.warn('[MIGRACIÓN] Falló, se ignora y se sigue con el login:', eMig);
   }
-  if (navigator.onLine) setTimeout(procesarMovimientosPendientes, 1500);
-  if (navigator.onLine) setTimeout(procesarReservasPendientes, 1800);
+  if (navigator.onLine) setTimeout(() => procesarMovimientosPendientes(), 1500);
+  if (navigator.onLine) setTimeout(() => procesarReservasPendientes(), 1800);
   STATE.token = token; STATE.rol = rol;
   try {
     const me = await api('/auth/me');
