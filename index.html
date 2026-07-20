@@ -1186,7 +1186,11 @@ async function irADashboard(rol) {
           STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
           STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
         } catch (e2) {
-          if (e2.status === 401 || e2.status === 403) doLogout();
+          if (e2.status === 401 || e2.status === 403) {
+            console.warn('[SESIÓN] Cerrada por el servidor (reintento). Motivo:', e2.motivo || e2.message);
+            toast('Sesión cerrada por el servidor (' + (e2.motivo || 'motivo desconocido') + ') — iniciá sesión de nuevo', 'error', 6000);
+            doLogout();
+          }
         }
       }, 4000);
     }
