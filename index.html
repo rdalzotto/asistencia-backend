@@ -167,8 +167,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <p id="login-sistema-subtitulo">Registro de asistencia, visitas y reserva de recursos</p>
   </div>
   <div class="login-card">
-    <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" autocomplete="off" readonly onfocus="this.removeAttribute('readonly')"></div>
-    <div class="form-group"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="new-password" readonly onfocus="this.removeAttribute('readonly')"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" autocomplete="off"></div>
+    <div class="form-group"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="new-password"></div>
     <button class="btn btn-primary" onclick="doLogin()" id="btn-login">Ingresar</button>
     <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text3)">Si es tu primer acceso, abrí el link que te enviaron por WhatsApp.</p>
   </div>
@@ -790,6 +790,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <option value="salida_externa">📍 Salida externa</option>
         <option value="regreso_externo">↩ Regreso de externo</option>
         <option value="inicio_jornada_remota">🏠 Inicio jornada remota</option>
+        <option value="fin_jornada_remota">🏁 Fin jornada remota</option>
         <option value="egreso">🔴 Egreso</option>
       </select>
     </div>
@@ -1030,6 +1031,7 @@ async function api(path, opts={}) {
   if (!r.ok) {
     const err = new Error(data.error || 'Error ' + r.status);
     err.status = r.status;
+    err.motivo = data.motivo || null;
     throw err;
   }
   return data;
@@ -1116,8 +1118,8 @@ function doLogout() {
   localStorage.removeItem('ar_rol');
   const inpEmail = document.getElementById('login-email');
   const inpPass = document.getElementById('login-pass');
-  if (inpEmail) { inpEmail.value = ''; inpEmail.setAttribute('readonly', ''); }
-  if (inpPass) { inpPass.value = ''; inpPass.setAttribute('readonly', ''); }
+  if (inpEmail) inpEmail.value = '';
+  if (inpPass) inpPass.value = '';
   mostrarScreen('login');
 }
 
@@ -1161,6 +1163,12 @@ async function irADashboard(rol) {
   } catch (e) {
     if (e.status === 401 || e.status === 403) {
       // Token realmente inválido/expirado — ahí sí corresponde cerrar sesión.
+      // Mostramos el motivo real (viene del backend) para poder diagnosticar
+      // si esto se repite: 'signature' = la clave del servidor cambió desde
+      // que se firmó el token (ej: redeploy que regeneró JWT_SECRET) — eso
+      // desloguea a TODOS los usuarios de golpe, no es un problema del celular.
+      console.warn('[SESIÓN] Cerrada por el servidor. Motivo:', e.motivo || e.message);
+      toast('Sesión cerrada por el servidor (' + (e.motivo || 'motivo desconocido') + ') — iniciá sesión de nuevo', 'error', 6000);
       doLogout();
     } else {
       // Falla de red o el servidor tardó/falló momentáneamente: NO deslogueamos.
@@ -1626,7 +1634,7 @@ async function confirmarMovimiento() {
   const catId = document.getElementById('reg-categoria').value;
   const destId = document.getElementById('reg-destino').value;
   const desc = document.getElementById('reg-descripcion').value;
-  const esRemoto = tipo === 'inicio_jornada_remota';
+  const esRemoto = tipo === 'inicio_jornada_remota' || tipo === 'fin_jornada_remota';
   const btn = document.getElementById('btn-confirmar-mov');
   btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
   const body = {tipo, lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:esRemoto};
@@ -1656,6 +1664,7 @@ async function confirmarMovimiento() {
         cerrarModal('modal-registro');
         abrirSalidaJustificada('gps_falla');
       } else {
+        toast('📍 Estás fuera del radio de la oficina — elegí abajo cómo vas a trabajar hoy', 'info', 4500);
         mostrarOpcionRemota();
       }
       return;
@@ -1665,29 +1674,61 @@ async function confirmarMovimiento() {
 
 function mostrarOpcionRemota() {
   const existing = document.getElementById('banner-remoto');
-  if (existing) return;
+  if (existing) { existing.scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
   const banner = document.createElement('div');
   banner.id = 'banner-remoto';
   banner.style.cssText = 'background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:16px;margin-top:12px;text-align:center;';
-  banner.innerHTML = '<div style="font-size:13px;color:var(--orange);font-weight:600;margin-bottom:8px">📍 Estás fuera del radio de la oficina</div><div style="font-size:12px;color:var(--text2);margin-bottom:12px">¿Trabajás desde otro lugar hoy? Registrá tu jornada remota.</div><button class="btn btn-primary" style="background:var(--orange);color:#0f1923;" onclick="registrarComoRemoto()">🏠 Registrar como Trabajo Remoto</button>';
+  banner.innerHTML = `
+    <div style="font-size:13px;color:var(--orange);font-weight:600;margin-bottom:8px">📍 Estás fuera del radio de la oficina</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">¿Cómo vas a trabajar hoy?</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:10px">
+      <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;flex:1;min-width:150px" onclick="registrarComoRemoto('domicilio')">🏠 Trabajo Remoto (desde casa)</button>
+      <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;flex:1;min-width:150px" onclick="mostrarSelectorExterno()">🚗 Trabajo Externo (viaje a cliente)</button>
+    </div>
+    <div id="selector-externo" style="display:none;text-align:left;margin-top:8px">
+      <div class="form-group"><label>Cliente / destino</label><select id="reg-destino-externo"><option value="">— Seleccionar destino —</option></select></div>
+      <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="reg-descripcion-externo" placeholder="Detalles adicionales"></div>
+      <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;width:100%" onclick="registrarComoRemoto('externo')">Confirmar viaje a cliente</button>
+    </div>`;
   const modal = document.querySelector('#modal-registro .modal');
   if (modal) modal.appendChild(banner);
+  const selD = document.getElementById('reg-destino-externo');
+  if (selD && STATE.destinos) {
+    selD.innerHTML = '<option value="">— Seleccionar destino —</option>' +
+      STATE.destinos.map(d => '<option value="'+d.id+'">'+d.nombre+' ('+(d.localidad||'')+')</option>').join('');
+  }
+  banner.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
-async function registrarComoRemoto() {
+function mostrarSelectorExterno() {
+  const sel = document.getElementById('selector-externo');
+  if (sel) { sel.style.display = 'block'; sel.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+}
+
+async function registrarComoRemoto(contexto) {
+  contexto = contexto === 'externo' ? 'externo' : 'domicilio';
   const btn = document.getElementById('btn-confirmar-mov');
   btn.disabled = true;
   const banner = document.getElementById('banner-remoto');
-  if (banner) banner.remove();
-  const body = {tipo:'inicio_jornada_remota', lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:true, domicilio_partida_lat:STATE.gpsCoords?.lat, domicilio_partida_lng:STATE.gpsCoords?.lng};
+  const destId = contexto === 'externo' ? document.getElementById('reg-destino-externo')?.value : null;
+  const desc   = contexto === 'externo' ? document.getElementById('reg-descripcion-externo')?.value : null;
+  const body = {
+    tipo:'inicio_jornada_remota', lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng,
+    foto_url:STATE.fotoBase64, es_remoto:true,
+    domicilio_partida_lat:STATE.gpsCoords?.lat, domicilio_partida_lng:STATE.gpsCoords?.lng,
+    contexto_remoto: contexto,
+    destino_id: destId || null, destino_descripcion: desc || null,
+  };
   try {
     await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
+    if (banner) banner.remove();
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
     mostrarExito('inicio_jornada_remota');
   } catch(e) {
     if (esErrorDeConexion(e)) {
       await encolarMovimientoOffline(body);
+      if (banner) banner.remove();
       cerrarModal('modal-registro');
       toast('📴 Sin conexión — el fichaje quedó guardado y se enviará solo al reconectar', 'info', 5000);
       await mostrarPendientesMovimientos();
