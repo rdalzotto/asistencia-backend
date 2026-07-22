@@ -316,6 +316,23 @@ async function jornadaActivaHoy(empleadoId, client) {
   return !['egreso', 'fin_jornada_remota'].includes(ultimo.tipo);
 }
 
+// ─── ¿Tiene jornada activa en una FECHA arbitraria? ──────────────────────────
+// Igual que jornadaActivaHoy pero para cualquier fecha (no solo CURRENT_DATE).
+// Se usa para permitir múltiples ciclos ingreso/egreso dentro del mismo día
+// (ej: arrancar remoto, pasar a oficina con fin_jornada_remota + ingreso, y
+// recién ahí cerrar con el egreso real) sin que un cierre intermedio de
+// contexto sea confundido con el cierre final de la jornada.
+async function jornadaActivaEnFecha(empleadoId, fecha, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const { rows } = await queryFn(`
+    SELECT tipo FROM public.movimientos
+    WHERE empleado_id = $1 AND fecha = $2
+    ORDER BY hora DESC LIMIT 1
+  `, [empleadoId, fecha]);
+  if (!rows[0]) return false;
+  return !['egreso', 'fin_jornada_remota'].includes(rows[0].tipo);
+}
+
 // ─── ¿Fichó Ingreso (o inició jornada remota) en una fecha dada? ─────────────
 // A diferencia de jornadaActivaHoy (estado EN ESTE INSTANTE), esto chequea si
 // hubo fichaje ESE DÍA sin importar si ya cerró jornada. Se usa para validar
@@ -363,6 +380,7 @@ module.exports = {
   tipoMovimientoPermitido,
   obtenerUltimoMovimientoHoy,
   jornadaActivaHoy,
+  jornadaActivaEnFecha,
   tuvoIngresoEnFecha,
   tieneAusenciaOVacacionHoy,
 };
