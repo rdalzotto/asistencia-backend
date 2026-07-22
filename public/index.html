@@ -1113,6 +1113,17 @@ async function doLogin() {
 
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
+// Se llama después de registrar CUALQUIER cierre de jornada (egreso o
+// fin_jornada_remota) exitoso, sin importar si más tarde se retoma la
+// jornada el mismo día. El próximo ingreso a la app va a pedir login de
+// nuevo, tal cual pasa con el botón "Salir".
+function cerrarSesionPorCierreJornada() {
+  setTimeout(() => {
+    toast('Jornada cerrada — por seguridad, la sesión se cerró. Iniciá sesión de nuevo.', 'info', 5000);
+    doLogout();
+  }, 900);
+}
+
 function doLogout() {
   STATE = {token:null,rol:null,empleadoId:null,empleadorId:null,nombre:null,gpsCoords:null,fotoBlob:null,fotoBase64:null,categorias:[],destinos:[],camStream:null,ultimoMovimiento:null};
   localStorage.removeItem('ar_token');
@@ -1701,6 +1712,9 @@ async function confirmarMovimiento() {
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
     }
+    if (tipo === 'egreso' || tipo === 'fin_jornada_remota') {
+      cerrarSesionPorCierreJornada();
+    }
   } catch(e) {
     if (esErrorDeConexion(e)) {
       await encolarMovimientoOffline(body);
@@ -1963,6 +1977,7 @@ async function confirmarSalidaJustificada() {
     cargarDashboardEmpleado();
     mostrarExito(tipo);
     setTimeout(() => toast('Salida registrada. Quedará marcada para revisión del admin.', 'info', 5000), 800);
+    cerrarSesionPorCierreJornada();
   } catch(e) {
     toast(e.message || 'Error al registrar salida', 'error');
   } finally {
@@ -1985,6 +2000,7 @@ async function ejecutarCierreAutomatico(tipo, motivo) {
     ocultarBannerAlertaJornada();
     cargarDashboardEmpleado();
     toast('⏰ Tu jornada fue cerrada automáticamente. Quedará marcada para revisión.', 'info', 7000);
+    cerrarSesionPorCierreJornada();
   } catch(e) { console.error('[cierre-auto]', e); }
 }
 </script>
@@ -5823,6 +5839,7 @@ async function responderEgreso(accion) {
     if (accion === 'egreso') {
       toast('Egreso registrado ✓', 'success');
       await cargarDashboardEmpleado();
+      cerrarSesionPorCierreJornada();
     } else {
       toast('Extensión confirmada hasta las ' + body.hasta_hora + ' ✓', 'success');
     }
