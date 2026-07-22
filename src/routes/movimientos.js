@@ -344,15 +344,14 @@ router.post('/egreso-justificado', auth, async (req, res) => {
     const hoy = new Date().toISOString().split('T')[0];
     const feriado = await jornada.esFeriado(hoy);
 
-    // Evitar duplicados: si ya existe un egreso hoy, rechazar
-    const { rows: yaEgreso } = await client.query(
-      `SELECT id FROM public.movimientos
-       WHERE empleado_id = $1 AND fecha = CURRENT_DATE AND tipo IN ('egreso','fin_jornada_remota')
-       LIMIT 1`,
-      [empleadoId]
-    );
-    if (yaEgreso.length)
-      return res.status(400).json({ error: 'Ya existe un egreso registrado para hoy' });
+    // Evitar duplicados: bloqueamos solo si la jornada ya está cerrada AHORA
+    // (el último movimiento de hoy es un cierre). Si hubo un cierre intermedio
+    // seguido de un nuevo ingreso (ej: remoto → oficina), la jornada sigue
+    // activa y este egreso es legítimo, no un duplicado.
+    if (!(await jornada.jornadaActivaHoy(empleadoId, client))) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Tu jornada de hoy ya está cerrada — no hay una entrada activa para registrar salida.' });
+    }
 
     const hashData = {
       tipo, empleadoId, empleadorId: req.user.empleadorId,
@@ -544,13 +543,11 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
     );
     if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
 
-    // Verificar que no exista ya un egreso para esa fecha
-    const { rows: existente } = await db.query(`
-      SELECT id FROM public.movimientos
-      WHERE empleado_id = $1 AND fecha = $2 AND tipo IN ('egreso','fin_jornada_remota')
-    `, [empleado_id, fecha]);
-    if (existente.length)
-      return res.status(400).json({ error: 'Ya existe un egreso registrado para esa fecha' });
+    // Verificar que la jornada de esa fecha siga activa (mismo criterio que
+    // el egreso-justificado): bloquear solo si el último movimiento de ese
+    // día ya es un cierre, no si hubo un cierre intermedio con reingreso.
+    if (!(await jornada.jornadaActivaEnFecha(empleado_id, fecha)))
+      return res.status(400).json({ error: 'La jornada de esa fecha ya está cerrada — no hay una entrada activa para registrar egreso.' });
 
     // Verificar que haya ingreso ese día
     const { rows: ingreso } = await db.query(`
