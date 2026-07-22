@@ -713,7 +713,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="modal-handle"></div>
     <div class="modal-title">Rendir gastos del viaje</div>
     <div id="rendir-destinos-lista" style="margin-bottom:12px"></div>
-    <div class="form-group"><label>Km reales recorridos</label><input type="number" id="rendir-km" placeholder="0" min="0" step="0.1"></div>
+    <div class="form-group"><label>Km reales recorridos</label><input type="number" id="rendir-km" placeholder="0" min="0" step="0.1"><div id="rendir-km-ref" style="display:none;font-size:11px;color:var(--text2);margin-top:4px"></div></div>
     <div class="form-group"><label>Total gastado $</label><input type="number" id="rendir-viatico" placeholder="0" min="0"></div>
     <div class="form-group"><label>Descripción del gasto</label><input type="text" id="rendir-desc" placeholder="Combustible, peaje, comida..."></div>
     <div class="form-group"><label>Foto comprobante (opcional)</label><input type="file" id="rendir-foto" accept="image/*" style="color:var(--text);background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;width:100%"></div>
@@ -1112,6 +1112,17 @@ async function doLogin() {
 }
 
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+// Se llama después de registrar CUALQUIER cierre de jornada (egreso o
+// fin_jornada_remota) exitoso, sin importar si más tarde se retoma la
+// jornada el mismo día. El próximo ingreso a la app va a pedir login de
+// nuevo, tal cual pasa con el botón "Salir".
+function cerrarSesionPorCierreJornada() {
+  setTimeout(() => {
+    toast('Jornada cerrada — por seguridad, la sesión se cerró. Iniciá sesión de nuevo.', 'info', 5000);
+    doLogout();
+  }, 900);
+}
 
 function doLogout() {
   STATE = {token:null,rol:null,empleadoId:null,empleadorId:null,nombre:null,gpsCoords:null,fotoBlob:null,fotoBase64:null,categorias:[],destinos:[],camStream:null,ultimoMovimiento:null};
@@ -1694,13 +1705,15 @@ async function confirmarMovimiento() {
     const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
-    const km = resp?.movimiento?.km_estimados;
-    mostrarExito(tipo, (tipo === 'fin_jornada_remota' && km != null) ? `Recorriste aproximadamente ${km} km hoy.` : null);
+    mostrarExito(tipo);
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
       setTimeout(() => toast('Se registró sin señal GPS — quedará pendiente de validación del admin', 'info', 5000), 800);
     }
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
+    }
+    if (tipo === 'egreso' || tipo === 'fin_jornada_remota') {
+      cerrarSesionPorCierreJornada();
     }
   } catch(e) {
     if (esErrorDeConexion(e)) {
@@ -1964,6 +1977,7 @@ async function confirmarSalidaJustificada() {
     cargarDashboardEmpleado();
     mostrarExito(tipo);
     setTimeout(() => toast('Salida registrada. Quedará marcada para revisión del admin.', 'info', 5000), 800);
+    cerrarSesionPorCierreJornada();
   } catch(e) {
     toast(e.message || 'Error al registrar salida', 'error');
   } finally {
@@ -1986,6 +2000,7 @@ async function ejecutarCierreAutomatico(tipo, motivo) {
     ocultarBannerAlertaJornada();
     cargarDashboardEmpleado();
     toast('⏰ Tu jornada fue cerrada automáticamente. Quedará marcada para revisión.', 'info', 7000);
+    cerrarSesionPorCierreJornada();
   } catch(e) { console.error('[cierre-auto]', e); }
 }
 </script>
@@ -3370,7 +3385,7 @@ function renderTarjetaVisita(v, esAdmin) {
     ${bloqueSuspension}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${puedeIniciar&&!esAdmin?'<button class="btn btn-sm btn-primary" onclick="iniciarViajeVisita('+v.id+')">▶ Iniciar viaje</button>':''}
-      ${v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+')">✓ Rendir y finalizar</button>':''}
+      ${v.estado==='en_curso'?'<button class="btn btn-sm btn-success" onclick="abrirRendicion('+v.id+','+JSON.stringify(destinos).replace(/"/g,'&quot;')+','+(v.lat_inicio_real!=null?v.lat_inicio_real:(v.origen_lat!=null?v.origen_lat:'null'))+','+(v.lng_inicio_real!=null?v.lng_inicio_real:(v.origen_lng!=null?v.origen_lng:'null'))+')">✓ Rendir y finalizar</button>':''}
       ${esPendiente&&!esAdmin?'<button class="btn btn-sm btn-danger" onclick="cancelarVisita('+v.id+')">✕ Cancelar solicitud</button>':''}
       ${puedeSuspender?'<button class="btn btn-sm btn-warning" onclick="abrirSuspenderVisita('+v.id+')">⏸ Suspender</button>':''}
       ${puedeEditarOEliminar?'<button class="btn btn-sm btn-secondary" onclick="editarVisita('+v.id+')">✏ Editar</button>':''}
@@ -3694,13 +3709,52 @@ async function confirmarSuspension() {
 }
 
 
-function abrirRendicion(visitaId, destinos) {
+// ── Distancia en línea recta entre 2 puntos GPS (Haversine, en km) ──────────
+function calcularDistanciaKm(lat1, lng1, lat2, lng2) {
+  if ([lat1,lng1,lat2,lng2].some(v => v == null || isNaN(v))) return null;
+  const R = 6371;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLng = (lng2-lng1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function abrirRendicion(visitaId, destinos, origenLat, origenLng) {
   document.getElementById('rendir-visita-id').value=visitaId;
   document.getElementById('rendir-km').value='';
   document.getElementById('rendir-viatico').value='';
   document.getElementById('rendir-desc').value='';
   document.getElementById('rendir-destinos-lista').innerHTML=destinos.map((d,i)=>'<div style="font-size:12px;color:var(--text2);padding:3px 0">'+(i+1)+'. '+d.cliente_nombre+'</div>').join('');
   abrirModal('modal-rendir-visita');
+  calcularKmReferencia(destinos, origenLat, origenLng);
+}
+
+// Suma los tramos en línea recta: origen real (o estimado) → llegada a cada
+// destino en orden → punto actual (mejor esfuerzo, como "regreso"). Es una
+// referencia aproximada — no reemplaza la carga del técnico, que puede
+// conocer detalles de la ruta que el GPS en línea recta no capta.
+async function calcularKmReferencia(destinos, origenLat, origenLng) {
+  const refEl = document.getElementById('rendir-km-ref');
+  if (refEl) { refEl.textContent = ''; refEl.style.display = 'none'; }
+  const puntos = [];
+  if (origenLat != null && origenLng != null) puntos.push({lat:parseFloat(origenLat), lng:parseFloat(origenLng)});
+  destinos.forEach(d => {
+    if (d.lat_llegada != null && d.lng_llegada != null) puntos.push({lat:parseFloat(d.lat_llegada), lng:parseFloat(d.lng_llegada)});
+  });
+  // Punto de regreso: mejor esfuerzo, no bloqueante — si no hay GPS disponible ahora, se calcula solo con lo que haya
+  try {
+    const pos = await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:6000,enableHighAccuracy:true}));
+    puntos.push({lat:pos.coords.latitude, lng:pos.coords.longitude});
+  } catch {}
+  if (puntos.length < 2) return;
+  let totalKm = 0;
+  for (let i=1; i<puntos.length; i++) {
+    const d = calcularDistanciaKm(puntos[i-1].lat, puntos[i-1].lng, puntos[i].lat, puntos[i].lng);
+    if (d != null) totalKm += d;
+  }
+  if (!refEl) return;
+  refEl.textContent = '📍 Referencia por GPS (línea recta): ' + totalKm.toFixed(1) + ' km';
+  refEl.style.display = 'block';
 }
 
 async function guardarRendicion() {
@@ -4005,10 +4059,10 @@ const TITULOS_EXITO={
   regreso_externo:'Regreso registrado',fin_jornada_remota:'Fin de jornada remota'
 };
 
-function mostrarExito(tipo, subtitulo) {
+function mostrarExito(tipo) {
   const overlay=document.getElementById('overlay-exito');
   document.getElementById('exito-titulo').textContent=TITULOS_EXITO[tipo]||'Movimiento registrado';
-  document.getElementById('exito-subtitulo').textContent=subtitulo || 'Tu movimiento fue registrado y firmado correctamente.';
+  document.getElementById('exito-subtitulo').textContent='Tu movimiento fue registrado y firmado correctamente.';
   _exitoSegundos=5;
   document.getElementById('exito-contador').textContent=_exitoSegundos;
   overlay.classList.add('visible');
@@ -5824,6 +5878,7 @@ async function responderEgreso(accion) {
     if (accion === 'egreso') {
       toast('Egreso registrado ✓', 'success');
       await cargarDashboardEmpleado();
+      cerrarSesionPorCierreJornada();
     } else {
       toast('Extensión confirmada hasta las ' + body.hasta_hora + ' ✓', 'success');
     }
