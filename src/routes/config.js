@@ -387,7 +387,7 @@ router.get('/destinos', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
 
-router.post('/destinos', auth, soloAdmin, async (req, res) => {
+router.post('/destinos', auth, async (req, res) => {
   const { nombre, tipo, domicilio, localidad, provincia, pais, lat, lng, radio_m, contacto, telefono } = req.body;
   if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
   try {
