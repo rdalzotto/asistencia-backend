@@ -790,7 +790,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <option value="salida_externa">📍 Salida externa</option>
         <option value="regreso_externo">↩ Regreso de externo</option>
         <option value="inicio_jornada_remota">🏠 Inicio jornada remota</option>
-        <option value="fin_jornada_remota">🏁 Fin jornada remota</option>
+        <option value="fin_jornada_remota" id="opt-fin-jornada-remota">🏁 Fin jornada remota</option>
         <option value="egreso">🔴 Egreso</option>
       </select>
     </div>
@@ -1012,7 +1012,7 @@ let STATE = {
   token:null, rol:null, empleadoId:null, empleadorId:null, nombre:null,
   gpsCoords:null, fotoBlob:null, fotoBase64:null,
   categorias:[], destinos:[], camStream:null,
-  ultimoMovimiento:null,
+  ultimoMovimiento:null, contextoRemotoActivo:null,
 };
 
 async function api(path, opts={}) {
@@ -1125,7 +1125,7 @@ function cerrarSesionPorCierreJornada() {
 }
 
 function doLogout() {
-  STATE = {token:null,rol:null,empleadoId:null,empleadorId:null,nombre:null,gpsCoords:null,fotoBlob:null,fotoBase64:null,categorias:[],destinos:[],camStream:null,ultimoMovimiento:null};
+  STATE = {token:null,rol:null,empleadoId:null,empleadorId:null,nombre:null,gpsCoords:null,fotoBlob:null,fotoBase64:null,categorias:[],destinos:[],camStream:null,ultimoMovimiento:null,contextoRemotoActivo:null};
   localStorage.removeItem('ar_token');
   localStorage.removeItem('ar_rol');
   try { ARStorage.del('ar_token_backup'); } catch {}
@@ -1392,6 +1392,11 @@ function actualizarOpcionesTipoMovimiento() {
     if (visible && !primeraVisible) primeraVisible = opt.value;
   });
   if (primeraVisible && !permitidos.includes(sel.value)) sel.value = primeraVisible;
+  // El texto de "Fin jornada remota" cambia a "Volver a la oficina" cuando la jornada
+  // activa arrancó como trabajo externo (viaje a cliente), para no confundirlo con
+  // "Salida externa" (que es una diligencia corta y no cierra la jornada).
+  const optFin = document.getElementById('opt-fin-jornada-remota');
+  if (optFin) optFin.textContent = STATE.contextoRemotoActivo === 'externo' ? '🏢 Volver a la oficina' : '🏁 Fin jornada remota';
 }
 
 function renderMovimientosHoy(movs) {
@@ -1400,25 +1405,41 @@ function renderMovimientosHoy(movs) {
   STATE.ultimoMovimiento = movs && movs.length ? movs[movs.length-1].tipo : null;
   if (!movs.length) {
     cont.innerHTML = '<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Sin movimientos hoy</p>';
+    STATE.contextoRemotoActivo = null;
     return;
   }
   const colores = {ingreso:'var(--green)',egreso:'var(--red)',salida_almuerzo:'var(--yellow)',regreso_almuerzo:'var(--green)',salida_externa:'var(--orange)',regreso_externo:'var(--green)',inicio_jornada_remota:'var(--accent)',fin_jornada_remota:'var(--red)'};
-  const nombres = {ingreso:'Ingreso',egreso:'Egreso',salida_almuerzo:'Salida almuerzo',regreso_almuerzo:'Regreso almuerzo',salida_externa:'Salida externa',regreso_externo:'Regreso de externo',inicio_jornada_remota:'Inicio remoto',fin_jornada_remota:'Fin remoto'};
   const ultimo = movs[movs.length - 1];
-  actualizarBadgeEstado(ultimo.tipo);
+  // Contexto del último "inicio_jornada_remota" activo hoy (domicilio | externo | null) —
+  // se usa para diferenciar "Trabajo Remoto" de "Trabajo Externo" en badge, listado y botón de cierre.
+  const ultimoInicio = [...movs].reverse().find(m => m.tipo === 'inicio_jornada_remota');
+  STATE.contextoRemotoActivo = ultimoInicio ? (ultimoInicio.contexto_remoto || 'domicilio') : null;
+  const labelInicioFin = (m, idx) => {
+    if (m.tipo !== 'inicio_jornada_remota' && m.tipo !== 'fin_jornada_remota') return null;
+    // Buscar el contexto del "inicio" correspondiente a esta cadena (hacia atrás desde este índice)
+    let ctx = m.contexto_remoto;
+    if (!ctx) {
+      for (let i = idx; i >= 0; i--) { if (movs[i].tipo === 'inicio_jornada_remota') { ctx = movs[i].contexto_remoto; break; } }
+    }
+    const esExterno = ctx === 'externo';
+    if (m.tipo === 'inicio_jornada_remota') return esExterno ? 'Inicio trabajo externo' : 'Inicio remoto';
+    return esExterno ? 'Volvió a la oficina' : 'Fin remoto';
+  };
+  const nombres = {ingreso:'Ingreso',egreso:'Egreso',salida_almuerzo:'Salida almuerzo',regreso_almuerzo:'Regreso almuerzo',salida_externa:'Salida externa',regreso_externo:'Regreso de externo'};
+  actualizarBadgeEstado(ultimo.tipo, STATE.contextoRemotoActivo);
   const btnOlvide = document.getElementById('btn-olvide-salida');
   if (btnOlvide) {
     const jornadaActiva = ['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(ultimo.tipo);
     btnOlvide.style.display = jornadaActiva ? 'block' : 'none';
   }
-  cont.innerHTML = movs.map(m => `
+  cont.innerHTML = movs.map((m, idx) => `
     <div class="mov-item">
       <div class="mov-dot" style="background:${colores[m.tipo]||'var(--text3)'}"></div>
       <div style="flex:1">
-        <div class="mov-tipo">${nombres[m.tipo]||m.tipo}${m.es_tardanza?' <span style="color:var(--yellow);font-size:11px">+'+m.minutos_tardanza+'min</span>':''}</div>
+        <div class="mov-tipo">${labelInicioFin(m, idx) || nombres[m.tipo] || m.tipo}${m.es_tardanza?' <span style="color:var(--yellow);font-size:11px">+'+m.minutos_tardanza+'min</span>':''}</div>
         <div class="mov-hora">${new Date(m.hora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}${m.categoria_nombre?' · '+m.categoria_nombre:''}</div>
       </div>
-      ${m.es_remoto ? '<span class="badge badge-blue" style="font-size:10px">Remoto</span>' : ''}
+      ${m.es_remoto ? '<span class="badge badge-blue" style="font-size:10px">'+(m.contexto_remoto==='externo'?'Externo':'Remoto')+'</span>' : ''}
     </div>
   `).join('');
   let totalMin = 0, entrada = null;
@@ -1433,14 +1454,15 @@ function renderMovimientosHoy(movs) {
   document.getElementById('stat-horas-hoy').textContent = horas + 'h' + (mins ? mins + 'm' : '');
 }
 
-function actualizarBadgeEstado(tipo) {
+function actualizarBadgeEstado(tipo, contextoRemoto) {
   const badge = document.getElementById('badge-estado-actual');
+  const esExterno = contextoRemoto === 'externo';
   const map = {
     ingreso:['badge-green','● En oficina'], regreso_almuerzo:['badge-green','● En oficina'],
     regreso_externo:['badge-green','● En oficina'], salida_almuerzo:['badge-yellow','● En almuerzo'],
     salida_externa:['badge-orange','● En externo'], egreso:['badge-gray','● Retirado'],
-    inicio_jornada_remota:['badge-blue','● Remoto — pendiente validación'],
-    fin_jornada_remota:['badge-gray','● Fin de jornada remota'],
+    inicio_jornada_remota: esExterno ? ['badge-orange','● Trabajo externo — en viaje/en cliente'] : ['badge-blue','● Remoto — pendiente validación'],
+    fin_jornada_remota:['badge-gray','● Fin de jornada'],
   };
   const [cls, txt] = map[tipo] || ['badge-gray','● Sin registros'];
   badge.className = 'badge ' + cls; badge.textContent = txt;
@@ -4082,7 +4104,9 @@ const TITULOS_EXITO={
 
 function mostrarExito(tipo) {
   const overlay=document.getElementById('overlay-exito');
-  document.getElementById('exito-titulo').textContent=TITULOS_EXITO[tipo]||'Movimiento registrado';
+  let titulo = TITULOS_EXITO[tipo]||'Movimiento registrado';
+  if (tipo === 'fin_jornada_remota' && STATE.contextoRemotoActivo === 'externo') titulo = '¡Volviste a la oficina!';
+  document.getElementById('exito-titulo').textContent = titulo;
   document.getElementById('exito-subtitulo').textContent='Tu movimiento fue registrado y firmado correctamente.';
   _exitoSegundos=5;
   document.getElementById('exito-contador').textContent=_exitoSegundos;
