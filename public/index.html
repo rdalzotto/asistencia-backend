@@ -2506,7 +2506,7 @@ function tabPendientes(id, el) {
 function abrirPanelConfig() {
   const existing = document.getElementById('modal-config');
   if (existing) existing.remove();
-  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
+  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div style="display:flex;gap:6px;margin-bottom:10px" id="dest-filtro-tabs"><button type="button" class="btn btn-sm btn-primary" onclick="filtrarDestinosConfig('todos',this)" style="flex:1">Todos</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('cliente',this)" style="flex:1">Propios</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('contratista',this)" style="flex:1">Contratistas</button></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
   cargarConfigEmpresa(); cargarDestinosConfig();
   api('/config/empleados').then(emps => {
@@ -2584,13 +2584,34 @@ function toggleFormDestino() {
   form.style.display = form.style.display==='none' ? 'block' : 'none';
 }
 
+let _destinosConfigCache = [];
+let _destinosConfigFiltro = 'todos';
+
 async function cargarDestinosConfig() {
   try {
-    const dest = await api('/config/destinos');
-    const cont = document.getElementById('lista-destinos-config');
-    if (!cont) return;
-    cont.innerHTML = dest.length ? dest.map(d => '<div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:13px"><div style="display:flex;justify-content:space-between;align-items:center"><strong>'+d.nombre+'</strong><span style="background:var(--bg3);padding:2px 8px;border-radius:20px;font-size:11px;color:var(--accent)">'+d.tipo+'</span></div><div style="color:var(--text2);font-size:12px;margin-top:2px">'+(d.localidad||'')+(d.lat?' · 📍 GPS cargado':' · <span style="color:var(--text3)">Sin GPS</span>')+'</div></div>').join('') : '<p style="color:var(--text3);font-size:13px;text-align:center;padding:16px">Sin destinos cargados</p>';
+    _destinosConfigCache = await api('/config/destinos');
+    renderizarDestinosConfig();
   } catch {}
+}
+
+function filtrarDestinosConfig(filtro, btn) {
+  _destinosConfigFiltro = filtro;
+  document.querySelectorAll('#dest-filtro-tabs button').forEach(b => b.className = 'btn btn-sm btn-secondary');
+  if (btn) btn.className = 'btn btn-sm btn-primary';
+  renderizarDestinosConfig();
+}
+
+function renderizarDestinosConfig() {
+  const cont = document.getElementById('lista-destinos-config');
+  if (!cont) return;
+  const etiquetas = {cliente:'Cliente', contratista:'Contratista', proveedor:'Proveedor', organismo:'Organismo', otro:'Otro'};
+  let dest = _destinosConfigCache;
+  if (_destinosConfigFiltro === 'cliente') dest = dest.filter(d => d.tipo !== 'contratista');
+  else if (_destinosConfigFiltro === 'contratista') dest = dest.filter(d => d.tipo === 'contratista');
+  cont.innerHTML = dest.length ? dest.map(d => {
+    const colorTag = d.tipo === 'contratista' ? 'color:#ffb020' : 'color:var(--accent)';
+    return '<div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:13px"><div style="display:flex;justify-content:space-between;align-items:center"><strong>'+d.nombre+'</strong><span style="background:var(--bg3);padding:2px 8px;border-radius:20px;font-size:11px;'+colorTag+'">'+(etiquetas[d.tipo]||d.tipo)+'</span></div><div style="color:var(--text2);font-size:12px;margin-top:2px">'+(d.localidad||'')+(d.lat?' · 📍 GPS cargado':' · <span style="color:var(--text3)">Sin GPS</span>')+'</div></div>';
+  }).join('') : '<p style="color:var(--text3);font-size:13px;text-align:center;padding:16px">Sin destinos en esta categoría</p>';
 }
 
 async function agregarDestino() {
@@ -2614,7 +2635,7 @@ function descargarPlantillaDestinos() {
   const wb = XLSX.utils.book_new();
   const wsData = [
     ['NOMBRE *', 'TIPO *', 'LOCALIDAD', 'PROVINCIA', 'PAIS', 'DOMICILIO', 'LATITUD', 'LONGITUD', 'RADIO GPS (metros)'],
-    ['Nombre del cliente/destino', 'cliente / proveedor / organismo / otro', 'Ciudad', 'Provincia', 'País (dejar vacío si es Argentina)', 'Dirección completa (opcional)', 'Ej: -31.4003 (Google Maps)', 'Ej: -58.0142 (Google Maps)', '200 (default) o más metros'],
+    ['Nombre del cliente/destino', 'cliente / contratista / proveedor / organismo / otro', 'Ciudad', 'Provincia', 'País (dejar vacío si es Argentina)', 'Dirección completa (opcional)', 'Ej: -31.4003 (Google Maps)', 'Ej: -58.0142 (Google Maps)', '200 (default) o más metros'],
     ['Agroreservas El Quebracho', 'cliente', 'Feliciano', 'Entre Ríos', '', 'Distrito Atencio', -30.528528, -58.855953, 500],
   ];
   const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -2637,7 +2658,7 @@ async function importarDestinos(input) {
     for (const r of dataRows) {
       const nombre=String(r[0]||'').trim();
       const tipoRaw=String(r[1]||'').trim().toLowerCase();
-      const tipo=['cliente','proveedor','organismo','otro'].includes(tipoRaw)?tipoRaw:'otro';
+      const tipo=['cliente','contratista','proveedor','organismo','otro'].includes(tipoRaw)?tipoRaw:'otro';
       const localidad=String(r[2]||'').trim()||null;
       const domicilio=String(r[5]||'').trim()||null;
       const lat=parseFloat(r[6])||null;
@@ -4337,9 +4358,10 @@ function abrirConstanciaEspontanea() {
     <div style="background:var(--bg2);border-radius:16px;padding:24px;width:100%;max-width:420px;margin:auto">
       <div style="font-size:16px;font-weight:700;margin-bottom:4px">📋 Constancia espontánea</div>
       <div style="font-size:12px;color:var(--text2);margin-bottom:20px">Visita no programada — obra, contratista o establecimiento en vía pública</div>
-      <div class="form-group">
+      <div class="form-group" style="position:relative">
         <label>Empresa / Contratista *</label>
-        <input type="text" id="espontanea-establecimiento" placeholder="Nombre de la empresa o contratista" style="width:100%;box-sizing:border-box">
+        <input type="text" id="espontanea-establecimiento" placeholder="Buscá en el listado o escribí un nombre nuevo..." style="width:100%;box-sizing:border-box" autocomplete="off" oninput="buscarEmpresaEspontanea(this.value)" onfocus="buscarEmpresaEspontanea(this.value)">
+        <div id="espontanea-sugerencias" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:10;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);max-height:220px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.3)"></div>
       </div>
       <div class="form-group">
         <label>Dirección del frente de trabajo</label>
@@ -4348,6 +4370,18 @@ function abrirConstanciaEspontanea() {
       <div class="form-group">
         <label>Localidad</label>
         <input type="text" id="espontanea-localidad" placeholder="Ej: Concordia" style="width:100%;box-sizing:border-box">
+      </div>
+      <div style="margin:-6px 0 16px">
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <label style="flex:1;display:flex;align-items:center;gap:6px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer">
+            <input type="radio" name="espontanea-tipo-nuevo" value="cliente" checked style="margin:0"> Empresa propia / cliente
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:6px;font-size:12px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer">
+            <input type="radio" name="espontanea-tipo-nuevo" value="contratista" style="margin:0"> Contratista a controlar
+          </label>
+        </div>
+        <button type="button" id="btn-agregar-listado-espontanea" onclick="agregarContratistaEspontanea()" class="btn btn-secondary btn-sm" style="width:100%">+ Agregar al listado de empresas</button>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">Si es una empresa nueva, guardala acá para que la próxima vez aparezca sugerida</div>
       </div>
       <div class="form-group">
         <label>Hora de llegada</label>
@@ -4370,6 +4404,58 @@ function abrirConstanciaEspontanea() {
   document.getElementById('espontanea-hora').value = ahora;
   // Intentar GPS automático al abrir
   capturarGPSEspontanea(true);
+  // Precargar listado de empresas para el autocomplete
+  cargarDestinosCache();
+}
+
+async function buscarEmpresaEspontanea(query) {
+  await cargarDestinosCache();
+  const sug = document.getElementById('espontanea-sugerencias');
+  if (!sug) return;
+  if (!query || !query.trim()) { sug.style.display = 'none'; return; }
+  const q = query.toLowerCase();
+  const filtrados = _destinosCache.filter(d => d.nombre.toLowerCase().includes(q) || (d.localidad && d.localidad.toLowerCase().includes(q))).slice(0, 8);
+  if (!filtrados.length) { sug.style.display = 'none'; return; }
+  const etiquetas = {cliente:'Cliente', contratista:'Contratista', proveedor:'Proveedor', organismo:'Organismo', otro:'Otro'};
+  sug.style.display = 'block';
+  sug.innerHTML = filtrados.map(d => {
+    const etiqueta = etiquetas[d.tipo] || 'Otro';
+    const colorTag = d.tipo === 'contratista' ? 'color:#ffb020;border-color:rgba(255,176,32,0.4)' : 'color:var(--accent);border-color:rgba(0,212,255,0.3)';
+    return '<div onclick="seleccionarEmpresaEspontanea(\''+d.nombre.replace(/'/g,"\\'")+'\',\''+(d.domicilio||'').replace(/'/g,"\\'")+'\',\''+(d.localidad||'').replace(/'/g,"\\'")+'\')" style="padding:10px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+
+      '<div><div style="font-weight:600">'+d.nombre+'</div>'+
+      (d.domicilio || d.localidad ? '<div style="font-size:11px;color:var(--text2)">'+(d.domicilio && d.localidad ? d.domicilio+', '+d.localidad : (d.domicilio||d.localidad))+'</div>' : '')+
+      '</div><span style="font-size:10px;border:1px solid;border-radius:20px;padding:2px 8px;white-space:nowrap;'+colorTag+'">'+etiqueta+'</span>'+
+    '</div>';
+  }).join('');
+}
+
+function seleccionarEmpresaEspontanea(nombre, domicilio, localidad) {
+  document.getElementById('espontanea-establecimiento').value = nombre;
+  if (domicilio) document.getElementById('espontanea-direccion').value = domicilio;
+  if (localidad) document.getElementById('espontanea-localidad').value = localidad;
+  document.getElementById('espontanea-sugerencias').style.display = 'none';
+}
+
+async function agregarContratistaEspontanea() {
+  const nombre = document.getElementById('espontanea-establecimiento')?.value?.trim();
+  const domicilio = document.getElementById('espontanea-direccion')?.value?.trim();
+  const localidad = document.getElementById('espontanea-localidad')?.value?.trim();
+  const tipoElegido = document.querySelector('input[name="espontanea-tipo-nuevo"]:checked')?.value || 'cliente';
+  if (!nombre) { toast('Ingresá el nombre antes de agregarlo al listado', 'error'); return; }
+  await cargarDestinosCache();
+  const yaExiste = _destinosCache.some(d => d.nombre.trim().toLowerCase() === nombre.toLowerCase());
+  if (yaExiste) { toast('Ya está en el listado', 'error'); return; }
+  const btn = document.getElementById('btn-agregar-listado-espontanea');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  try {
+    await api('/config/destinos', {method:'POST', body: JSON.stringify({nombre, tipo:tipoElegido, localidad: localidad||null, domicilio: domicilio||null})});
+    _destinosCache = await api('/config/destinos');
+    toast('Agregado al listado ✓', 'success');
+    if (btn) { btn.textContent = '✓ Agregado al listado'; }
+  } catch (e) {
+    toast('No se pudo agregar al listado', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '+ Agregar al listado de empresas'; }
+  }
 }
 
 function capturarGPSEspontanea(silencioso) {
