@@ -2560,11 +2560,15 @@ function renderReporteMensual(data, esFirmado) {
       : d.horasExtra > 0
         ? `<span style="color:var(--orange)">+${d.horasExtra.toFixed(1)}h extra</span>`
         : '--';
-    const fotoTag = d.fotoIngreso
-      ? `<img src="${d.fotoIngreso}" onclick="window.open('${d.fotoIngreso}','_blank')" style="width:22px;height:22px;border-radius:4px;object-fit:cover;cursor:pointer;vertical-align:middle;margin-left:5px;border:1px solid var(--border)" title="Ver foto del ingreso (click para ampliar)">`
+    const fotoTag = d.ingreso
+      ? (d.fotoIngreso
+          ? `<img src="${d.fotoIngreso}" onclick="window.open('${d.fotoIngreso}','_blank')" style="width:22px;height:22px;border-radius:4px;object-fit:cover;cursor:pointer;vertical-align:middle;margin-left:5px;border:1px solid var(--border)" title="Ver foto del ingreso (click para ampliar)">`
+          : `<span style="margin-left:5px;color:var(--red);font-size:10px;font-weight:600;white-space:nowrap" title="El empleado no sacó foto al fichar este ingreso">⚠ sin foto</span>`)
       : '';
-    const gpsTag = d.gpsIngreso
-      ? `<a href="https://www.google.com/maps?q=${d.gpsIngreso.lat},${d.gpsIngreso.lng}" target="_blank" title="Ver ubicación del ingreso en el mapa" style="margin-left:4px;text-decoration:none">📍</a>`
+    const gpsTag = d.ingreso
+      ? (d.gpsIngreso
+          ? `<a href="https://www.google.com/maps?q=${d.gpsIngreso.lat},${d.gpsIngreso.lng}" target="_blank" title="Ver ubicación del ingreso en el mapa" style="margin-left:4px;text-decoration:none">📍</a>`
+          : `<span style="margin-left:5px;color:var(--red);font-size:10px;font-weight:600;white-space:nowrap" title="No se registraron coordenadas GPS en este ingreso">⚠ sin GPS</span>`)
       : '';
     return `<tr><td>${d.dia} ${dias[d.diaSemana]}</td><td>${d.ingreso||'--'}${fotoTag}${gpsTag}</td><td>${d.egreso||'--'}</td><td>${d.horasTrabajadas>0?d.horasTrabajadas.toFixed(1)+'h':'--'}</td><td>${lugar}${clientesTxt}</td><td>${obs}</td></tr>`;
   }).join('');
@@ -2601,9 +2605,14 @@ function renderReporteMensual(data, esFirmado) {
     : '';
 
   document.getElementById('reporte-contenido').innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
-      ${data.empleado.foto_perfil_url ? `<img src="${data.empleado.foto_perfil_url}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex-shrink:0" title="Foto de referencia del legajo">` : ''}
-      <div style="font-size:12px;color:var(--text2)">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+      ${data.empleado.foto_perfil_url
+        ? `<img src="${data.empleado.foto_perfil_url}" style="width:84px;height:84px;border-radius:10px;object-fit:cover;border:1px solid var(--border);flex-shrink:0" title="Foto de referencia del legajo">`
+        : `<div style="width:84px;height:84px;border-radius:10px;background:var(--bg3);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text3);text-align:center;flex-shrink:0;padding:4px">Sin foto de perfil cargada</div>`}
+      <div>
+        <div style="font-size:16px;font-weight:700">${data.empleado.nombre} ${data.empleado.apellido}${data.empleado.legajo?' · Legajo '+data.empleado.legajo:''}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
+      </div>
     </div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="color:var(--text2);border-bottom:1px solid var(--border)">
@@ -2624,6 +2633,8 @@ function renderReporteMensual(data, esFirmado) {
       <div class="info-row"><span class="lbl">Banco de horas acumulado (a fin de mes)</span><span class="val" style="color:${acumColor}">${t.banco_horas_acumulado_al_mes}h</span></div>
       <div class="info-row"><span class="lbl">Tardanzas</span><span class="val" style="color:var(--yellow)">${t.tardanzas} (${t.minutos_tardanza_total}m total)</span></div>
       <div class="info-row"><span class="lbl">Ausencias</span><span class="val" style="color:var(--red)">${t.ausencias}</span></div>
+      ${t.dias_sin_foto > 0 ? `<div class="info-row"><span class="lbl">⚠ Ingresos sin foto</span><span class="val" style="color:var(--red)">${t.dias_sin_foto}</span></div>` : ''}
+      ${t.dias_sin_gps > 0 ? `<div class="info-row"><span class="lbl">⚠ Ingresos sin GPS</span><span class="val" style="color:var(--red)">${t.dias_sin_gps}</span></div>` : ''}
     </div>
     ${seccionTardanzas}
     ${seccionClientes}
