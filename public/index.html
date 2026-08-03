@@ -153,6 +153,23 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 /* Tarjeta de visita pendiente de aprobación */
 .visita-pendiente-card{background:rgba(180,100,255,0.06);border:1px solid rgba(180,100,255,0.25);border-radius:var(--radius-sm);padding:14px;margin-bottom:10px;}
 @media(min-width:500px){.main-content{max-width:500px;margin:0 auto;}.bottom-nav{max-width:500px;left:50%;transform:translateX(-50%);}}
+
+/* Impresión del reporte mensual: oculta todo lo que no sea el modal del
+   reporte. A propósito NO usamos position:absolute para el contenido —
+   eso rompe la paginación cuando el reporte ocupa más de una hoja (el
+   contenido absoluto no se repite en páginas siguientes y reaparece el
+   resto de la app). Dejamos que el modal fluya normal para que el
+   navegador pagine bien tablas largas en varias hojas. */
+@media print {
+  @page { size: A4 landscape; margin: 12mm; }
+  body > *:not(#modal-reporte) { display: none !important; }
+  #modal-reporte { position: static !important; display: block !important; background: none !important; inset: auto !important; align-items: initial !important; justify-content: initial !important; }
+  #modal-reporte .modal { position: static !important; max-height: none !important; overflow: visible !important; box-shadow: none !important; border: none !important; width: 100% !important; max-width: none !important; transform: none !important; }
+  .no-print { display: none !important; }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+}
 </style>
 </head>
 <body>
@@ -628,15 +645,20 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="modal-handle"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px" class="no-print">
         <div class="modal-title" style="margin:0" id="rep-titulo">Reporte mensual</div>
-        <button class="btn btn-sm btn-secondary" onclick="imprimirReporte()">🖨 Imprimir</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm btn-secondary" onclick="descargarReportePDF()">⬇️ Descargar PDF</button>
+          <button class="btn btn-sm btn-secondary" onclick="imprimirReporte()">🖨 Imprimir</button>
+        </div>
       </div>
       <div id="reporte-imprimible">
         <div id="reporte-titulo-print" style="display:none;font-weight:700;font-size:18px;margin-bottom:10px"></div>
         <div id="reporte-contenido"></div>
+        <div id="reporte-objeciones"></div>
         <div id="reporte-firmas" style="margin-top:24px"></div>
       </div>
       <div class="no-print" style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-secondary" onclick="abrirFirmaReporte('empleado')" id="btn-firmar-empleado">✍️ Firmar (empleado)</button>
+        <button class="btn btn-secondary" onclick="abrirModal('modal-conformidad-reporte')" id="btn-firmar-empleado">✍️ Firmar (empleado)</button>
+        <button class="btn btn-secondary" id="btn-objecion-pendiente" style="display:none;color:var(--yellow)">⚠ Objeción pendiente de revisar</button>
         <button class="btn btn-secondary" onclick="abrirFirmaReporte('admin')" id="btn-firmar-admin">✍️ Firmar (responsable)</button>
         <button class="btn btn-secondary" onclick="cerrarModal('modal-reporte')">Cerrar</button>
       </div>
@@ -661,6 +683,34 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       </div>
     </div>
   </div>
+
+  <!-- MODAL CONFORMIDAD (paso previo a que el empleado firme) -->
+  <div class="modal-overlay" id="modal-conformidad-reporte">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">¿Los datos de este reporte son correctos?</div>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:16px">Revisá los días, horarios y horas antes de firmar. Si algo no coincide con lo que trabajaste, avisá antes de firmar en vez de después.</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-primary" onclick="cerrarModal('modal-conformidad-reporte');abrirFirmaReporte('empleado')">✓ Sí, está todo correcto — firmar</button>
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-conformidad-reporte');abrirObjecionReporte()">⚠ No, hay algo que no coincide</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL OBJECIÓN AL REPORTE -->
+  <div class="modal-overlay" id="modal-objecion-reporte">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title">Marcar incoherencia</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Contá qué día y qué dato no coincide. Le va a llegar una notificación al administrador y el reporte queda bloqueado para firmar hasta que lo revise.</p>
+      <div class="form-group"><label>Detalle</label><textarea id="objecion-reporte-texto" rows="4" placeholder="Ej: el día 17 dice que llegué tarde pero entré a horario, el sistema tenía un problema ese día"></textarea></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-primary" onclick="enviarObjecionReporte()">Enviar</button>
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-objecion-reporte')">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
 
   <!-- MODAL HORARIO POR DÍA -->
   <div class="modal-overlay" id="modal-horario-dia">
@@ -2462,15 +2512,29 @@ async function generarReporteMensual() {
   const mes = document.getElementById('rep-mes').value;
   if (!empId) return toast('Seleccioná un empleado','error');
   try {
-    const [data, firmado] = await Promise.all([
+    const [data, firmado, objeciones] = await Promise.all([
       api('/reportes/mensual?empleado_id='+empId+'&anio='+anio+'&mes='+mes),
       api('/reportes/mensual/firmado?empleado_id='+empId+'&anio='+anio+'&mes='+mes).catch(()=>null),
+      api('/reportes/mensual/objeciones?empleado_id='+empId+'&anio='+anio+'&mes='+mes).catch(()=>[]),
     ]);
-    REPORTE_STATE = { empId, anio, mes, data, firmado };
+    REPORTE_STATE = { empId, anio, mes, data, firmado, objeciones };
     renderReporteMensual(firmado?.datos_snapshot || data, !!firmado);
     renderFirmasReporte(firmado);
+    renderObjecionesReporte(objeciones);
     abrirModal('modal-reporte');
   } catch(e) { toast(e.message,'error'); }
+}
+
+async function recargarEstadoReporte() {
+  const { empId, anio, mes } = REPORTE_STATE;
+  const [firmado, objeciones] = await Promise.all([
+    api('/reportes/mensual/firmado?empleado_id='+empId+'&anio='+anio+'&mes='+mes).catch(()=>null),
+    api('/reportes/mensual/objeciones?empleado_id='+empId+'&anio='+anio+'&mes='+mes).catch(()=>[]),
+  ]);
+  REPORTE_STATE.firmado = firmado;
+  REPORTE_STATE.objeciones = objeciones;
+  renderFirmasReporte(firmado);
+  renderObjecionesReporte(objeciones);
 }
 
 function renderReporteMensual(data, esFirmado) {
@@ -2583,8 +2647,73 @@ function renderFirmasReporte(firmado) {
 
   document.getElementById('reporte-firmas').innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap">${box(fEmp)}${box(fAdmin)}</div>`;
 
-  document.getElementById('btn-firmar-empleado').style.display = firmado?.firma_empleado_svg ? 'none' : '';
   document.getElementById('btn-firmar-admin').style.display = firmado?.firma_admin_svg ? 'none' : '';
+}
+
+function renderObjecionesReporte(objeciones) {
+  const esAdmin = STATE.rol === 'admin';
+  const hayPendiente = (objeciones||[]).some(o => o.estado === 'pendiente');
+
+  // Bloquea/habilita el botón de firmar empleado según haya objeción pendiente
+  document.getElementById('btn-firmar-empleado').style.display =
+    (REPORTE_STATE.firmado?.firma_empleado_svg || hayPendiente) ? 'none' : '';
+  document.getElementById('btn-objecion-pendiente').style.display = hayPendiente ? '' : 'none';
+
+  if (!objeciones || !objeciones.length) {
+    document.getElementById('reporte-objeciones').innerHTML = '';
+    return;
+  }
+
+  const filas = objeciones.map(o => {
+    const fecha = new Date(o.creado_en).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'});
+    const quien = [o.creado_por_nombre, o.creado_por_apellido].filter(Boolean).join(' ') || 'Empleado';
+    const badge = o.estado === 'pendiente'
+      ? `<span style="color:var(--yellow)">⚠ Pendiente</span>`
+      : `<span style="color:var(--green)">✓ Resuelta</span>`;
+    const respuesta = o.respuesta_admin
+      ? `<div style="margin-top:6px;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;font-size:12px"><b>Respuesta:</b> ${o.respuesta_admin}</div>` : '';
+    const resolverBtn = (esAdmin && o.estado === 'pendiente')
+      ? `<div style="margin-top:8px;display:flex;gap:6px">
+           <input type="text" id="resp-obj-${o.id}" placeholder="Respuesta / qué se corrigió" style="flex:1">
+           <button class="btn btn-sm btn-primary" onclick="resolverObjecionReporte(${o.id})">Resolver</button>
+         </div>`
+      : '';
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2)"><span>${quien} · ${fecha}</span>${badge}</div>
+        <div style="margin-top:4px;font-size:13px">${o.comentario}</div>
+        ${respuesta}${resolverBtn}
+      </div>`;
+  }).join('');
+
+  document.getElementById('reporte-objeciones').innerHTML =
+    `<div style="margin-top:20px"><div style="font-weight:600;margin-bottom:8px">Incoherencias marcadas</div>${filas}</div>`;
+}
+
+function abrirObjecionReporte() {
+  document.getElementById('objecion-reporte-texto').value = '';
+  abrirModal('modal-objecion-reporte');
+}
+
+async function enviarObjecionReporte() {
+  const comentario = document.getElementById('objecion-reporte-texto').value.trim();
+  if (!comentario) return toast('Contá qué no coincide','error');
+  try {
+    await api('/reportes/mensual/objetar', { method:'POST', body: JSON.stringify({
+      empleado_id: REPORTE_STATE.empId, anio: REPORTE_STATE.anio, mes: REPORTE_STATE.mes, comentario,
+    })});
+    cerrarModal('modal-objecion-reporte');
+    toast('Incoherencia enviada al administrador','success');
+    await recargarEstadoReporte();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function resolverObjecionReporte(id) {
+  const respuesta_admin = document.getElementById('resp-obj-'+id)?.value.trim() || null;
+  try {
+    await api('/reportes/mensual/objeciones/'+id+'/resolver', { method:'PATCH', body: JSON.stringify({ respuesta_admin })});
+    toast('Objeción resuelta','success');
+    await recargarEstadoReporte();
+  } catch(e) { toast(e.message,'error'); }
 }
 
 let _firmaReporteCtx = null, _firmaReporteDibujando = false, _firmaReporteTipo = null;
@@ -2648,6 +2777,84 @@ async function guardarFirmaReporte() {
 }
 
 function imprimirReporte() { window.print(); }
+
+// ─── Descarga del reporte como PDF (html2canvas + jsPDF, paginado) ───────────
+// El botón "Imprimir" depende del motor de impresión de cada navegador/SO, y
+// en algunos Android termina cortando el contenido cuando el reporte ocupa
+// varias hojas. Esta descarga arma el PDF nosotros mismos, igual que ya se
+// hace con las constancias, así el resultado es consistente en cualquier
+// dispositivo.
+async function generarPDFReporte() {
+  const origen = document.getElementById('reporte-imprimible');
+  const contenedor = document.createElement('div');
+  // Los estilos del reporte usan las variables de color del tema oscuro de la
+  // app (var(--text2), var(--border), etc.), que son casi invisibles sobre
+  // fondo blanco. Las pisamos acá con valores aptos para papel — como son
+  // custom properties, todo lo que esté adentro (clonado con innerHTML) las
+  // hereda automáticamente sin tocar el resto del código del reporte.
+  contenedor.style.cssText = `
+    position:fixed;left:-9999px;top:0;width:1400px;background:#ffffff;color:#1a1a1a;
+    font-family:Arial,sans-serif;padding:24px;
+    --bg:#ffffff;--bg2:#ffffff;--bg3:#f2f5f8;--border:#d5dde3;
+    --text:#1a1a1a;--text2:#4a5a68;--text3:#7c8a96;
+    --green:#0a8a4a;--yellow:#a8720a;--red:#c0392b;--orange:#c2650a;
+  `;
+  contenedor.innerHTML = origen.innerHTML;
+  document.body.appendChild(contenedor);
+
+  // Esperar a que las imágenes (firmas en base64) terminen de decodificar
+  await Promise.all(Array.from(contenedor.querySelectorAll('img')).map(img =>
+    img.complete ? Promise.resolve() : new Promise(res => { img.onload = res; img.onerror = res; })
+  ));
+  await new Promise(r => setTimeout(r, 150));
+
+  try {
+    const {jsPDF} = window.jspdf;
+    const canvas = await html2canvas(contenedor, {
+      scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false
+    });
+
+    const pdf = new jsPDF({orientation: 'landscape', unit: 'px', format: 'a4', hotfixes: ['px_scaling']});
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const margin = 28;
+    const imgW = pdfW - margin * 2;
+    const escala = canvas.width / imgW;
+    const altoMaxPx = (pdfH - margin * 2) * escala;
+    let srcYpx = 0;
+
+    while (srcYpx < canvas.height) {
+      const altoBloqPx = Math.min(altoMaxPx, canvas.height - srcYpx);
+      const bloqCanvas = document.createElement('canvas');
+      bloqCanvas.width = canvas.width;
+      bloqCanvas.height = altoBloqPx;
+      bloqCanvas.getContext('2d').drawImage(canvas, 0, srcYpx, canvas.width, altoBloqPx, 0, 0, canvas.width, altoBloqPx);
+      const bloqData = bloqCanvas.toDataURL('image/jpeg', 0.88);
+      const altoEnPdf = altoBloqPx / escala;
+      pdf.addImage(bloqData, 'JPEG', margin, margin, imgW, altoEnPdf);
+      srcYpx += altoBloqPx;
+      if (srcYpx < canvas.height) { pdf.addPage(); }
+    }
+
+    const emp = REPORTE_STATE.data?.empleado;
+    const base = 'Reporte_' + (emp ? (emp.apellido + '_' + emp.nombre) : 'mensual') + '_' + REPORTE_STATE.mes + '_' + REPORTE_STATE.anio;
+    const nombre = base.replace(/[^a-zA-Z0-9_-]/g, '_') + '.pdf';
+    return { pdf, nombre };
+  } finally {
+    document.body.removeChild(contenedor);
+  }
+}
+
+async function descargarReportePDF() {
+  toast('Generando PDF...', 'info');
+  try {
+    const { pdf, nombre } = await generarPDFReporte();
+    pdf.save(nombre);
+    toast('PDF descargado ✓', 'success');
+  } catch(e) {
+    toast('Error al generar PDF', 'error'); console.error(e);
+  }
+}
 
 
 async function verEstadisticas() {
@@ -6022,17 +6229,7 @@ function generarHTMLConstancia() {
     .tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:2px 9px;font-size:11px;margin:2px}
     .firma-row{display:flex;gap:8px;margin-top:6px;page-break-inside:avoid}
     .seccion{page-break-inside:avoid}
-    @media print{
-      @page { size: A4 landscape; margin: 12mm; }
-      body * { visibility: hidden; }
-      #reporte-imprimible, #reporte-imprimible * { visibility: visible; }
-      #reporte-imprimible { position: absolute; top: 0; left: 0; width: 100%; padding: 0; margin: 0; }
-      .no-print { display: none !important; }
-      #modal-reporte.modal-overlay { position: absolute; inset: auto; background: none; display: block !important; }
-      #modal-reporte .modal { max-height: none; overflow: visible; box-shadow: none; border: none; position: static; width: 100%; }
-      table { page-break-inside: auto; }
-      tr { page-break-inside: avoid; }
-    }
+    @media print{body{padding:10px}}
 
   </style></head><body>
 
