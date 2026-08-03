@@ -2560,7 +2560,13 @@ function renderReporteMensual(data, esFirmado) {
       : d.horasExtra > 0
         ? `<span style="color:var(--orange)">+${d.horasExtra.toFixed(1)}h extra</span>`
         : '--';
-    return `<tr><td>${d.dia} ${dias[d.diaSemana]}</td><td>${d.ingreso||'--'}</td><td>${d.egreso||'--'}</td><td>${d.horasTrabajadas>0?d.horasTrabajadas.toFixed(1)+'h':'--'}</td><td>${lugar}${clientesTxt}</td><td>${obs}</td></tr>`;
+    const fotoTag = d.fotoIngreso
+      ? `<img src="${d.fotoIngreso}" onclick="window.open('${d.fotoIngreso}','_blank')" style="width:22px;height:22px;border-radius:4px;object-fit:cover;cursor:pointer;vertical-align:middle;margin-left:5px;border:1px solid var(--border)" title="Ver foto del ingreso (click para ampliar)">`
+      : '';
+    const gpsTag = d.gpsIngreso
+      ? `<a href="https://www.google.com/maps?q=${d.gpsIngreso.lat},${d.gpsIngreso.lng}" target="_blank" title="Ver ubicación del ingreso en el mapa" style="margin-left:4px;text-decoration:none">📍</a>`
+      : '';
+    return `<tr><td>${d.dia} ${dias[d.diaSemana]}</td><td>${d.ingreso||'--'}${fotoTag}${gpsTag}</td><td>${d.egreso||'--'}</td><td>${d.horasTrabajadas>0?d.horasTrabajadas.toFixed(1)+'h':'--'}</td><td>${lugar}${clientesTxt}</td><td>${obs}</td></tr>`;
   }).join('');
 
   const t = data.totales;
@@ -2595,7 +2601,10 @@ function renderReporteMensual(data, esFirmado) {
     : '';
 
   document.getElementById('reporte-contenido').innerHTML = `
-    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      ${data.empleado.foto_perfil_url ? `<img src="${data.empleado.foto_perfil_url}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex-shrink:0" title="Foto de referencia del legajo">` : ''}
+      <div style="font-size:12px;color:var(--text2)">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
+    </div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="color:var(--text2);border-bottom:1px solid var(--border)">
         <th style="text-align:left;padding:6px 4px">Día</th><th style="padding:6px 4px">Ingreso</th><th style="padding:6px 4px">Egreso</th><th style="padding:6px 4px">Horas</th><th style="padding:6px 4px">Lugar</th><th style="padding:6px 4px">Obs.</th>
@@ -2628,7 +2637,9 @@ function renderFirmasReporte(firmado) {
   const box = f => f
     ? `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center">
          <div style="font-size:11px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;font-weight:700">${f.titulo}</div>
-         <img src="${f.svg}" style="width:100%;height:70px;object-fit:contain;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;background:#fff">
+         <div style="width:100%;height:70px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;background:#fff">
+           <img src="${f.svg}" style="max-width:100%;max-height:100%;width:auto;height:auto;">
+         </div>
          <div style="font-size:13px;font-weight:700">${f.nombre}</div>
          ${f.cargo?`<div style="font-size:11px;color:var(--text2)">${f.cargo}</div>`:''}
          <div style="font-size:10px;color:var(--text3);margin-top:2px">${new Date(f.fecha).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'})}</div>
