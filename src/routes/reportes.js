@@ -57,11 +57,43 @@ router.get('/mensual', auth, async (req, res) => {
       WHERE empleado_id = $1 AND anio = $2 AND mes = $3
     `, [eId, anio, mes]);
 
+    // Saldo acumulado de banco de horas HASTA este mes inclusive (no el total a
+    // hoy — el reporte es de un período pasado, así que el saldo debe reflejar
+    // el acumulado hasta el cierre de ese mes, no incluir meses posteriores).
+    const diasEnMesCalc = new Date(anio, mes, 0).getDate();
+    const finDeMes = `${anio}-${String(mes).padStart(2,'0')}-${String(diasEnMesCalc).padStart(2,'0')}`;
+    const { rows: [saldoBrutoRow] } = await db.query(`
+      SELECT COALESCE(SUM(balance), 0) as saldo_bruto
+      FROM public.banco_horas
+      WHERE empleado_id = $1 AND (anio < $2 OR (anio = $2 AND mes <= $3))
+    `, [eId, anio, mes]);
+    const { rows: [compensadasRow] } = await db.query(`
+      SELECT COALESCE(SUM(horas_compensadas), 0) as horas_comp
+      FROM public.compensaciones
+      WHERE empleado_id = $1 AND fecha <= $2
+    `, [eId, finDeMes]);
+    const bancoHorasAcumulado =
+      Number(saldoBrutoRow.saldo_bruto) - Number(compensadasRow.horas_comp);
+
     // Feriados del mes
     const { rows: feriados } = await db.query(`
       SELECT fecha, descripcion FROM public.feriados
       WHERE EXTRACT(YEAR FROM fecha) = $1 AND EXTRACT(MONTH FROM fecha) = $2
     `, [anio, mes]);
+
+    // Visitas completadas del mes (para "clientes visitados" y para saber qué
+    // días trabajó externo/en cliente)
+    const { rows: visitasMes } = await db.query(`
+      SELECT v.id, v.fecha, v.estado, v.hora_inicio_real,
+        (SELECT json_agg(vd.cliente_nombre ORDER BY vd.orden)
+         FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as clientes
+      FROM public.visitas v
+      WHERE v.empleado_id = $1
+        AND EXTRACT(YEAR FROM v.fecha) = $2
+        AND EXTRACT(MONTH FROM v.fecha) = $3
+        AND v.estado = 'completada'
+      ORDER BY v.fecha ASC
+    `, [eId, anio, mes]);
 
     // Construir días del mes
     const diasDelMes = [];
@@ -81,6 +113,25 @@ router.get('/mensual', auth, async (req, res) => {
       const egreso    = movsDia.find(m => ['egreso','fin_jornada_remota'].includes(m.tipo));
       const ausencia  = ausencias.find(a => fecha >= a.fecha_inicio && fecha <= a.fecha_fin);
       const tardanza  = movsDia.find(m => m.es_tardanza);
+      const visitasDia = visitasMes.filter(v => {
+        const vFecha = v.fecha instanceof Date ? v.fecha.toISOString().split('T')[0] : String(v.fecha).split('T')[0];
+        return vFecha === fecha;
+      });
+      const clientesDelDia = [...new Set(visitasDia.flatMap(v => v.clientes || []))];
+
+      // Lugar de trabajo del día: si hubo una visita a cliente ese día, prioriza
+      // "externo" (aunque haya fichado en oficina antes/después de salir).
+      // Si no, se toma del tipo de ingreso / contexto informado al fichar.
+      let lugarTrabajo = null;
+      if (clientesDelDia.length > 0 || movsDia.some(m => m.tipo === 'salida_externa')) {
+        lugarTrabajo = 'externo';
+      } else if (ingreso?.tipo === 'inicio_jornada_remota' || ingreso?.contexto_remoto === 'domicilio') {
+        lugarTrabajo = 'remoto';
+      } else if (ingreso?.contexto_remoto === 'externo') {
+        lugarTrabajo = 'externo';
+      } else if (ingreso) {
+        lugarTrabajo = 'oficina';
+      }
 
       // Calcular horas trabajadas del día usando los movimientos reales (ingreso→egreso),
       // descontando el almuerzo SOLO si el empleado efectivamente marcó salida/regreso de
@@ -106,9 +157,41 @@ router.get('/mensual', auth, async (req, res) => {
         tardanza:  tardanza ? tardanza.minutos_tardanza : 0,
         ausencia:  ausencia?.tipo || null,
         esRemoto:  ingreso?.es_remoto || false,
+        lugarTrabajo,
+        clientesVisitados: clientesDelDia,
         movimientos: movsDia,
       });
     }
+
+    // Detalle de tardanzas del mes (solo los días con llegada tarde)
+    const detalleTardanzas = diasDelMes
+      .filter(d => d.tardanza > 0)
+      .map(d => ({
+        fecha: d.fecha,
+        dia: d.dia,
+        diaSemana: d.diaSemana,
+        horaIngreso: d.ingreso,
+        horaIngresoConfigurada: emp.hora_ingreso || null,
+        minutosTarde: d.tardanza,
+      }));
+
+    // Resumen de clientes visitados en el mes (nombre + cantidad de visitas)
+    const conteoClientes = {};
+    for (const dia of diasDelMes) {
+      for (const cliente of dia.clientesVisitados) {
+        conteoClientes[cliente] = (conteoClientes[cliente] || 0) + 1;
+      }
+    }
+    const clientesVisitadosResumen = Object.entries(conteoClientes)
+      .map(([cliente, visitas]) => ({ cliente, visitas }))
+      .sort((a, b) => b.visitas - a.visitas);
+
+    // % de cumplimiento de horas según convenio del mes
+    const horasConvenioMes = Number(bh?.horas_convenio || 0);
+    const horasTrabajadasMes = Number(bh?.horas_trabajadas || 0);
+    const porcentajeCumplimiento = horasConvenioMes > 0
+      ? Math.round((horasTrabajadasMes / horasConvenioMes) * 10000) / 100
+      : null;
 
     res.json({
       empleado: emp,
@@ -117,14 +200,22 @@ router.get('/mensual', auth, async (req, res) => {
       dias: diasDelMes,
       banco_horas: bh || null,
       feriados,
+      detalleTardanzas,
+      clientesVisitadosResumen,
       totales: {
         dias_trabajados:   diasDelMes.filter(d => d.horasTrabajadas > 0).length,
+        dias_oficina:      diasDelMes.filter(d => d.lugarTrabajo === 'oficina').length,
+        dias_remoto:       diasDelMes.filter(d => d.lugarTrabajo === 'remoto').length,
+        dias_externo:      diasDelMes.filter(d => d.lugarTrabajo === 'externo').length,
         horas_trabajadas:  bh?.horas_trabajadas || 0,
         horas_convenio:    bh?.horas_convenio   || 0,
         horas_extra:       bh?.horas_extra       || 0,
         horas_ausencia:    bh?.horas_ausencia    || 0,
-        balance:           bh?.balance           || 0,
+        balance:           bh?.balance           || 0, // negativo = faltan hs, positivo = sobran
+        porcentaje_cumplimiento_horas: porcentajeCumplimiento,
+        banco_horas_acumulado_al_mes:  Math.round(bancoHorasAcumulado * 100) / 100,
         tardanzas:         diasDelMes.filter(d => d.tardanza > 0).length,
+        minutos_tardanza_total: diasDelMes.reduce((s, d) => s + (d.tardanza || 0), 0),
         ausencias:         diasDelMes.filter(d => d.ausencia).length,
       },
     });
