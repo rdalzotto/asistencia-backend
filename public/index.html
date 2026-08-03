@@ -626,12 +626,39 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   <div class="modal-overlay" id="modal-reporte">
     <div class="modal" style="max-height:90vh">
       <div class="modal-handle"></div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px" class="no-print">
         <div class="modal-title" style="margin:0" id="rep-titulo">Reporte mensual</div>
         <button class="btn btn-sm btn-secondary" onclick="imprimirReporte()">🖨 Imprimir</button>
       </div>
-      <div id="reporte-contenido"></div>
-      <button class="btn btn-secondary" onclick="cerrarModal('modal-reporte')" style="margin-top:16px">Cerrar</button>
+      <div id="reporte-imprimible">
+        <div id="reporte-titulo-print" style="display:none;font-weight:700;font-size:18px;margin-bottom:10px"></div>
+        <div id="reporte-contenido"></div>
+        <div id="reporte-firmas" style="margin-top:24px"></div>
+      </div>
+      <div class="no-print" style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="abrirFirmaReporte('empleado')" id="btn-firmar-empleado">✍️ Firmar (empleado)</button>
+        <button class="btn btn-secondary" onclick="abrirFirmaReporte('admin')" id="btn-firmar-admin">✍️ Firmar (responsable)</button>
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-reporte')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL FIRMA REPORTE -->
+  <div class="modal-overlay" id="modal-firma-reporte">
+    <div class="modal">
+      <div class="modal-handle"></div>
+      <div class="modal-title" id="firma-reporte-titulo">Firmar reporte</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Al firmar, estos datos quedan congelados como constancia del período. Si se corrige algún fichaje después, hay que volver a firmar.</p>
+      <canvas id="firma-canvas-reporte" style="width:100%;height:160px;background:white;border:2px solid var(--border);border-radius:var(--radius-sm);cursor:crosshair;touch-action:none;display:block"></canvas>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn btn-sm btn-secondary" onclick="limpiarFirmaReporte()">Borrar</button>
+      </div>
+      <div class="form-group" style="margin-top:12px"><label>Nombre y apellido</label><input type="text" id="firma-reporte-nombre"></div>
+      <div class="form-group" id="firma-reporte-cargo-wrap" style="display:none"><label>Cargo</label><input type="text" id="firma-reporte-cargo" placeholder="Ej: Responsable de Administración"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-primary" onclick="guardarFirmaReporte()">Confirmar firma</button>
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-firma-reporte')">Cancelar</button>
+      </div>
     </div>
   </div>
 
@@ -2427,20 +2454,31 @@ async function cargarSelectEmpleados() {
   } catch {}
 }
 
+let REPORTE_STATE = { empId: null, anio: null, mes: null, data: null, firmado: null };
+
 async function generarReporteMensual() {
   const empId = document.getElementById('rep-empleado').value;
   const anio = document.getElementById('rep-anio').value;
   const mes = document.getElementById('rep-mes').value;
   if (!empId) return toast('Seleccioná un empleado','error');
   try {
-    const data = await api('/reportes/mensual?empleado_id='+empId+'&anio='+anio+'&mes='+mes);
-    renderReporteMensual(data); abrirModal('modal-reporte');
+    const [data, firmado] = await Promise.all([
+      api('/reportes/mensual?empleado_id='+empId+'&anio='+anio+'&mes='+mes),
+      api('/reportes/mensual/firmado?empleado_id='+empId+'&anio='+anio+'&mes='+mes).catch(()=>null),
+    ]);
+    REPORTE_STATE = { empId, anio, mes, data, firmado };
+    renderReporteMensual(firmado?.datos_snapshot || data, !!firmado);
+    renderFirmasReporte(firmado);
+    abrirModal('modal-reporte');
   } catch(e) { toast(e.message,'error'); }
 }
 
-function renderReporteMensual(data) {
+function renderReporteMensual(data, esFirmado) {
   const meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  document.getElementById('rep-titulo').textContent = data.empleado.nombre+' '+data.empleado.apellido+' — '+meses[data.mes]+' '+data.anio;
+  const tituloTxt = data.empleado.nombre+' '+data.empleado.apellido+' — '+meses[data.mes]+' '+data.anio;
+  document.getElementById('rep-titulo').textContent = tituloTxt;
+  document.getElementById('reporte-titulo-print').textContent = tituloTxt;
+  document.getElementById('reporte-titulo-print').style.display = 'block';
   const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 
   const iconoLugar = { oficina: '🏢', remoto: '🏠', externo: '🚗' };
@@ -2484,6 +2522,14 @@ function renderReporteMensual(data) {
     ? `<div style="margin-top:20px"><div style="font-weight:600;margin-bottom:8px">Clientes visitados</div>${filasClientes}</div>`
     : `<div style="margin-top:20px;font-size:12px;color:var(--text3)">Sin visitas a clientes registradas este mes.</div>`;
 
+  const convenioTxt = data.empleado.convenio_nombre
+    ? `Este reporte se emite conforme al Convenio Colectivo de Trabajo "${data.empleado.convenio_nombre}" y a la Ley de Contrato de Trabajo (Ley 20.744). Los registros de fichaje constituyen el libro especial previsto en el Art. 52 LCT.`
+    : `Los registros de fichaje constituyen el libro especial previsto en el Art. 52 LCT.`;
+
+  const avisoFirmado = esFirmado
+    ? `<div style="margin-top:14px;padding:10px;border-radius:8px;background:rgba(0,230,118,0.1);border:1px solid var(--green);font-size:12px;color:var(--green)">✓ Este reporte está firmado. Los datos que ves corresponden al snapshot congelado al momento de la firma, no a la vista en vivo.</div>`
+    : '';
+
   document.getElementById('reporte-contenido').innerHTML = `
     <div style="font-size:12px;color:var(--text2);margin-bottom:16px">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
@@ -2508,11 +2554,101 @@ function renderReporteMensual(data) {
     </div>
     ${seccionTardanzas}
     ${seccionClientes}
-    <div style="margin-top:16px;font-size:10px;color:var(--text3)">LCT Art.52 · Ley 11.544 · Dec.484/2000 · Ley 25.506</div>
+    ${avisoFirmado}
+    <div style="margin-top:16px;font-size:10px;color:var(--text3)">${convenioTxt}<br>LCT Art.52 · Ley 11.544 · Dec.484/2000 · Ley 25.506</div>
   `;
 }
 
+// ─── Firma del reporte mensual ────────────────────────────────────────────────
+function renderFirmasReporte(firmado) {
+  const box = f => f
+    ? `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center">
+         <div style="font-size:11px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;font-weight:700">${f.titulo}</div>
+         <img src="${f.svg}" style="width:100%;height:70px;object-fit:contain;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;background:#fff">
+         <div style="font-size:13px;font-weight:700">${f.nombre}</div>
+         ${f.cargo?`<div style="font-size:11px;color:var(--text2)">${f.cargo}</div>`:''}
+         <div style="font-size:10px;color:var(--text3);margin-top:2px">${new Date(f.fecha).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'})}</div>
+       </div>`
+    : `<div style="border:1px dashed var(--border);border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center;color:var(--text3)">
+         <div style="font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:8px">${f.titulo}</div>
+         <div style="font-size:12px">Sin firmar</div>
+       </div>`;
+
+  const fEmp = firmado?.firma_empleado_svg
+    ? { titulo:'Empleado', svg:firmado.firma_empleado_svg, nombre:firmado.firma_empleado_nombre, fecha:firmado.firmado_empleado_en }
+    : { titulo:'Empleado' };
+  const fAdmin = firmado?.firma_admin_svg
+    ? { titulo:'Responsable', svg:firmado.firma_admin_svg, nombre:firmado.firma_admin_nombre, cargo:firmado.firma_admin_cargo, fecha:firmado.firmado_admin_en }
+    : { titulo:'Responsable' };
+
+  document.getElementById('reporte-firmas').innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap">${box(fEmp)}${box(fAdmin)}</div>`;
+
+  document.getElementById('btn-firmar-empleado').style.display = firmado?.firma_empleado_svg ? 'none' : '';
+  document.getElementById('btn-firmar-admin').style.display = firmado?.firma_admin_svg ? 'none' : '';
+}
+
+let _firmaReporteCtx = null, _firmaReporteDibujando = false, _firmaReporteTipo = null;
+
+function abrirFirmaReporte(tipo) {
+  _firmaReporteTipo = tipo;
+  document.getElementById('firma-reporte-titulo').textContent = tipo === 'empleado' ? 'Firma del empleado' : 'Firma del responsable';
+  document.getElementById('firma-reporte-cargo-wrap').style.display = tipo === 'admin' ? '' : 'none';
+  document.getElementById('firma-reporte-nombre').value = tipo === 'empleado'
+    ? (REPORTE_STATE.data.empleado.nombre + ' ' + REPORTE_STATE.data.empleado.apellido)
+    : (STATE.nombre && STATE.apellido ? STATE.nombre + ' ' + STATE.apellido : '');
+  document.getElementById('firma-reporte-cargo').value = STATE.cargo || '';
+  abrirModal('modal-firma-reporte');
+  setTimeout(initFirmaCanvasReporte, 50);
+}
+
+function initFirmaCanvasReporte() {
+  const canvas = document.getElementById('firma-canvas-reporte');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  _firmaReporteCtx = canvas.getContext('2d');
+  _firmaReporteCtx.scale(dpr, dpr);
+  _firmaReporteCtx.strokeStyle = '#000';
+  _firmaReporteCtx.lineWidth = 2;
+  _firmaReporteCtx.lineCap = 'round';
+
+  const getPos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - r.left, y: p.clientY - r.top };
+  };
+  canvas.onmousedown = canvas.ontouchstart = (e) => { e.preventDefault(); _firmaReporteDibujando = true; const p = getPos(e); _firmaReporteCtx.beginPath(); _firmaReporteCtx.moveTo(p.x, p.y); };
+  canvas.onmousemove = canvas.ontouchmove = (e) => { e.preventDefault(); if (!_firmaReporteDibujando) return; const p = getPos(e); _firmaReporteCtx.lineTo(p.x, p.y); _firmaReporteCtx.stroke(); };
+  canvas.onmouseup = canvas.onmouseleave = canvas.ontouchend = () => { _firmaReporteDibujando = false; };
+}
+
+function limpiarFirmaReporte() {
+  const canvas = document.getElementById('firma-canvas-reporte');
+  _firmaReporteCtx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+async function guardarFirmaReporte() {
+  const nombre = document.getElementById('firma-reporte-nombre').value.trim();
+  const cargo = document.getElementById('firma-reporte-cargo').value.trim();
+  if (!nombre) return toast('Ingresá nombre y apellido','error');
+  const canvas = document.getElementById('firma-canvas-reporte');
+  const firma_svg = canvas.toDataURL('image/png');
+  try {
+    const res = await api('/reportes/mensual/firmar', { method:'POST', body: JSON.stringify({
+      empleado_id: REPORTE_STATE.empId, anio: REPORTE_STATE.anio, mes: REPORTE_STATE.mes,
+      tipo: _firmaReporteTipo, nombre_apellido: nombre, cargo: cargo || null, firma_svg,
+    })});
+    REPORTE_STATE.firmado = res.firmado;
+    renderReporteMensual(res.firmado.datos_snapshot, true);
+    renderFirmasReporte(res.firmado);
+    cerrarModal('modal-firma-reporte');
+    toast('Firma guardada','success');
+  } catch(e) { toast(e.message,'error'); }
+}
+
 function imprimirReporte() { window.print(); }
+
 
 async function verEstadisticas() {
   const empId = document.getElementById('stats-empleado').value;
@@ -5886,7 +6022,18 @@ function generarHTMLConstancia() {
     .tag{display:inline-block;background:#f0f0f0;border:1px solid #ddd;border-radius:12px;padding:2px 9px;font-size:11px;margin:2px}
     .firma-row{display:flex;gap:8px;margin-top:6px;page-break-inside:avoid}
     .seccion{page-break-inside:avoid}
-    @media print{body{padding:10px}}
+    @media print{
+      @page { size: A4 landscape; margin: 12mm; }
+      body * { visibility: hidden; }
+      #reporte-imprimible, #reporte-imprimible * { visibility: visible; }
+      #reporte-imprimible { position: absolute; top: 0; left: 0; width: 100%; padding: 0; margin: 0; }
+      .no-print { display: none !important; }
+      #modal-reporte.modal-overlay { position: absolute; inset: auto; background: none; display: block !important; }
+      #modal-reporte .modal { max-height: none; overflow: visible; box-shadow: none; border: none; position: static; width: 100%; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; }
+    }
+
   </style></head><body>
 
     <!-- HEADER: membrete EXIT (80% ancho) + espacio logo cliente (20%) | título centrado debajo -->
