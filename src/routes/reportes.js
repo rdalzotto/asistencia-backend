@@ -237,6 +237,8 @@ async function construirReporteMensual(eId, empleadorId, anio, mes) {
       tardanzas:         diasDelMes.filter(d => d.tardanza > 0).length,
       minutos_tardanza_total: diasDelMes.reduce((s, d) => s + (d.tardanza || 0), 0),
       ausencias:         diasDelMes.filter(d => d.ausencia).length,
+      dias_sin_foto:     diasDelMes.filter(d => d.ingreso && !d.fotoIngreso).length,
+      dias_sin_gps:      diasDelMes.filter(d => d.ingreso && !d.gpsIngreso).length,
     },
   };
 }
