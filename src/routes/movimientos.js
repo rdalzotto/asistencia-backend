@@ -220,7 +220,7 @@ router.post('/registrar', auth, async (req, res) => {
       'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [empleadoId]
     );
     const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
-    const hora   = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    const hora   = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
 
     if (tipo === 'ingreso') {
       const n = push.notif.ingreso(nombre, hora, esTardanza ? minutosTardanza : null);
@@ -406,7 +406,7 @@ router.post('/egreso-justificado', auth, async (req, res) => {
       'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [empleadoId]
     );
     const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
-    const hora   = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    const hora   = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
     const n = push.notif.egreso(nombre, hora);
     const sufijo = salida_automatica ? ' (cierre automático)' : ' (salida justificada)';
     await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo + sufijo);
