@@ -2442,13 +2442,74 @@ function renderReporteMensual(data) {
   const meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   document.getElementById('rep-titulo').textContent = data.empleado.nombre+' '+data.empleado.apellido+' — '+meses[data.mes]+' '+data.anio;
   const dias = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+  const iconoLugar = { oficina: '🏢', remoto: '🏠', externo: '🚗' };
+  const lblLugar = { oficina: 'Oficina', remoto: 'Remoto', externo: 'Externo' };
+
   const filas = data.dias.map(d => {
-    if (d.esDomingo) return '<tr style="color:var(--text3)"><td>'+d.dia+' '+dias[d.diaSemana]+'</td><td colspan="4" style="text-align:center;font-size:11px">Domingo</td></tr>';
-    if (d.esFeriado) return '<tr style="color:var(--yellow)"><td>'+d.dia+' '+dias[d.diaSemana]+'</td><td colspan="4" style="text-align:center;font-size:11px">Feriado</td></tr>';
-    if (d.ausencia) return '<tr style="color:var(--red)"><td>'+d.dia+' '+dias[d.diaSemana]+'</td><td colspan="4" style="text-align:center;font-size:11px">'+d.ausencia.replace(/_/g,' ')+'</td></tr>';
-    return '<tr><td>'+d.dia+' '+dias[d.diaSemana]+'</td><td>'+(d.ingreso||'--')+'</td><td>'+(d.egreso||'--')+'</td><td>'+(d.horasTrabajadas>0?d.horasTrabajadas.toFixed(1)+'h':'--')+'</td><td>'+(d.tardanza>0?'<span style="color:var(--yellow)">+'+d.tardanza+'m</span>':d.horasExtra>0?'<span style="color:var(--orange)">+'+d.horasExtra.toFixed(1)+'h extra</span>':'--')+'</td></tr>';
+    if (d.esDomingo) return `<tr style="color:var(--text3)"><td>${d.dia} ${dias[d.diaSemana]}</td><td colspan="5" style="text-align:center;font-size:11px">Domingo</td></tr>`;
+    if (d.esFeriado) return `<tr style="color:var(--yellow)"><td>${d.dia} ${dias[d.diaSemana]}</td><td colspan="5" style="text-align:center;font-size:11px">Feriado</td></tr>`;
+    if (d.ausencia) return `<tr style="color:var(--red)"><td>${d.dia} ${dias[d.diaSemana]}</td><td colspan="5" style="text-align:center;font-size:11px">${d.ausencia.replace(/_/g,' ')}</td></tr>`;
+    const lugar = d.lugarTrabajo ? `<span title="${lblLugar[d.lugarTrabajo]}">${iconoLugar[d.lugarTrabajo]} ${lblLugar[d.lugarTrabajo]}</span>` : '--';
+    const clientesTxt = d.clientesVisitados && d.clientesVisitados.length
+      ? `<div style="font-size:10px;color:var(--text3)">${d.clientesVisitados.join(', ')}</div>` : '';
+    const obs = d.tardanza > 0
+      ? `<span style="color:var(--yellow)">+${d.tardanza}m tarde</span>`
+      : d.horasExtra > 0
+        ? `<span style="color:var(--orange)">+${d.horasExtra.toFixed(1)}h extra</span>`
+        : '--';
+    return `<tr><td>${d.dia} ${dias[d.diaSemana]}</td><td>${d.ingreso||'--'}</td><td>${d.egreso||'--'}</td><td>${d.horasTrabajadas>0?d.horasTrabajadas.toFixed(1)+'h':'--'}</td><td>${lugar}${clientesTxt}</td><td>${obs}</td></tr>`;
   }).join('');
-  document.getElementById('reporte-contenido').innerHTML = '<div style="font-size:12px;color:var(--text2);margin-bottom:16px">'+data.empleado.razon_social+' · CUIT '+(data.empleado.cuit||'--')+'</div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:var(--text2);border-bottom:1px solid var(--border)"><th style="text-align:left;padding:6px 4px">Día</th><th style="padding:6px 4px">Ingreso</th><th style="padding:6px 4px">Egreso</th><th style="padding:6px 4px">Horas</th><th style="padding:6px 4px">Obs.</th></tr></thead><tbody>'+filas+'</tbody></table></div><div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"><div class="info-row"><span class="lbl">Días trabajados</span><span class="val">'+data.totales.dias_trabajados+'</span></div><div class="info-row"><span class="lbl">Horas trabajadas</span><span class="val">'+data.totales.horas_trabajadas+'h</span></div><div class="info-row"><span class="lbl">Horas extra</span><span class="val" style="color:var(--orange)">'+data.totales.horas_extra+'h</span></div><div class="info-row"><span class="lbl">Tardanzas</span><span class="val" style="color:var(--yellow)">'+data.totales.tardanzas+'</span></div><div class="info-row"><span class="lbl">Ausencias</span><span class="val" style="color:var(--red)">'+data.totales.ausencias+'</span></div></div><div style="margin-top:16px;font-size:10px;color:var(--text3)">LCT Art.52 · Ley 11.544 · Dec.484/2000 · Ley 25.506</div>';
+
+  const t = data.totales;
+  const balanceColor = t.balance >= 0 ? 'var(--green)' : 'var(--red)';
+  const balanceTxt = t.balance >= 0
+    ? `+${Number(t.balance).toFixed(1)}h de más`
+    : `${Number(t.balance).toFixed(1)}h le faltan`;
+  const acumColor = t.banco_horas_acumulado_al_mes >= 0 ? 'var(--green)' : 'var(--red)';
+
+  // Detalle de tardanzas
+  const filasTardanzas = (data.detalleTardanzas||[]).map(dt =>
+    `<tr><td>${dt.dia} ${dias[dt.diaSemana]}</td><td>${dt.horaIngreso||'--'}</td><td>${dt.horaIngresoConfigurada||'--'}</td><td style="color:var(--yellow)">+${dt.minutosTarde}m</td></tr>`
+  ).join('');
+  const seccionTardanzas = filasTardanzas
+    ? `<div style="margin-top:20px"><div style="font-weight:600;margin-bottom:8px">Detalle de tardanzas</div><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:var(--text2);border-bottom:1px solid var(--border)"><th style="text-align:left;padding:4px">Día</th><th style="padding:4px">Ingreso real</th><th style="padding:4px">Horario config.</th><th style="padding:4px">Tarde</th></tr></thead><tbody>${filasTardanzas}</tbody></table></div>`
+    : '';
+
+  // Clientes visitados
+  const filasClientes = (data.clientesVisitadosResumen||[]).map(c =>
+    `<div class="info-row"><span class="lbl">${c.cliente}</span><span class="val">${c.visitas} visita${c.visitas===1?'':'s'}</span></div>`
+  ).join('');
+  const seccionClientes = filasClientes
+    ? `<div style="margin-top:20px"><div style="font-weight:600;margin-bottom:8px">Clientes visitados</div>${filasClientes}</div>`
+    : `<div style="margin-top:20px;font-size:12px;color:var(--text3)">Sin visitas a clientes registradas este mes.</div>`;
+
+  document.getElementById('reporte-contenido').innerHTML = `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="color:var(--text2);border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:6px 4px">Día</th><th style="padding:6px 4px">Ingreso</th><th style="padding:6px 4px">Egreso</th><th style="padding:6px 4px">Horas</th><th style="padding:6px 4px">Lugar</th><th style="padding:6px 4px">Obs.</th>
+      </tr></thead>
+      <tbody>${filas}</tbody>
+    </table></div>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+      <div class="info-row"><span class="lbl">Días trabajados</span><span class="val">${t.dias_trabajados}</span></div>
+      <div class="info-row"><span class="lbl">Días en oficina</span><span class="val">🏢 ${t.dias_oficina}</span></div>
+      <div class="info-row"><span class="lbl">Días remoto</span><span class="val">🏠 ${t.dias_remoto}</span></div>
+      <div class="info-row"><span class="lbl">Días externo/cliente</span><span class="val">🚗 ${t.dias_externo}</span></div>
+      <div class="info-row"><span class="lbl">Horas trabajadas</span><span class="val">${t.horas_trabajadas}h</span></div>
+      <div class="info-row"><span class="lbl">Horas según convenio</span><span class="val">${t.horas_convenio}h</span></div>
+      <div class="info-row"><span class="lbl">% cumplimiento de horas</span><span class="val">${t.porcentaje_cumplimiento_horas!=null?t.porcentaje_cumplimiento_horas+'%':'--'}</span></div>
+      <div class="info-row"><span class="lbl">Balance del mes</span><span class="val" style="color:${balanceColor}">${balanceTxt}</span></div>
+      <div class="info-row"><span class="lbl">Horas extra</span><span class="val" style="color:var(--orange)">${t.horas_extra}h</span></div>
+      <div class="info-row"><span class="lbl">Banco de horas acumulado (a fin de mes)</span><span class="val" style="color:${acumColor}">${t.banco_horas_acumulado_al_mes}h</span></div>
+      <div class="info-row"><span class="lbl">Tardanzas</span><span class="val" style="color:var(--yellow)">${t.tardanzas} (${t.minutos_tardanza_total}m total)</span></div>
+      <div class="info-row"><span class="lbl">Ausencias</span><span class="val" style="color:var(--red)">${t.ausencias}</span></div>
+    </div>
+    ${seccionTardanzas}
+    ${seccionClientes}
+    <div style="margin-top:16px;font-size:10px;color:var(--text3)">LCT Art.52 · Ley 11.544 · Dec.484/2000 · Ley 25.506</div>
+  `;
 }
 
 function imprimirReporte() { window.print(); }
