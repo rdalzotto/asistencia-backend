@@ -1,6 +1,7 @@
 const router  = require('express').Router();
 const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
+const push    = require('../services/pushService');
 
 // ─── GET /reportes/mensual ────────────────────────────────────────────────────
 // Reporte mensual por empleado (detalle día por día + totales)
@@ -174,6 +175,10 @@ async function construirReporteMensual(eId, empleadorId, anio, mes) {
       esRemoto:  ingreso?.es_remoto || false,
       lugarTrabajo,
       clientesVisitados: clientesDelDia,
+      fotoIngreso: (ingreso?.foto_capturada && ingreso?.foto_url) ? ingreso.foto_url : null,
+      gpsIngreso: (ingreso?.lat != null && ingreso?.lng != null)
+        ? { lat: Number(ingreso.lat), lng: Number(ingreso.lng), valido: ingreso.gps_valido }
+        : null,
       movimientos: movsDia,
     });
   }
@@ -260,6 +265,19 @@ router.post('/mensual/firmar', auth, async (req, res) => {
     return res.status(403).json({ error: 'Solo un administrador puede firmar como responsable' });
   }
 
+  // No se puede firmar como empleado si hay una objeción sin resolver para
+  // ese período — primero el admin tiene que revisarla y resolverla.
+  if (tipo === 'empleado') {
+    const { rows: [pendiente] } = await db.query(`
+      SELECT id FROM public.reportes_mensuales_objeciones
+      WHERE empleado_id = $1 AND anio = $2 AND mes = $3 AND estado = 'pendiente'
+      LIMIT 1
+    `, [empleado_id, anio, mes]);
+    if (pendiente) {
+      return res.status(409).json({ error: 'Hay una incoherencia pendiente de resolver en este reporte. No se puede firmar hasta que el administrador la responda.' });
+    }
+  }
+
   try {
     const { rows: [existente] } = await db.query(`
       SELECT * FROM public.reportes_mensuales_firmados
@@ -327,6 +345,84 @@ router.get('/mensual/firmado', auth, async (req, res) => {
       WHERE empleado_id = $1 AND anio = $2 AND mes = $3
     `, [eId, anio, mes]);
     res.json(firmado || null);
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /reportes/mensual/objetar ───────────────────────────────────────────
+// El empleado marca una incoherencia en el reporte ANTES de firmar. Mientras
+// haya una objeción pendiente, el backend rechaza cualquier intento de firma
+// "empleado" para ese período (ver /mensual/firmar).
+router.post('/mensual/objetar', auth, async (req, res) => {
+  const { empleado_id, anio, mes, comentario } = req.body;
+  if (!empleado_id || !anio || !mes || !comentario?.trim()) {
+    return res.status(400).json({ error: 'Datos incompletos' });
+  }
+  if (req.user.rol === 'empleado' && req.user.empleadoId != empleado_id) {
+    return res.status(403).json({ error: 'No autorizado' });
+  }
+
+  try {
+    const { rows: [obj] } = await db.query(`
+      INSERT INTO public.reportes_mensuales_objeciones
+        (empleado_id, empleador_id, anio, mes, comentario, creado_por)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
+    `, [empleado_id, req.user.empleadorId, anio, mes, comentario.trim(), req.user.id]);
+
+    const { rows: [emp] } = await db.query(
+      'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [empleado_id]
+    );
+    const meses = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+    await push.pushAdmins(
+      req.user.empleadorId,
+      '⚠️ Incoherencia en reporte mensual',
+      `${nombre} marcó una incoherencia en su reporte de ${meses[mes]} ${anio}: "${comentario.trim()}"`
+    );
+
+    res.json({ ok: true, objecion: obj });
+  } catch (err) {
+    console.error('[REP] Objetar mensual error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── GET /reportes/mensual/objeciones ─────────────────────────────────────────
+router.get('/mensual/objeciones', auth, async (req, res) => {
+  const { empleado_id, anio, mes } = req.query;
+  const eId = req.user.rol === 'empleado' ? req.user.empleadoId : empleado_id;
+  if (!eId || !anio || !mes) return res.status(400).json({ error: 'Datos incompletos' });
+
+  try {
+    const { rows } = await db.query(`
+      SELECT o.*, e2.nombre as creado_por_nombre, e2.apellido as creado_por_apellido
+      FROM public.reportes_mensuales_objeciones o
+      LEFT JOIN public.usuarios u ON u.id = o.creado_por
+      LEFT JOIN public.empleados e2 ON e2.usuario_id = u.id
+      WHERE o.empleado_id = $1 AND o.anio = $2 AND o.mes = $3
+      ORDER BY o.creado_en DESC
+    `, [eId, anio, mes]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── PATCH /reportes/mensual/objeciones/:id/resolver ──────────────────────────
+// Solo admin. Marca la objeción como resuelta con una respuesta — el admin
+// debería haber corregido el fichaje correspondiente antes de resolver.
+router.patch('/mensual/objeciones/:id/resolver', auth, soloAdmin, async (req, res) => {
+  const { respuesta_admin } = req.body;
+  try {
+    const { rows: [obj] } = await db.query(`
+      UPDATE public.reportes_mensuales_objeciones
+      SET estado = 'resuelta', respuesta_admin = $1, resuelta_por = $2, resuelta_en = NOW()
+      WHERE id = $3 AND empleador_id = $4
+      RETURNING *
+    `, [respuesta_admin || null, req.user.id, req.params.id, req.user.empleadorId]);
+    if (!obj) return res.status(404).json({ error: 'No encontrada' });
+    res.json({ ok: true, objecion: obj });
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
   }
