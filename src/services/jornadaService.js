@@ -30,7 +30,13 @@ function calcularTardanza(horaIngreso, jornadaConfig, convenio) {
   const [hRef, mRef] = jornadaConfig.hora_ingreso.split(':').map(Number);
   const refMs = (hRef * 60 + mRef + tolerancia) * 60 * 1000;
 
-  const ingreso = new Date(horaIngreso);
+  // Convertir a hora Argentina antes de extraer hs/min — el servidor (Railway)
+  // corre en UTC, así que ingreso.getHours() crudo devolvía la hora UTC y
+  // marcaba tardanza de ~3hs (el offset ART) en ingresos que en realidad
+  // llegaron a horario.
+  const ingreso = new Date(new Date(horaIngreso).toLocaleString('en-US', {
+    timeZone: 'America/Argentina/Buenos_Aires'
+  }));
   const inicioMsFromMidnight =
     ingreso.getHours() * 60 * 60 * 1000 +
     ingreso.getMinutes() * 60 * 1000 +
