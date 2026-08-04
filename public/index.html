@@ -1213,7 +1213,24 @@ function doLogout() {
   mostrarScreen('login');
 }
 
+// Ping periódico de sincronización. El evento 'online' del navegador (que
+// antes era el único disparador de /config/sync-ping) solo se dispara ante
+// un corte real de conexión seguido de reconexión — si el dispositivo nunca
+// pierde señal de verdad, ese evento nunca ocurre y "última sincronización"
+// queda pegada en el pasado en el panel de equipo, aunque la app se esté
+// usando activamente en ese momento. Este ping corre al entrar al dashboard
+// y luego cada 10 minutos mientras la app sigue abierta, para que el
+// indicador siempre refleje uso real y no dependa de haber tenido un corte.
+let _syncPingInterval = null;
+function iniciarSyncPeriodico() {
+  const ping = () => { if (navigator.onLine) { api('/config/sync-ping', {method:'POST'}).catch(() => {}); } };
+  ping();
+  if (_syncPingInterval) clearInterval(_syncPingInterval);
+  _syncPingInterval = setInterval(ping, 10 * 60 * 1000);
+}
+
 async function irADashboard(rol) {
+  iniciarSyncPeriodico();
   if (rol === 'admin') {
     mostrarScreen('admin');
     cargarDashboardAdmin(); cargarEmpleadosAdmin();
