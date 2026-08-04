@@ -645,7 +645,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="modal-handle"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px" class="no-print">
         <div class="modal-title" style="margin:0" id="rep-titulo">Reporte mensual</div>
-        <button class="btn btn-sm btn-secondary" onclick="imprimirReporte()">🖨 Imprimir</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm btn-secondary" onclick="descargarReportePDF()">⬇️ Descargar PDF</button>
+          <button class="btn btn-sm btn-secondary" onclick="imprimirReporte()">🖨 Imprimir</button>
+        </div>
       </div>
       <div id="reporte-imprimible">
         <div id="reporte-titulo-print" style="display:none;font-weight:700;font-size:18px;margin-bottom:10px"></div>
@@ -1210,7 +1213,24 @@ function doLogout() {
   mostrarScreen('login');
 }
 
+// Ping periódico de sincronización. El evento 'online' del navegador (que
+// antes era el único disparador de /config/sync-ping) solo se dispara ante
+// un corte real de conexión seguido de reconexión — si el dispositivo nunca
+// pierde señal de verdad, ese evento nunca ocurre y "última sincronización"
+// queda pegada en el pasado en el panel de equipo, aunque la app se esté
+// usando activamente en ese momento. Este ping corre al entrar al dashboard
+// y luego cada 10 minutos mientras la app sigue abierta, para que el
+// indicador siempre refleje uso real y no dependa de haber tenido un corte.
+let _syncPingInterval = null;
+function iniciarSyncPeriodico() {
+  const ping = () => { if (navigator.onLine) { api('/config/sync-ping', {method:'POST'}).catch(() => {}); } };
+  ping();
+  if (_syncPingInterval) clearInterval(_syncPingInterval);
+  _syncPingInterval = setInterval(ping, 10 * 60 * 1000);
+}
+
 async function irADashboard(rol) {
+  iniciarSyncPeriodico();
   if (rol === 'admin') {
     mostrarScreen('admin');
     cargarDashboardAdmin(); cargarEmpleadosAdmin();
@@ -2557,7 +2577,17 @@ function renderReporteMensual(data, esFirmado) {
       : d.horasExtra > 0
         ? `<span style="color:var(--orange)">+${d.horasExtra.toFixed(1)}h extra</span>`
         : '--';
-    return `<tr><td>${d.dia} ${dias[d.diaSemana]}</td><td>${d.ingreso||'--'}</td><td>${d.egreso||'--'}</td><td>${d.horasTrabajadas>0?d.horasTrabajadas.toFixed(1)+'h':'--'}</td><td>${lugar}${clientesTxt}</td><td>${obs}</td></tr>`;
+    const fotoTag = d.ingreso
+      ? (d.fotoIngreso
+          ? `<img src="${d.fotoIngreso}" onclick="window.open('${d.fotoIngreso}','_blank')" style="width:22px;height:22px;border-radius:4px;object-fit:cover;cursor:pointer;vertical-align:middle;margin-left:5px;border:1px solid var(--border)" title="Ver foto del ingreso (click para ampliar)">`
+          : `<span style="margin-left:5px;color:var(--red);font-size:10px;font-weight:600;white-space:nowrap" title="El empleado no sacó foto al fichar este ingreso">⚠ sin foto</span>`)
+      : '';
+    const gpsTag = d.ingreso
+      ? (d.gpsIngreso
+          ? `<a href="https://www.google.com/maps?q=${d.gpsIngreso.lat},${d.gpsIngreso.lng}" target="_blank" title="Ver ubicación del ingreso en el mapa" style="margin-left:4px;text-decoration:none">📍</a>`
+          : `<span style="margin-left:5px;color:var(--red);font-size:10px;font-weight:600;white-space:nowrap" title="No se registraron coordenadas GPS en este ingreso">⚠ sin GPS</span>`)
+      : '';
+    return `<tr><td>${d.dia} ${dias[d.diaSemana]}</td><td>${d.ingreso||'--'}${fotoTag}${gpsTag}</td><td>${d.egreso||'--'}</td><td>${d.horasTrabajadas>0?d.horasTrabajadas.toFixed(1)+'h':'--'}</td><td>${lugar}${clientesTxt}</td><td>${obs}</td></tr>`;
   }).join('');
 
   const t = data.totales;
@@ -2592,7 +2622,15 @@ function renderReporteMensual(data, esFirmado) {
     : '';
 
   document.getElementById('reporte-contenido').innerHTML = `
-    <div style="font-size:12px;color:var(--text2);margin-bottom:16px">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+      ${data.empleado.foto_perfil_url
+        ? `<img src="${data.empleado.foto_perfil_url}" style="width:84px;height:84px;border-radius:10px;object-fit:cover;border:1px solid var(--border);flex-shrink:0" title="Foto de referencia del legajo">`
+        : `<div style="width:84px;height:84px;border-radius:10px;background:var(--bg3);border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text3);text-align:center;flex-shrink:0;padding:4px">Sin foto de perfil cargada</div>`}
+      <div>
+        <div style="font-size:16px;font-weight:700">${data.empleado.nombre} ${data.empleado.apellido}${data.empleado.legajo?' · Legajo '+data.empleado.legajo:''}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${data.empleado.razon_social} · CUIT ${data.empleado.cuit||'--'}</div>
+      </div>
+    </div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="color:var(--text2);border-bottom:1px solid var(--border)">
         <th style="text-align:left;padding:6px 4px">Día</th><th style="padding:6px 4px">Ingreso</th><th style="padding:6px 4px">Egreso</th><th style="padding:6px 4px">Horas</th><th style="padding:6px 4px">Lugar</th><th style="padding:6px 4px">Obs.</th>
@@ -2612,6 +2650,8 @@ function renderReporteMensual(data, esFirmado) {
       <div class="info-row"><span class="lbl">Banco de horas acumulado (a fin de mes)</span><span class="val" style="color:${acumColor}">${t.banco_horas_acumulado_al_mes}h</span></div>
       <div class="info-row"><span class="lbl">Tardanzas</span><span class="val" style="color:var(--yellow)">${t.tardanzas} (${t.minutos_tardanza_total}m total)</span></div>
       <div class="info-row"><span class="lbl">Ausencias</span><span class="val" style="color:var(--red)">${t.ausencias}</span></div>
+      ${t.dias_sin_foto > 0 ? `<div class="info-row"><span class="lbl">⚠ Ingresos sin foto</span><span class="val" style="color:var(--red)">${t.dias_sin_foto}</span></div>` : ''}
+      ${t.dias_sin_gps > 0 ? `<div class="info-row"><span class="lbl">⚠ Ingresos sin GPS</span><span class="val" style="color:var(--red)">${t.dias_sin_gps}</span></div>` : ''}
     </div>
     ${seccionTardanzas}
     ${seccionClientes}
@@ -2625,7 +2665,9 @@ function renderFirmasReporte(firmado) {
   const box = f => f
     ? `<div style="border:1px solid var(--border);border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center">
          <div style="font-size:11px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;font-weight:700">${f.titulo}</div>
-         <img src="${f.svg}" style="width:100%;height:70px;object-fit:contain;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;background:#fff">
+         <div style="width:100%;height:70px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:4px;margin-bottom:6px;background:#fff">
+           <img src="${f.svg}" style="max-width:100%;max-height:100%;width:auto;height:auto;">
+         </div>
          <div style="font-size:13px;font-weight:700">${f.nombre}</div>
          ${f.cargo?`<div style="font-size:11px;color:var(--text2)">${f.cargo}</div>`:''}
          <div style="font-size:10px;color:var(--text3);margin-top:2px">${new Date(f.fecha).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'})}</div>
@@ -2774,6 +2816,84 @@ async function guardarFirmaReporte() {
 }
 
 function imprimirReporte() { window.print(); }
+
+// ─── Descarga del reporte como PDF (html2canvas + jsPDF, paginado) ───────────
+// El botón "Imprimir" depende del motor de impresión de cada navegador/SO, y
+// en algunos Android termina cortando el contenido cuando el reporte ocupa
+// varias hojas. Esta descarga arma el PDF nosotros mismos, igual que ya se
+// hace con las constancias, así el resultado es consistente en cualquier
+// dispositivo.
+async function generarPDFReporte() {
+  const origen = document.getElementById('reporte-imprimible');
+  const contenedor = document.createElement('div');
+  // Los estilos del reporte usan las variables de color del tema oscuro de la
+  // app (var(--text2), var(--border), etc.), que son casi invisibles sobre
+  // fondo blanco. Las pisamos acá con valores aptos para papel — como son
+  // custom properties, todo lo que esté adentro (clonado con innerHTML) las
+  // hereda automáticamente sin tocar el resto del código del reporte.
+  contenedor.style.cssText = `
+    position:fixed;left:-9999px;top:0;width:1400px;background:#ffffff;color:#1a1a1a;
+    font-family:Arial,sans-serif;padding:24px;
+    --bg:#ffffff;--bg2:#ffffff;--bg3:#f2f5f8;--border:#d5dde3;
+    --text:#1a1a1a;--text2:#4a5a68;--text3:#7c8a96;
+    --green:#0a8a4a;--yellow:#a8720a;--red:#c0392b;--orange:#c2650a;
+  `;
+  contenedor.innerHTML = origen.innerHTML;
+  document.body.appendChild(contenedor);
+
+  // Esperar a que las imágenes (firmas en base64) terminen de decodificar
+  await Promise.all(Array.from(contenedor.querySelectorAll('img')).map(img =>
+    img.complete ? Promise.resolve() : new Promise(res => { img.onload = res; img.onerror = res; })
+  ));
+  await new Promise(r => setTimeout(r, 150));
+
+  try {
+    const {jsPDF} = window.jspdf;
+    const canvas = await html2canvas(contenedor, {
+      scale: 2, useCORS: true, allowTaint: true, backgroundColor: '#ffffff', logging: false
+    });
+
+    const pdf = new jsPDF({orientation: 'landscape', unit: 'px', format: 'a4', hotfixes: ['px_scaling']});
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const margin = 28;
+    const imgW = pdfW - margin * 2;
+    const escala = canvas.width / imgW;
+    const altoMaxPx = (pdfH - margin * 2) * escala;
+    let srcYpx = 0;
+
+    while (srcYpx < canvas.height) {
+      const altoBloqPx = Math.min(altoMaxPx, canvas.height - srcYpx);
+      const bloqCanvas = document.createElement('canvas');
+      bloqCanvas.width = canvas.width;
+      bloqCanvas.height = altoBloqPx;
+      bloqCanvas.getContext('2d').drawImage(canvas, 0, srcYpx, canvas.width, altoBloqPx, 0, 0, canvas.width, altoBloqPx);
+      const bloqData = bloqCanvas.toDataURL('image/jpeg', 0.88);
+      const altoEnPdf = altoBloqPx / escala;
+      pdf.addImage(bloqData, 'JPEG', margin, margin, imgW, altoEnPdf);
+      srcYpx += altoBloqPx;
+      if (srcYpx < canvas.height) { pdf.addPage(); }
+    }
+
+    const emp = REPORTE_STATE.data?.empleado;
+    const base = 'Reporte_' + (emp ? (emp.apellido + '_' + emp.nombre) : 'mensual') + '_' + REPORTE_STATE.mes + '_' + REPORTE_STATE.anio;
+    const nombre = base.replace(/[^a-zA-Z0-9_-]/g, '_') + '.pdf';
+    return { pdf, nombre };
+  } finally {
+    document.body.removeChild(contenedor);
+  }
+}
+
+async function descargarReportePDF() {
+  toast('Generando PDF...', 'info');
+  try {
+    const { pdf, nombre } = await generarPDFReporte();
+    pdf.save(nombre);
+    toast('PDF descargado ✓', 'success');
+  } catch(e) {
+    toast('Error al generar PDF', 'error'); console.error(e);
+  }
+}
 
 
 async function verEstadisticas() {
