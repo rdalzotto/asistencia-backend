@@ -7,7 +7,7 @@
 // actualización subida al servidor quedaba invisible para el usuario hasta
 // que se le ocurriera borrar el caché a mano. Con Network First evitamos eso.
 
-const CACHE_NAME = 'asistencia-v3';
+const CACHE_NAME = 'asistencia-v4';
 const EXTINTORES_CACHE = 'extintores-v2';
 
 // Assets que se cachean al instalar el SW (para poder abrir la app offline)
@@ -76,8 +76,14 @@ self.addEventListener('fetch', event => {
 
   // HTML / navegación: Network First — siempre intenta traer lo último del
   // servidor, y solo si falla (sin conexión) usa lo que haya en caché.
+  // cache:'no-store' es clave acá: sin esto, este fetch() todavía puede
+  // resolverse contra la caché HTTP del navegador (no la de este Service
+  // Worker) si el servidor mandó cabeceras que lo permiten — "Network First"
+  // dejaba de ser realmente "siempre a la red" en esos casos. Forzando
+  // no-store, esta llamada ignora esa caché HTTP y pega contra el servidor
+  // de verdad en cada navegación.
   event.respondWith(
-    fetch(event.request).then(response => {
+    fetch(event.request, { cache: 'no-store' }).then(response => {
       if (response && response.status === 200 && response.type !== 'opaque') {
         const clone = response.clone();
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
