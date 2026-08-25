@@ -178,12 +178,29 @@ async function cronJornadaInteligente() {
       console.log(`[CRON] Consulta egreso enviada a ${emp.nombre} ${emp.apellido} (${emp.hora_egreso})`);
     }
 
-    // ── 2. Cerrar por no respuesta (consulta vencida) ──────────────────────────
+    // ── 2. Consulta vencida sin respuesta ───────────────────────────────────────
+    // Jornadas remotas: comportamiento sin cambios (cierre automático, aviso
+    // solo al admin) — su duración es variable, un recordatorio de "terminó
+    // tu jornada" no tiene sentido ahí.
+    // Jornadas de oficina: YA NO se cierran solas acá. En vez de eso, se le
+    // manda un recordatorio push AL EMPLEADO (una sola vez, marcado con
+    // recordatorio_enviado) y la jornada queda genuinamente abierta hasta que
+    // la fiche él mismo — el cartel persistente en el dashboard usa el mismo
+    // flag vía GET /movimientos/consulta-egreso-pendiente. El cierre de
+    // seguridad de las 20:00 (paso 4 más abajo) sigue como último resguardo.
     const { rows: sinRespuesta } = await db.query(`
-      SELECT ce.empleado_id, ce.empleador_id
+      SELECT ce.id as consulta_id, ce.empleado_id, ce.empleador_id, ce.enviado_en,
+        e.nombre, e.apellido, e.usuario_id,
+        EXISTS (
+          SELECT 1 FROM public.movimientos m3
+          WHERE m3.empleado_id = ce.empleado_id AND m3.fecha = CURRENT_DATE
+            AND m3.tipo = 'inicio_jornada_remota'
+        ) AS es_remoto
       FROM public.consultas_egreso ce
+      JOIN public.empleados e ON e.id = ce.empleado_id
       WHERE ce.fecha = CURRENT_DATE
         AND ce.respondido = FALSE
+        AND ce.recordatorio_enviado = FALSE
         AND ce.fecha_expira <= NOW()
         AND NOT EXISTS (
           SELECT 1 FROM public.movimientos m
@@ -194,23 +211,33 @@ async function cronJornadaInteligente() {
     `);
 
     for (const row of sinRespuesta) {
-      const { rows: [emp] } = await db.query(
-        'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [row.empleado_id]
-      );
-      const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+      const nombre = `${row.nombre || ''} ${row.apellido || ''}`.trim();
 
-      await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'sin_respuesta');
-      await notificarHorasExtra(row.empleado_id, row.empleador_id, nombre);
+      if (row.es_remoto) {
+        await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'sin_respuesta');
+        await notificarHorasExtra(row.empleado_id, row.empleador_id, nombre);
 
-      const n = push.notif.cierreSinRespuesta(nombre);
-      await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
+        const n = push.notif.cierreSinRespuesta(nombre);
+        await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
 
-      await db.query(
-        `UPDATE public.consultas_egreso SET respondido = TRUE, respuesta = 'vencida'
-         WHERE empleado_id = $1 AND fecha = CURRENT_DATE`,
-        [row.empleado_id]
-      );
-      console.log(`[CRON] Egreso por inactividad: ${nombre}`);
+        await db.query(
+          `UPDATE public.consultas_egreso SET respondido = TRUE, respuesta = 'vencida' WHERE id = $1`,
+          [row.consulta_id]
+        );
+        console.log(`[CRON] Egreso por inactividad (remoto): ${nombre}`);
+      } else {
+        const horaEgreso = new Date(row.enviado_en).toLocaleTimeString('es-AR', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires',
+        });
+        const n = push.notif.recordatorioEgreso(horaEgreso);
+        await push.pushUsuario(row.usuario_id, n.titulo, n.cuerpo);
+
+        await db.query(
+          `UPDATE public.consultas_egreso SET recordatorio_enviado = TRUE WHERE id = $1`,
+          [row.consulta_id]
+        );
+        console.log(`[CRON] Recordatorio de egreso enviado (oficina): ${nombre}`);
+      }
     }
 
     // ── 3. Cerrar extensiones vencidas ─────────────────────────────────────────

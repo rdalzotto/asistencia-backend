@@ -135,6 +135,15 @@ const notif = {
     titulo: `⏱️ Horas extra — ${nombre}`,
     cuerpo: `${horasHoy}h extra hoy. Total del mes: ${horasTotalesMes}h.`,
   }),
+
+  // Va al EMPLEADO (no al admin) — solo para jornadas que arrancaron en la
+  // oficina (ver cronJornadaInteligente en index.js). A diferencia del resto
+  // de estas plantillas, la jornada sigue activa cuando esto se manda: no se
+  // cierra sola, por eso el texto invita a fichar en vez de solo informar.
+  recordatorioEgreso: (horaEgreso) => ({
+    titulo: '⏰ Fichá tu egreso',
+    cuerpo: `Tu jornada terminó hace 15 minutos (${horaEgreso}). Fichá tu egreso para que se registre correctamente.`,
+  }),
 };
 
 module.exports = { pushUsuario, pushAdmins, notif };

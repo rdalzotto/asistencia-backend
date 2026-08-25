@@ -1831,6 +1831,7 @@ async function confirmarMovimiento() {
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
     mostrarExito(tipo);
+    if (tipo === 'egreso' || tipo === 'fin_jornada_remota') ocultarBannerAlertaJornada();
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
       setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales. Si no se valida dentro de 1 hora, la jornada se cerrará automáticamente y esas horas no se contabilizarán.', 'info', 15000), 800);
     }
@@ -6553,6 +6554,12 @@ async function verificarConsultaEgreso() {
   if (!STATE.empleadoId || STATE.rol === 'admin') return;
   try {
     const data = await api('/movimientos/consulta-egreso-pendiente');
+    // Recordatorio de egreso (jornada de oficina, +15 min, sin cerrarse sola):
+    // se muestra como cartel persistente, independiente del modal de abajo
+    // (que solo aparece en la ventana de los primeros 15 min).
+    if (data?.recordatorio_egreso) {
+      mostrarBannerAlertaJornada('⏰ Tu jornada terminó hace 15 minutos. Fichá tu egreso para que se registre correctamente.', 'orange');
+    }
     if (!data?.pendiente) return;
     _ceHoraEgresoTurno = data.hora_egreso_turno;
     document.getElementById('ce-subtitulo').textContent =

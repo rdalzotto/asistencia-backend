@@ -641,7 +641,7 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
 // ─── GET /movimientos/consulta-egreso-pendiente ───────────────────────────────
 router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
   const empleadoId = req.user.empleadoId;
-  if (!empleadoId) return res.json({ pendiente: false });
+  if (!empleadoId) return res.json({ pendiente: false, recordatorio_egreso: false });
   try {
     const { rows: [consulta] } = await db.query(`
       SELECT ce.* FROM public.consultas_egreso ce
@@ -651,7 +651,24 @@ router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
         AND ce.fecha_expira > NOW()
     `, [empleadoId]);
 
-    if (!consulta) return res.json({ pendiente: false });
+    // Recordatorio de egreso (jornada de oficina, pasados los 15 min, sin
+    // cerrarse sola): independiente del bloque de arriba, que es el "¿egreso
+    // o extensión?" de los primeros 15 min. Se mantiene en true hasta que el
+    // empleado fiche egreso — es lo que el frontend usa para el cartel
+    // persistente, y sobrevive aunque "consulta" de arriba ya haya vencido.
+    const { rows: [rec] } = await db.query(`
+      SELECT 1 FROM public.consultas_egreso ce
+      WHERE ce.empleado_id = $1 AND ce.fecha = CURRENT_DATE AND ce.recordatorio_enviado = TRUE
+        AND NOT EXISTS (
+          SELECT 1 FROM public.movimientos m
+          WHERE m.empleado_id = ce.empleado_id AND m.fecha = ce.fecha
+            AND m.tipo IN ('egreso','fin_jornada_remota')
+        )
+      LIMIT 1
+    `, [empleadoId]);
+    const recordatorioEgreso = !!rec;
+
+    if (!consulta) return res.json({ pendiente: false, recordatorio_egreso: recordatorioEgreso });
 
     // Obtener hora_egreso real del día (jornadas_por_dia o fallback jornadas_config)
     const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
@@ -670,7 +687,7 @@ router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
       horaEgreso = jc[0]?.hora_egreso || null;
     }
 
-    res.json({ pendiente: true, hora_egreso_turno: horaEgreso });
+    res.json({ pendiente: true, hora_egreso_turno: horaEgreso, recordatorio_egreso: recordatorioEgreso });
   } catch (err) {
     console.error('[MOV] consulta-egreso-pendiente error:', err.message);
     res.status(500).json({ error: 'Error interno' });

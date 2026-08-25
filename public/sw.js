@@ -7,7 +7,7 @@
 // actualización subida al servidor quedaba invisible para el usuario hasta
 // que se le ocurriera borrar el caché a mano. Con Network First evitamos eso.
 
-const CACHE_NAME = 'asistencia-v4';
+const CACHE_NAME = 'asistencia-v5';
 const EXTINTORES_CACHE = 'extintores-v2';
 
 // Assets que se cachean al instalar el SW (para poder abrir la app offline)
@@ -94,6 +94,46 @@ self.addEventListener('fetch', event => {
         if (cached) return cached;
         if (esNavegacionOHtml) return caches.match('/index.html');
       });
+    })
+  );
+});
+
+// ── Push ──────────────────────────────────────────────────────────────────
+// El servidor (pushService.js) manda notificaciones desde hace tiempo, pero
+// hasta ahora ningún Service Worker escuchaba el evento 'push' — llegaban al
+// navegador y no se mostraba nada nunca, para ningún tipo de aviso (ingreso,
+// egreso, solicitudes, etc.). Este listener es lo que faltaba para que se
+// vean de verdad, con vibración incluida.
+const ICONO_APP = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='24' fill='%237c3aed'/><text y='130' x='96' text-anchor='middle' font-size='110' font-family='sans-serif'>🔥</text></svg>";
+
+self.addEventListener('push', event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
+  const titulo = data.titulo || 'AsistenciaAR';
+  const opciones = {
+    body: data.cuerpo || '',
+    icon: ICONO_APP,
+    badge: ICONO_APP,
+    // Patrón de vibración (ms): vibra-pausa-vibra-pausa-vibra, unos 2 segundos
+    // en total. Solo tiene efecto en Android — iOS no soporta vibración
+    // personalizada en notificaciones, es una limitación de esa plataforma,
+    // no de este código.
+    vibrate: [300, 100, 300, 100, 300],
+    data: data.datos || {},
+  };
+  event.waitUntil(self.registration.showNotification(titulo, opciones));
+});
+
+// Tocar la notificación enfoca una pestaña ya abierta de la app, o abre una
+// nueva si no hay ninguna — sin esto, tocarla no hacía nada.
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      for (const c of clientList) {
+        if ('focus' in c) return c.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow('/');
     })
   );
 });
