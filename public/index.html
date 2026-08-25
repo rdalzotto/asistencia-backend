@@ -1823,7 +1823,7 @@ async function confirmarMovimiento() {
     cargarDashboardEmpleado();
     mostrarExito(tipo);
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
-      setTimeout(() => toast('Se registró sin señal GPS — quedará pendiente de validación del admin', 'info', 5000), 800);
+      setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales.', 'info', 8000), 800);
     }
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
