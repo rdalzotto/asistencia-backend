@@ -126,6 +126,11 @@ const notif = {
     cuerpo: `Venció la extensión de jornada. Egreso registrado a las ${hora}.`,
   }),
 
+  cierreSinValidacionGps: (nombre) => ({
+    titulo: `📍 Cierre por GPS sin validar — ${nombre}`,
+    cuerpo: 'Fichó sin GPS y no se validó en 1 hora. Jornada cerrada automáticamente — podés validar el fichaje original para recuperar las horas.',
+  }),
+
   horasExtraAcumuladas: (nombre, horasHoy, horasTotalesMes) => ({
     titulo: `⏱️ Horas extra — ${nombre}`,
     cuerpo: `${horasHoy}h extra hoy. Total del mes: ${horasTotalesMes}h.`,

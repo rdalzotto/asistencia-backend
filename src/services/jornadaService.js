@@ -12,6 +12,94 @@ async function esFeriado(fecha) {
   return rows.length > 0;
 }
 
+// ─── Fecha/hora Argentina (offset fijo UTC-3, sin horario de verano) ────────
+// Mismo patrón que ya usan visitas.js e index.js por separado — el servidor
+// (Railway) corre en UTC, así que new Date() crudo no sirve para comparar
+// contra horarios locales.
+function fechaHoyArgentina() {
+  const ahoraArg = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  return ahoraArg.toISOString().split('T')[0];
+}
+
+function horaAhoraArgentina() {
+  const ahoraArg = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+  return { h: ahoraArg.getHours(), m: ahoraArg.getMinutes(), dow: ahoraArg.getDay() };
+}
+
+// ─── Ventana fija de excepción horaria (18:00 a 05:00, hora Argentina) ──────
+// Fuera de este rango, un fichaje de oficina sin GPS se acepta con validación
+// manual normal (POST /movimientos/validar-remoto). Dentro de este rango, sin
+// GPS, se bloquea directamente salvo que haya una visita autorizada de
+// antemano (ver tieneVisitaAutorizadaHoy) — Bug 1, punto 1 del spec.
+function estaEnVentanaExcepcional() {
+  const { h } = horaAhoraArgentina();
+  return h >= 18 || h < 5;
+}
+
+// Misma ventana, pero evaluada sobre una hora arbitraria "HH:MM" (para
+// visitas programadas de antemano, en vez de la hora actual).
+function horaEnVentanaExcepcional(hhmm) {
+  if (!hhmm || typeof hhmm !== 'string') return false;
+  const h = parseInt(hhmm.split(':')[0], 10);
+  if (Number.isNaN(h)) return false;
+  return h >= 18 || h < 5;
+}
+
+// ─── ¿Hay una visita programada y ya aprobada por el admin que autorice el
+// fichaje excepcional de hoy? ─────────────────────────────────────────────
+// Se apoya en la columna visita_horario_excepcional (marcada al crear la
+// visita cuando cae en la ventana 18-05) y en que el estado haya salido de
+// 'pendiente_aprobacion' (el admin la aprobó vía el flujo ya existente de
+// visitas). Bug 1, punto 2.
+async function tieneVisitaAutorizadaHoy(empleadoId, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const fecha = fechaHoyArgentina();
+  const { rows } = await queryFn(`
+    SELECT 1 FROM public.visitas
+    WHERE empleado_id = $1 AND fecha = $2
+      AND visita_horario_excepcional = TRUE
+      AND estado IN ('programada', 'en_curso', 'completada')
+    LIMIT 1
+  `, [empleadoId, fecha]);
+  return rows.length > 0;
+}
+
+// ─── ¿La hora actual cae dentro de la jornada habitual del empleado (con
+// margen de 60 min antes del ingreso)? ────────────────────────────────────
+// Se usa para validar el arranque de una jornada remota cuando SÍ hay GPS
+// pero cae fuera del radio de oficina — evita que "remoto" se use como
+// excusa para arrancar en cualquier horario. Mismo fallback jornadas_por_dia
+// → jornadas_config que ya usa GET /movimientos/horario-hoy. Sin jornada
+// configurada, no bloquea (fail-open, igual criterio que el resto del
+// código cuando falta configuración). Bug 1, punto 4.
+async function validarHorarioRemoto(empleadoId) {
+  const { h, m, dow } = horaAhoraArgentina();
+
+  const { rows: jornadaDia } = await db.query(
+    `SELECT hora_ingreso, hora_egreso FROM public.jornadas_por_dia WHERE empleado_id = $1 AND dia_semana = $2`,
+    [empleadoId, dow]
+  );
+  let horario = jornadaDia[0]?.hora_egreso ? jornadaDia[0] : null;
+  if (!horario) {
+    const { rows: jc } = await db.query(
+      `SELECT jc.hora_ingreso, jc.hora_egreso FROM public.empleados e
+       LEFT JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
+       WHERE e.id = $1`,
+      [empleadoId]
+    );
+    horario = jc[0]?.hora_egreso ? jc[0] : null;
+  }
+  if (!horario?.hora_ingreso || !horario?.hora_egreso) return true;
+
+  const minAhora    = h * 60 + m;
+  const [hIng, mIng] = horario.hora_ingreso.split(':').map(Number);
+  const [hEgr, mEgr] = horario.hora_egreso.split(':').map(Number);
+  const minIngreso  = hIng * 60 + mIng - 60; // margen de 60 min antes del ingreso habitual
+  const minEgreso   = hEgr * 60 + mEgr;
+
+  return minAhora >= minIngreso && minAhora <= minEgreso;
+}
+
 // ─── Obtener jornada config de un empleado ───────────────────────────────────
 async function getJornadaConfig(empleadoId) {
   const { rows } = await db.query(`
@@ -54,8 +142,22 @@ function calcularTardanza(horaIngreso, jornadaConfig, convenio) {
 // suma también el tramo abierto hasta el momento actual. Útil para mostrarle
 // al técnico "cuántas horas llevás" antes de que cierre el día.
 async function calcularHorasJornada(empleadoId, fecha, client, contarAbierta = false) {
-  // Obtener todos los movimientos del día ordenados
   const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+
+  // Si el día tiene algún fichaje de oficina sin GPS todavía sin validar por
+  // el admin, el día completo no suma horas hasta que se valide (Bug 1,
+  // puntos 2 y 3 del spec) — ni siquiera el tramo previo al fichaje dudoso,
+  // para no dar una falsa sensación de "ya está resuelto" en el banco de
+  // horas mientras sigue pendiente.
+  const { rows: pendientes } = await queryFn(`
+    SELECT 1 FROM public.movimientos
+    WHERE empleado_id = $1 AND fecha = $2
+      AND gps_valido = FALSE AND validado = FALSE AND es_remoto = FALSE
+    LIMIT 1
+  `, [empleadoId, fecha]);
+  if (pendientes.length > 0) return 0;
+
+  // Obtener todos los movimientos del día ordenados
   const { rows: movs } = await queryFn(`
     SELECT tipo, hora FROM public.movimientos
     WHERE empleado_id = $1 AND fecha = $2
@@ -375,6 +477,12 @@ async function tieneAusenciaOVacacionHoy(empleadoId, client) {
 
 module.exports = {
   esFeriado,
+  fechaHoyArgentina,
+  horaAhoraArgentina,
+  estaEnVentanaExcepcional,
+  horaEnVentanaExcepcional,
+  tieneVisitaAutorizadaHoy,
+  validarHorarioRemoto,
   getJornadaConfig,
   calcularTardanza,
   calcularHorasJornada,

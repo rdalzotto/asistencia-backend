@@ -349,11 +349,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="tab" onclick="tabPendientes('ausencias',this)">Ausencias</button>
         <button class="tab" onclick="tabPendientes('vacaciones',this)">Vacaciones</button>
         <button class="tab" id="tab-pend-visitas-btn" onclick="tabPendientes('visitas',this)">Visitas</button>
+        <button class="tab" id="tab-pend-gps-btn" onclick="tabPendientes('gps',this)">Fichajes GPS</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section"><div id="lista-ausencias-pend"></div></div>
       <div id="pend-vacaciones" class="section"></div>
       <div id="pend-visitas" class="section"><div id="lista-visitas-pend"></div></div>
+      <div id="pend-gps" class="section"><div id="lista-gps-pend"></div></div>
     </div>
 
     <!-- RECURSOS ADMIN -->
@@ -1825,7 +1827,7 @@ async function confirmarMovimiento() {
     cargarDashboardEmpleado();
     mostrarExito(tipo);
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
-      setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales.', 'info', 15000), 800);
+      setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales. Si no se valida dentro de 1 hora, la jornada se cerrará automáticamente y esas horas no se contabilizarán.', 'info', 15000), 800);
     }
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
@@ -1850,6 +1852,9 @@ async function confirmarMovimiento() {
         mostrarOpcionRemota();
       }
       return;
+    } else if (e.message && e.message.includes('fuera de su jornada normal')) {
+      cerrarModal('modal-registro');
+      toast(e.message, 'error', 8000);
     } else { toast(e.message, 'error'); }
   } finally { btn.innerHTML = 'Confirmar'; btn.disabled = false; }
 }
@@ -1863,9 +1868,9 @@ function mostrarOpcionRemota() {
   banner.innerHTML = `
     <div style="font-size:13px;color:var(--orange);font-weight:600;margin-bottom:8px">📍 Estás fuera del radio de la oficina</div>
     <div style="font-size:12px;color:var(--text2);margin-bottom:12px">¿Cómo vas a trabajar hoy?</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:10px">
-      <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;flex:1;min-width:150px" onclick="registrarComoRemoto('domicilio')">🏠 Trabajo Remoto (desde casa)</button>
-      <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;flex:1;min-width:150px" onclick="mostrarSelectorExterno()">🚗 Trabajo Externo (viaje a cliente)</button>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+      <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;width:100%;padding:12px" onclick="mostrarSelectorExterno()">🚗 Trabajo Externo (viaje a cliente)</button>
+      <button class="btn btn-secondary" style="border:1px solid var(--orange);color:var(--orange);background:transparent;width:100%;padding:8px;font-size:12.5px" onclick="registrarComoRemoto('domicilio')">🏠 Trabajo Remoto (desde casa)</button>
     </div>
     <div id="selector-externo" style="display:none;text-align:left;margin-top:8px">
       <div class="form-group"><label>Cliente / destino</label><select id="reg-destino-externo"><option value="">— Seleccionar destino —</option></select></div>
@@ -1914,6 +1919,10 @@ async function registrarComoRemoto(contexto) {
       cerrarModal('modal-registro');
       toast('📴 Sin conexión — el fichaje quedó guardado y se enviará solo al reconectar', 'info', 5000);
       await mostrarPendientesMovimientos();
+    } else if (e.message && e.message.includes('fuera de su jornada normal')) {
+      if (banner) banner.remove();
+      cerrarModal('modal-registro');
+      toast(e.message, 'error', 8000);
     } else { toast(e.message, 'error'); }
   }
   finally { btn.disabled = false; }
@@ -2329,6 +2338,7 @@ async function validarRemoto(id, aprobado) {
     toast(e.message, 'error');
   } finally {
     cargarDashboardAdmin();
+    if (document.getElementById('pend-gps')?.classList.contains('active')) cargarFichajesGpsPendientesAdmin();
   }
 }
 </script>
@@ -2429,6 +2439,40 @@ async function cargarVisitasPendientesAdmin() {
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn btn-sm btn-success" onclick="aprobarVisita(${v.id})">✓ Aprobar</button>
           <button class="btn btn-sm btn-danger" onclick="abrirRechazarVisita(${v.id})">✗ Rechazar</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { cont.innerHTML = '<p style="color:var(--red);text-align:center;font-size:13px">Error cargando</p>'; }
+}
+
+// ── FICHAJES GPS PENDIENTES DE VALIDACIÓN (Bug 1, punto 5) ──
+// Vista de detalle/histórico de todo lo que devuelve /movimientos/pendientes-validacion
+// (sin límite de 48hs) — la card del Dashboard admin (lista-remotos) sigue mostrando
+// lo mismo de forma resumida, esta pestaña es la que corresponde a la campanita.
+async function cargarFichajesGpsPendientesAdmin() {
+  const cont = document.getElementById('lista-gps-pend');
+  if (!cont) return;
+  try {
+    const movs = await api('/movimientos/pendientes-validacion');
+    const tabBtn = document.getElementById('tab-pend-gps-btn');
+    if (tabBtn) tabBtn.textContent = 'Fichajes GPS' + (movs.length ? ' ('+movs.length+')' : '');
+    if (!movs.length) {
+      cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin fichajes GPS pendientes de validación</p>';
+      return;
+    }
+    const nombresTipo = {ingreso:'Ingreso',egreso:'Egreso',salida_almuerzo:'Salida almuerzo',regreso_almuerzo:'Regreso almuerzo',salida_externa:'Salida externa',regreso_externo:'Regreso externo',inicio_jornada_remota:'Inicio remoto',fin_jornada_remota:'Fin remoto'};
+    cont.innerHTML = movs.map(m => {
+      const motivo = m.es_remoto
+        ? (m.salida_fuera_radio ? '💻 Remoto/Externo · fuera de radio' : '💻 Remoto/Externo')
+        : '📍 Sin señal GPS';
+      return `<div class="card" style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600">${m.nombre} ${m.apellido}</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--orange);margin-top:2px">${motivo}</div>
+        <div style="font-size:13px;color:var(--text2);margin:6px 0">${nombresTipo[m.tipo]||m.tipo} · ${new Date(m.hora).toLocaleString('es-AR')}</div>
+        ${m.observacion_admin?'<div style="font-size:12px;color:var(--text3)">'+m.observacion_admin+'</div>':''}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-sm btn-success" onclick="validarRemoto('${m.id}',true)">✓ Validar</button>
+          <button class="btn btn-sm btn-danger" onclick="validarRemoto('${m.id}',false)">✗ Rechazar</button>
         </div>
       </div>`;
     }).join('');
@@ -2654,6 +2698,7 @@ function renderReporteMensual(data, esFirmado) {
       <div class="info-row"><span class="lbl">Ausencias</span><span class="val" style="color:var(--red)">${t.ausencias}</span></div>
       ${t.dias_sin_foto > 0 ? `<div class="info-row"><span class="lbl">⚠ Ingresos sin foto</span><span class="val" style="color:var(--red)">${t.dias_sin_foto}</span></div>` : ''}
       ${t.dias_sin_gps > 0 ? `<div class="info-row"><span class="lbl">⚠ Ingresos sin GPS</span><span class="val" style="color:var(--red)">${t.dias_sin_gps}</span></div>` : ''}
+      ${t.validaciones_fuera_radio > 0 ? `<div class="info-row"><span class="lbl">⚠ Fuera de radio de oficina</span><span class="val" style="color:var(--orange)">${t.validaciones_fuera_radio}</span></div>` : ''}
     </div>
     ${seccionTardanzas}
     ${seccionClientes}
@@ -2965,6 +3010,7 @@ function tabPendientes(id, el) {
   document.querySelectorAll('#tab-pendientes .tab').forEach(t => t.classList.remove('active'));
   if (el) el.classList.add('active');
   if (id === 'visitas') cargarVisitasPendientesAdmin();
+  if (id === 'gps') cargarFichajesGpsPendientesAdmin();
 }
 </script>
 
@@ -4123,19 +4169,23 @@ async function guardarVisita() {
   const editId=document.getElementById('vis-edit-id').value;
   const modo=document.getElementById('vis-modo').value;
   const empId=modo==='admin'?(document.getElementById('vis-empleado-id')?.value||null):null;
-  // Las visitas se crean siempre como 'programada', sea quien sea quien las cree.
-  // El admin recibe un aviso informativo (visado) pero no bloquea el avance de la visita.
-  const estadoInicial = 'programada';
+  // Las visitas se crean como 'programada' por defecto. Excepción: si la salida
+  // cae en la ventana 18:00-05:00, el servidor la fuerza a 'pendiente_aprobacion'
+  // sin importar lo que mandemos acá (Bug 1, punto 2) — por eso no fijamos el
+  // estado desde el cliente y en cambio miramos qué devolvió el servidor.
   btn.disabled = true;
   const textoOriginal = btn.textContent;
   btn.textContent = 'Guardando...';
   try {
     const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,hora_estimada_regreso:document.getElementById('vis-hora-regreso').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId};
-    if (!editId) body.estado = estadoInicial;
     if (editId) { await api('/visitas/'+editId,{method:'PATCH',body:JSON.stringify(body)}); toast('Visita actualizada ✓','success'); }
     else {
-      await api('/visitas',{method:'POST',body:JSON.stringify(body)});
-      toast(modo==='empleado'?'Visita programada ✓ — el admin recibe un aviso informativo':'Visita programada ✓','success');
+      const nueva = await api('/visitas',{method:'POST',body:JSON.stringify(body)});
+      if (nueva.estado === 'pendiente_aprobacion') {
+        toast('📋 Visita fuera de horario habitual — queda pendiente de que el administrador la autorice antes de que puedas fichar sin GPS en ese horario.', 'info', 9000);
+      } else {
+        toast(modo==='empleado'?'Visita programada ✓ — el admin recibe un aviso informativo':'Visita programada ✓','success');
+      }
     }
     cerrarModal('modal-nueva-visita'); visDestinos=[];
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();

@@ -140,7 +140,14 @@ router.post('/', auth, async (req, res) => {
   if (fecha === hoyArg && hora_estimada_salida && hora_estimada_salida < horaAhoraArgentina())
     return res.status(400).json({ error: 'La hora de salida no puede ser anterior a la hora actual' });
   const empleadoId = req.user.rol === 'admin' ? (req.body.empleado_id || null) : req.user.empleadoId;
-  const estadoFinal = estado || 'programada';
+  // Si un empleado (no admin) programa una visita cuya salida cae en la ventana
+  // excepcional (18:00-05:00), la visita queda pendiente de aprobación del
+  // admin sin importar lo que mande el cliente en `estado` — recién aprobada
+  // sirve como autorización previa para fichar sin GPS en ese horario (Bug 1,
+  // punto 2 del spec). visita_horario_excepcional queda marcada para siempre,
+  // para poder distinguir esta aprobación de la de una visita común.
+  const requiereAutorizacionHorario = req.user.rol !== 'admin' && jornada.horaEnVentanaExcepcional(hora_estimada_salida);
+  const estadoFinal = requiereAutorizacionHorario ? 'pendiente_aprobacion' : (estado || 'programada');
   // Anti-duplicado: si en los últimos 15 segundos ya se creó una visita idéntica
   // (mismo empleado, fecha, hora y primer destino), no crear otra — probablemente doble-tap/doble-submit
   try {
@@ -179,11 +186,13 @@ router.post('/', auth, async (req, res) => {
     const { rows: [v] } = await client.query(`
       INSERT INTO public.visitas
         (empleador_id, empleado_id, fecha, hora_estimada_salida, hora_estimada_regreso, origen,
-         origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones, estado, visto_admin)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *
+         origen_lat, origen_lng, km_estimados, viatico_estimado, observaciones, estado, visto_admin,
+         visita_horario_excepcional)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *
     `, [req.user.empleadorId, empleadoId, fecha, hora_estimada_salida || null, hora_estimada_regreso || null,
         origen || 'oficina', origen_lat || null, origen_lng || null,
-        km_estimados || 0, viatico_estimado || 0, observaciones || null, estadoFinal, vistoAdmin]);
+        km_estimados || 0, viatico_estimado || 0, observaciones || null, estadoFinal, vistoAdmin,
+        requiereAutorizacionHorario]);
     for (let i = 0; i < destinos.length; i++) {
       const d = destinos[i];
       await client.query(`

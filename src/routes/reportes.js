@@ -239,6 +239,12 @@ async function construirReporteMensual(eId, empleadorId, anio, mes) {
       ausencias:         diasDelMes.filter(d => d.ausencia).length,
       dias_sin_foto:     diasDelMes.filter(d => d.ingreso && !d.fotoIngreso).length,
       dias_sin_gps:      diasDelMes.filter(d => d.ingreso && !d.gpsIngreso).length,
+      // Contadores de validación manual del mes, separados a propósito (Bug 1,
+      // punto 7 del spec): "sin GPS" es una elección legítima del empleado (ej.
+      // celular personal sin ubicación compartida) y "fuera de radio" puede ser
+      // negligencia real — mezclarlos generaría un reclamo injusto.
+      validaciones_sin_gps:     movs.filter(m => m.gps_valido === false && !m.es_remoto).length,
+      validaciones_fuera_radio: movs.filter(m => m.salida_fuera_radio === true).length,
     },
   };
 }

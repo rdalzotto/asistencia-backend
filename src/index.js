@@ -276,6 +276,41 @@ async function cronJornadaInteligente() {
       }
     }
 
+    // ── 5. Cierre forzado por fichaje sin GPS no validado tras 1 hora ─────────
+    // Bug 1, punto 3 del spec: el fichaje sin GPS en horario normal (no el
+    // bloqueado del punto 1) queda pendiente de validación del admin; si no
+    // lo valida en 1 hora, el sistema fuerza el cierre de esa jornada como
+    // medida preventiva (evita jornadas eternas abiertas). No es un veredicto
+    // final: el movimiento original sigue con validado=FALSE, así que
+    // calcularHorasJornada lo sigue excluyendo del banco de horas hasta que
+    // el admin lo valide más tarde vía POST /movimientos/validar-remoto/:id
+    // (ese endpoint ya recalcula el banco de horas al aprobar) — las horas se
+    // pueden recuperar retroactivamente, el cierre no las pierde para siempre.
+    const { rows: sinValidarVencidos } = await db.query(`
+      SELECT DISTINCT m.empleado_id, m.empleador_id
+      FROM public.movimientos m
+      WHERE m.gps_valido = FALSE AND m.validado = FALSE AND m.es_remoto = FALSE
+        AND m.tipo IN ('ingreso','regreso_almuerzo','regreso_externo')
+        AND m.hora <= NOW() - INTERVAL '1 hour'
+        AND m.fecha = CURRENT_DATE
+        AND NOT EXISTS (
+          SELECT 1 FROM public.movimientos m2
+          WHERE m2.empleado_id = m.empleado_id AND m2.fecha = m.fecha
+            AND m2.tipo IN ('egreso','fin_jornada_remota') AND m2.hora > m.hora
+        )
+    `);
+
+    for (const row of sinValidarVencidos) {
+      const { rows: [emp] } = await db.query(
+        'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [row.empleado_id]
+      );
+      const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+      await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'gps_sin_validar_1h');
+      const n = push.notif.cierreSinValidacionGps(nombre);
+      await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
+      console.log(`[CRON] Cierre por GPS sin validar (1h): ${nombre}`);
+    }
+
   } catch (err) {
     console.error('[CRON] Error en cron inteligente:', err.message);
   }

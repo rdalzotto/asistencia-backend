@@ -483,7 +483,6 @@ router.get('/dashboard', auth, soloAdmin, async (req, res) => {
           SELECT m.*, e.nombre, e.apellido FROM public.movimientos m
           JOIN public.empleados e ON e.id = m.empleado_id
           WHERE m.empleador_id = $1 AND (m.es_remoto = TRUE OR m.gps_valido = FALSE) AND m.validado = FALSE
-            AND m.hora >= NOW() - INTERVAL '48 hours'
           ORDER BY m.hora DESC
         `, [empleadorId]),
         db.query(`

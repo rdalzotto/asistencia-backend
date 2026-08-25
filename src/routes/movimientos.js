@@ -66,10 +66,23 @@ router.post('/registrar', auth, async (req, res) => {
     const lngVal = Number.isFinite(lngNum) ? lngNum : null;
     const tieneGps = latVal !== null && lngVal !== null;
 
+    // ─ Bloqueo por horario excepcional (18:00-05:00, hora Argentina) sin GPS,
+    // salvo que haya una visita programada ya autorizada por el admin para
+    // hoy — Bug 1, puntos 1 y 2 del spec. No se llega a insertar nada. ─
+    const MENSAJE_BLOQUEO_HORARIO = 'Este horario está fuera de su jornada normal. Avisá a tu administrador para que te autorice si es necesario, o programá una visita y pedile al administrador que te habilite.';
+    if (!tieneGps && jornada.estaEnVentanaExcepcional() && ['ingreso', 'inicio_jornada_remota'].includes(tipo)) {
+      const autorizado = await jornada.tieneVisitaAutorizadaHoy(empleadoId, client);
+      if (!autorizado) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: MENSAJE_BLOQUEO_HORARIO });
+      }
+    }
+
     // ─ Verificar GPS (solo para movimientos de oficina, no remotos) ─
     let gpsValido = true;
     let distanciaM = null;
     let observacionAuto = null;
+    let salidaFueraRadioVal = false;
 
     if (!es_remoto && ['ingreso','egreso','salida_almuerzo','regreso_almuerzo'].includes(tipo)) {
       if (!tieneGps) {
@@ -91,12 +104,43 @@ router.post('/registrar', auth, async (req, res) => {
           ));
           const radioPermitido = parseInt(emp.oficina_radio_m) || 300;
           gpsValido = distanciaM <= radioPermitido;
-          if (!gpsValido)
+          if (!gpsValido) {
+            await client.query('ROLLBACK');
             return res.status(400).json({
               error: `GPS fuera del área permitida (${distanciaM}m de distancia)`,
               distanciaM,
             });
+          }
         }
+      }
+    }
+
+    // ─ Inicio de jornada remota con GPS presente: validar contra la jornada
+    // habitual del empleado (salvo visita autorizada), y marcar de forma
+    // informativa (no bloquea) si cae fuera del radio de oficina, para el
+    // contador mensual separado — Bug 1, puntos 4 y 7 del spec. ─
+    if (tipo === 'inicio_jornada_remota' && tieneGps) {
+      const dentroDeHorario = await jornada.validarHorarioRemoto(empleadoId);
+      if (!dentroDeHorario) {
+        const autorizado = await jornada.tieneVisitaAutorizadaHoy(empleadoId, client);
+        if (!autorizado) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: MENSAJE_BLOQUEO_HORARIO });
+        }
+      }
+
+      const { rows: [emp] } = await client.query(
+        'SELECT oficina_lat, oficina_lng, oficina_radio_m FROM public.empleadores WHERE id = $1',
+        [req.user.empleadorId]
+      );
+      if (emp && emp.oficina_lat != null && emp.oficina_lng != null) {
+        distanciaM = Math.round(calcularDistancia(
+          latVal, lngVal,
+          parseFloat(emp.oficina_lat),
+          parseFloat(emp.oficina_lng)
+        ));
+        const radioPermitido = parseInt(emp.oficina_radio_m) || 300;
+        salidaFueraRadioVal = distanciaM > radioPermitido;
       }
     }
 
@@ -176,7 +220,8 @@ router.post('/registrar', auth, async (req, res) => {
         es_feriado,
         consentimiento_extra, consentimiento_hora,
         validado, hash_sha256, observacion_admin,
-        contexto_remoto, km_estimados
+        contexto_remoto, km_estimados,
+        salida_fuera_radio
       ) VALUES (
         $1,$2,$3,CURRENT_DATE,NOW(),
         $4,$5,$6,$7,
@@ -187,7 +232,8 @@ router.post('/registrar', auth, async (req, res) => {
         $18,
         $19, CASE WHEN $19 THEN NOW() ELSE NULL END,
         $20,$21,$22,
-        $23,$24
+        $23,$24,
+        $25
       ) RETURNING *
     `, [
       empleadoId, req.user.empleadorId, tipo,
@@ -208,6 +254,7 @@ router.post('/registrar', auth, async (req, res) => {
       observacionAuto,
       contextoRemotoVal,
       kmEstimados,
+      salidaFueraRadioVal,
     ]);
 
     // ─ Actualizar banco de horas ─
@@ -519,7 +566,6 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
       WHERE m.empleador_id = $1
         AND (m.es_remoto = TRUE OR m.gps_valido = FALSE OR m.salida_fuera_radio = TRUE)
         AND m.validado = FALSE
-        AND m.hora >= NOW() - INTERVAL '48 hours'
       ORDER BY m.hora DESC
     `, [req.user.empleadorId]);
     res.json(rows);
