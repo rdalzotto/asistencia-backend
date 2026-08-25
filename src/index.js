@@ -212,31 +212,38 @@ async function cronJornadaInteligente() {
 
     for (const row of sinRespuesta) {
       const nombre = `${row.nombre || ''} ${row.apellido || ''}`.trim();
+      // Cada fila se procesa aislada: si una falla (ej. push sin suscripción,
+      // dato inconsistente puntual), no tiene que tirar abajo el resto de los
+      // pasos del cron ni quedar reintentando la misma fila en bucle cada
+      // minuto sin que nadie se entere del motivo real.
+      try {
+        if (row.es_remoto) {
+          await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'sin_respuesta');
+          await notificarHorasExtra(row.empleado_id, row.empleador_id, nombre);
 
-      if (row.es_remoto) {
-        await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'sin_respuesta');
-        await notificarHorasExtra(row.empleado_id, row.empleador_id, nombre);
+          const n = push.notif.cierreSinRespuesta(nombre);
+          await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
 
-        const n = push.notif.cierreSinRespuesta(nombre);
-        await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
+          await db.query(
+            `UPDATE public.consultas_egreso SET respondido = TRUE, respuesta = 'vencida' WHERE id = $1`,
+            [row.consulta_id]
+          );
+          console.log(`[CRON] Egreso por inactividad (remoto): ${nombre}`);
+        } else {
+          const horaEgreso = new Date(row.enviado_en).toLocaleTimeString('es-AR', {
+            hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires',
+          });
+          const n = push.notif.recordatorioEgreso(horaEgreso);
+          await push.pushUsuario(row.usuario_id, n.titulo, n.cuerpo);
 
-        await db.query(
-          `UPDATE public.consultas_egreso SET respondido = TRUE, respuesta = 'vencida' WHERE id = $1`,
-          [row.consulta_id]
-        );
-        console.log(`[CRON] Egreso por inactividad (remoto): ${nombre}`);
-      } else {
-        const horaEgreso = new Date(row.enviado_en).toLocaleTimeString('es-AR', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires',
-        });
-        const n = push.notif.recordatorioEgreso(horaEgreso);
-        await push.pushUsuario(row.usuario_id, n.titulo, n.cuerpo);
-
-        await db.query(
-          `UPDATE public.consultas_egreso SET recordatorio_enviado = TRUE WHERE id = $1`,
-          [row.consulta_id]
-        );
-        console.log(`[CRON] Recordatorio de egreso enviado (oficina): ${nombre}`);
+          await db.query(
+            `UPDATE public.consultas_egreso SET recordatorio_enviado = TRUE WHERE id = $1`,
+            [row.consulta_id]
+          );
+          console.log(`[CRON] Recordatorio de egreso enviado (oficina): ${nombre}`);
+        }
+      } catch (errFila) {
+        console.error(`[CRON] Error procesando consulta_id=${row.consulta_id} (empleado_id=${row.empleado_id}, es_remoto=${row.es_remoto}):`, errFila.message);
       }
     }
 
