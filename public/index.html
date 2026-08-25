@@ -109,7 +109,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .vstep.error{background:rgba(255,82,82,0.1);color:var(--red);}
 .vstep-icon{font-size:18px;width:24px;text-align:center;}
 #cameraPreview{width:100%;border-radius:var(--radius-sm);display:none;margin:12px 0;background:black;}
-.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 20px;font-size:14px;font-weight:500;z-index:999;box-shadow:var(--shadow);display:none;min-width:200px;text-align:center;animation:fadeIn 0.3s ease;}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 20px;font-size:14px;font-weight:500;z-index:999;box-shadow:var(--shadow);display:none;min-width:200px;text-align:center;animation:fadeIn 0.3s ease;cursor:pointer;}
 .toast.show{display:block;}
 .toast.success{border-color:var(--green);color:var(--green);}
 .toast.error{border-color:var(--red);color:var(--red);}
@@ -1116,9 +1116,11 @@ async function api(path, opts={}) {
 
 function toast(msg, type='info', dur=3000) {
   const t = document.getElementById('toast');
+  clearTimeout(t._hideTimer);
   t.textContent = msg;
   t.className = 'toast show ' + type;
-  setTimeout(() => t.className = 'toast', dur);
+  t.onclick = () => { clearTimeout(t._hideTimer); t.className = 'toast'; };
+  t._hideTimer = setTimeout(() => t.className = 'toast', dur);
 }
 
 function mostrarScreen(id) {
@@ -1823,7 +1825,7 @@ async function confirmarMovimiento() {
     cargarDashboardEmpleado();
     mostrarExito(tipo);
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
-      setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales.', 'info', 8000), 800);
+      setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales.', 'info', 15000), 800);
     }
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
