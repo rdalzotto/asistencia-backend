@@ -2471,7 +2471,14 @@ async function cargarPendientesAdmin() {
     await cargarVisitasPendientesAdmin();
     await cargarFichajesGpsPendientesAdmin();
     navegarPendientesSegunDatos();
-  } catch(e) { console.error(e); }
+  } catch(e) {
+    console.error('[PENDIENTES]', e);
+    // Diagnóstico temporal: si algo entre Solicitudes y Ausencias falla, hoy
+    // queda mudo (solo en la consola) y la campanita se queda pegada en
+    // Solicitudes sin ninguna pista de por qué. Mientras se investiga el caso
+    // real, mostrarlo en pantalla en vez de tragárselo en silencio.
+    toast('Error cargando Pendientes: ' + e.message, 'error', 10000);
+  }
 }
 
 // ── VACACIONES PENDIENTES DE APROBACIÓN ──
