@@ -49,12 +49,15 @@ router.patch('/ausencia/:id', auth, soloAdmin, async (req, res) => {
 router.get('/ausencias', auth, async (req, res) => {
   const { estado, desde, hasta, empleado_id } = req.query;
   const params = [req.user.empleadorId];
-  let where = 'WHERE empleador_id = $1';
-  if (req.user.rol === 'empleado') { params.push(req.user.empleadoId); where += ` AND empleado_id = $${params.length}`; }
-  else if (empleado_id) { params.push(empleado_id); where += ` AND empleado_id = $${params.length}`; }
-  if (estado) { params.push(estado); where += ` AND estado = $${params.length}`; }
-  if (desde)  { params.push(desde);  where += ` AND fecha_inicio >= $${params.length}`; }
-  if (hasta)  { params.push(hasta);  where += ` AND fecha_fin <= $${params.length}`; }
+  // Columnas calificadas con el alias "a." (ausencias): tanto ausencias como
+  // empleados tienen columna empleador_id, así que sin calificar Postgres no
+  // puede resolver la ambigüedad ("column reference empleador_id is ambiguous").
+  let where = 'WHERE a.empleador_id = $1';
+  if (req.user.rol === 'empleado') { params.push(req.user.empleadoId); where += ` AND a.empleado_id = $${params.length}`; }
+  else if (empleado_id) { params.push(empleado_id); where += ` AND a.empleado_id = $${params.length}`; }
+  if (estado) { params.push(estado); where += ` AND a.estado = $${params.length}`; }
+  if (desde)  { params.push(desde);  where += ` AND a.fecha_inicio >= $${params.length}`; }
+  if (hasta)  { params.push(hasta);  where += ` AND a.fecha_fin <= $${params.length}`; }
   try {
     const { rows } = await db.query(`
       SELECT a.*, e.nombre, e.apellido, e.legajo FROM public.ausencias a
