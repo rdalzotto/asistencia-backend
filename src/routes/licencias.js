@@ -61,7 +61,13 @@ router.get('/ausencias', auth, async (req, res) => {
       JOIN public.empleados e ON e.id = a.empleado_id ${where} ORDER BY a.fecha_inicio DESC
     `, params);
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+  } catch (err) {
+    console.error('[LIC] Ausencias GET error:', err.message);
+    // Se expone el mensaje real temporalmente para diagnosticar sin depender
+    // de tener los logs de Railway a mano (mismo criterio ya usado en
+    // POST /movimientos/validar-remoto/:id).
+    res.status(500).json({ error: 'Error interno: ' + err.message });
+  }
 });
 
 // ════════════════════════════════════════════════════════════════

@@ -134,7 +134,11 @@ router.get('/solicitudes', auth, async (req, res) => {
     `, params);
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: 'Error interno' });
+    console.error('[SOL] Solicitudes GET error:', err.message);
+    // Se expone el mensaje real temporalmente para diagnosticar sin depender
+    // de tener los logs de Railway a mano (mismo criterio ya usado en
+    // POST /movimientos/validar-remoto/:id).
+    res.status(500).json({ error: 'Error interno: ' + err.message });
   }
 });
 
