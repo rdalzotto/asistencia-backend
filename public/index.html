@@ -2373,9 +2373,31 @@ async function cargarEmpleadosAdmin() {
   } catch(e) { console.error(e); }
 }
 
+// Conteos de cada sub-pestaña de Pendientes, usados para decidir a cuál
+// navegar cuando se entra por la campanita — antes siempre caía en
+// "Solicitudes" sin importar dónde estuviera realmente lo pendiente (esa era
+// la causa real de "la campanita no lleva a ningún lado" cuando lo pendiente
+// eran fichajes GPS, que ni siquiera tenían pestaña propia).
+let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, visitas: 0, gps: 0 };
+
+function seleccionarSubTabPendientesConDatos() {
+  const activa = document.querySelector('#tab-pendientes .tabs .tab.active');
+  const idActiva = activa?.getAttribute('onclick')?.match(/tabPendientes\('(\w+)'/)?.[1];
+  if (idActiva && PENDIENTES_COUNTS[idActiva] > 0) return; // ya está donde hay datos, no la pisamos
+  const orden = ['gps', 'solicitudes', 'ausencias', 'visitas'];
+  for (const id of orden) {
+    if (PENDIENTES_COUNTS[id] > 0) {
+      const btn = document.querySelector(`#tab-pendientes .tabs .tab[onclick*="tabPendientes('${id}'"]`);
+      if (btn) tabPendientes(id, btn);
+      return;
+    }
+  }
+}
+
 async function cargarPendientesAdmin() {
   try {
     const sols = await api('/notificaciones/solicitudes?estado=pendiente');
+    PENDIENTES_COUNTS.solicitudes = sols.length;
     const contS = document.getElementById('lista-solicitudes-pend');
     contS.innerHTML = sols.length ? sols.map(s => `
       <div class="card" style="margin-bottom:12px">
@@ -2390,6 +2412,7 @@ async function cargarPendientesAdmin() {
     `).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin solicitudes pendientes</p>';
 
     const aus = await api('/licencias/ausencias?estado=pendiente');
+    PENDIENTES_COUNTS.ausencias = aus.length;
     const contA = document.getElementById('lista-ausencias-pend');
     const tiposAus = {tramite_personal:'📋 Trámite personal',enfermedad_leve:'😷 Enfermedad leve',enfermedad_certificada:'🏥 Enfermedad con certificado',emergencia:'🚨 Emergencia',licencia_matrimonio:'💍 Matrimonio',licencia_nacimiento:'👶 Nacimiento de hijo',licencia_fallecimiento:'🖤 Fallecimiento de familiar',licencia_examen:'📚 Examen'};
     contA.innerHTML = aus.length ? aus.map(a => `
@@ -2405,8 +2428,10 @@ async function cargarPendientesAdmin() {
       </div>
     `).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin ausencias pendientes</p>';
 
-    // ── VISITAS PENDIENTES DE APROBACIÓN ──
+    // ── VISITAS Y FICHAJES GPS PENDIENTES ──
     await cargarVisitasPendientesAdmin();
+    await cargarFichajesGpsPendientesAdmin();
+    seleccionarSubTabPendientesConDatos();
   } catch(e) { console.error(e); }
 }
 
@@ -2415,6 +2440,7 @@ async function cargarVisitasPendientesAdmin() {
   if (!cont) return;
   try {
     const visitas = await api('/visitas?estado=pendiente_aprobacion');
+    PENDIENTES_COUNTS.visitas = visitas.length;
     // Actualizar badge del tab
     const tabBtn = document.getElementById('tab-pend-visitas-btn');
     if (tabBtn) tabBtn.textContent = 'Visitas' + (visitas.length ? ' ('+visitas.length+')' : '');
@@ -2454,6 +2480,7 @@ async function cargarFichajesGpsPendientesAdmin() {
   if (!cont) return;
   try {
     const movs = await api('/movimientos/pendientes-validacion');
+    PENDIENTES_COUNTS.gps = movs.length;
     const tabBtn = document.getElementById('tab-pend-gps-btn');
     if (tabBtn) tabBtn.textContent = 'Fichajes GPS' + (movs.length ? ' ('+movs.length+')' : '');
     if (!movs.length) {
