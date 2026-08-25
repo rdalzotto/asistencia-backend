@@ -344,16 +344,21 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 
     <!-- PENDIENTES -->
     <div class="section" id="tab-pendientes">
+      <div id="pend-todo-al-dia" class="card" style="display:none;text-align:center;padding:32px 16px">
+        <div style="font-size:32px;margin-bottom:8px">🎉</div>
+        <div style="font-size:15px;font-weight:600">Todo validado</div>
+        <div style="font-size:13px;color:var(--text2);margin-top:4px">No hay nada pendiente de revisar por el momento.</div>
+      </div>
       <div class="tabs" style="margin-bottom:16px">
-        <button class="tab active" onclick="tabPendientes('solicitudes',this)">Solicitudes</button>
-        <button class="tab" onclick="tabPendientes('ausencias',this)">Ausencias</button>
-        <button class="tab" onclick="tabPendientes('vacaciones',this)">Vacaciones</button>
+        <button class="tab active" id="tab-pend-solicitudes-btn" onclick="tabPendientes('solicitudes',this)">Solicitudes</button>
+        <button class="tab" id="tab-pend-ausencias-btn" onclick="tabPendientes('ausencias',this)">Ausencias</button>
+        <button class="tab" id="tab-pend-vacaciones-btn" onclick="tabPendientes('vacaciones',this)">Vacaciones</button>
         <button class="tab" id="tab-pend-visitas-btn" onclick="tabPendientes('visitas',this)">Visitas</button>
         <button class="tab" id="tab-pend-gps-btn" onclick="tabPendientes('gps',this)">Fichajes GPS</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section"><div id="lista-ausencias-pend"></div></div>
-      <div id="pend-vacaciones" class="section"></div>
+      <div id="pend-vacaciones" class="section"><div id="lista-vacaciones-pend"></div></div>
       <div id="pend-visitas" class="section"><div id="lista-visitas-pend"></div></div>
       <div id="pend-gps" class="section"><div id="lista-gps-pend"></div></div>
     </div>
@@ -2338,7 +2343,7 @@ async function validarRemoto(id, aprobado) {
     toast(e.message, 'error');
   } finally {
     cargarDashboardAdmin();
-    if (document.getElementById('pend-gps')?.classList.contains('active')) cargarFichajesGpsPendientesAdmin();
+    cargarPendientesAdmin();
   }
 }
 </script>
@@ -2376,16 +2381,45 @@ async function cargarEmpleadosAdmin() {
 // Conteos de cada sub-pestaña de Pendientes, usados para decidir a cuál
 // navegar cuando se entra por la campanita — antes siempre caía en
 // "Solicitudes" sin importar dónde estuviera realmente lo pendiente (esa era
-// la causa real de "la campanita no lleva a ningún lado" cuando lo pendiente
-// eran fichajes GPS, que ni siquiera tenían pestaña propia).
-let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, visitas: 0, gps: 0 };
+// la causa real de "la campanita no lleva a ningún lado": todo el volumen
+// estaba en Fichajes GPS, que ni siquiera tenía pestaña propia hasta ahora).
+let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0 };
 
-function seleccionarSubTabPendientesConDatos() {
+// Orden de prioridad para el salto directo. GPS primero porque hoy concentra
+// el 100% del volumen real; el resto en orden visual de las pestañas, para
+// cuando en el futuro haya pendientes repartidos en varias categorías a la vez.
+const ORDEN_TABS_PENDIENTES = ['gps', 'solicitudes', 'ausencias', 'vacaciones', 'visitas'];
+
+// Único punto de decisión de navegación: se llama tanto al entrar a Pendientes
+// (recién tocada la campanita) como después de resolver cualquier ítem. Si la
+// sub-pestaña activa todavía tiene datos, no la toca (para no interrumpir a
+// quien sigue resolviendo ahí). Si se vació, salta sola a la próxima con
+// datos. Si no queda nada pendiente en ninguna, muestra el aviso de "todo
+// validado" en vez de dejar una pantalla vacía sin contexto.
+function navegarPendientesSegunDatos() {
+  const total = ORDEN_TABS_PENDIENTES.reduce((s, id) => s + (PENDIENTES_COUNTS[id] || 0), 0);
+  const todoAlDia = document.getElementById('pend-todo-al-dia');
+  const tabsWrap  = document.querySelector('#tab-pendientes .tabs');
+
+  if (total === 0) {
+    if (todoAlDia) todoAlDia.style.display = 'block';
+    if (tabsWrap) tabsWrap.style.display = 'none';
+    // Se limpia también el estado "active" de los botones (no solo las
+    // secciones) — si no, cuando vuelva a aparecer un pendiente en la misma
+    // categoría que estaba activa antes de vaciarse, el chequeo de abajo cree
+    // que "ya está mostrado" y no reactiva nada, dejando la pantalla en blanco.
+    document.querySelectorAll('#tab-pendientes .section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('#tab-pendientes .tabs .tab').forEach(t => t.classList.remove('active'));
+    return;
+  }
+  if (todoAlDia) todoAlDia.style.display = 'none';
+  if (tabsWrap) tabsWrap.style.display = '';
+
   const activa = document.querySelector('#tab-pendientes .tabs .tab.active');
   const idActiva = activa?.getAttribute('onclick')?.match(/tabPendientes\('(\w+)'/)?.[1];
   if (idActiva && PENDIENTES_COUNTS[idActiva] > 0) return; // ya está donde hay datos, no la pisamos
-  const orden = ['gps', 'solicitudes', 'ausencias', 'visitas'];
-  for (const id of orden) {
+
+  for (const id of ORDEN_TABS_PENDIENTES) {
     if (PENDIENTES_COUNTS[id] > 0) {
       const btn = document.querySelector(`#tab-pendientes .tabs .tab[onclick*="tabPendientes('${id}'"]`);
       if (btn) tabPendientes(id, btn);
@@ -2398,6 +2432,8 @@ async function cargarPendientesAdmin() {
   try {
     const sols = await api('/notificaciones/solicitudes?estado=pendiente');
     PENDIENTES_COUNTS.solicitudes = sols.length;
+    const btnSol = document.getElementById('tab-pend-solicitudes-btn');
+    if (btnSol) btnSol.textContent = 'Solicitudes' + (sols.length ? ' ('+sols.length+')' : '');
     const contS = document.getElementById('lista-solicitudes-pend');
     contS.innerHTML = sols.length ? sols.map(s => `
       <div class="card" style="margin-bottom:12px">
@@ -2413,6 +2449,8 @@ async function cargarPendientesAdmin() {
 
     const aus = await api('/licencias/ausencias?estado=pendiente');
     PENDIENTES_COUNTS.ausencias = aus.length;
+    const btnAus = document.getElementById('tab-pend-ausencias-btn');
+    if (btnAus) btnAus.textContent = 'Ausencias' + (aus.length ? ' ('+aus.length+')' : '');
     const contA = document.getElementById('lista-ausencias-pend');
     const tiposAus = {tramite_personal:'📋 Trámite personal',enfermedad_leve:'😷 Enfermedad leve',enfermedad_certificada:'🏥 Enfermedad con certificado',emergencia:'🚨 Emergencia',licencia_matrimonio:'💍 Matrimonio',licencia_nacimiento:'👶 Nacimiento de hijo',licencia_fallecimiento:'🖤 Fallecimiento de familiar',licencia_examen:'📚 Examen'};
     contA.innerHTML = aus.length ? aus.map(a => `
@@ -2428,11 +2466,52 @@ async function cargarPendientesAdmin() {
       </div>
     `).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin ausencias pendientes</p>';
 
-    // ── VISITAS Y FICHAJES GPS PENDIENTES ──
+    // ── VACACIONES, VISITAS Y FICHAJES GPS PENDIENTES ──
+    await cargarVacacionesPendientesAdmin();
     await cargarVisitasPendientesAdmin();
     await cargarFichajesGpsPendientesAdmin();
-    seleccionarSubTabPendientesConDatos();
+    navegarPendientesSegunDatos();
   } catch(e) { console.error(e); }
+}
+
+// ── VACACIONES PENDIENTES DE APROBACIÓN ──
+// El endpoint PATCH /licencias/vacaciones/:id ya existía en el backend pero
+// nunca se llamaba desde ningún lado del frontend — esta pestaña de Pendientes
+// nunca tuvo pantalla propia, así que una solicitud de vacaciones quedaba sin
+// forma de aprobarse o rechazarse desde la UI.
+async function cargarVacacionesPendientesAdmin() {
+  const cont = document.getElementById('lista-vacaciones-pend');
+  if (!cont) return;
+  try {
+    const vacs = await api('/licencias/vacaciones?estado=pendiente');
+    PENDIENTES_COUNTS.vacaciones = vacs.length;
+    const tabBtn = document.getElementById('tab-pend-vacaciones-btn');
+    if (tabBtn) tabBtn.textContent = 'Vacaciones' + (vacs.length ? ' ('+vacs.length+')' : '');
+    if (!vacs.length) {
+      cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin vacaciones pendientes</p>';
+      return;
+    }
+    const tiposVac = {vacaciones:'🏖 Vacaciones', dias_particulares:'📅 Días particulares'};
+    cont.innerHTML = vacs.map(v => `
+      <div class="card" style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600">${v.nombre} ${v.apellido}</div>
+        <div style="font-size:13px;color:var(--text2);margin:6px 0">${tiposVac[v.tipo]||v.tipo} · ${String(v.fecha_inicio).slice(0,10).split('-').reverse().join('/')} → ${String(v.fecha_fin).slice(0,10).split('-').reverse().join('/')} · ${v.dias_corridos} días</div>
+        ${v.motivo?'<div style="font-size:12px;color:var(--text3)">'+v.motivo+'</div>':''}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-sm btn-success" onclick="resolverVacacion(${v.id},'aprobada')">✓ Aprobar</button>
+          <button class="btn btn-sm btn-danger" onclick="resolverVacacion(${v.id},'rechazada')">✗ Rechazar</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { cont.innerHTML = '<p style="color:var(--red);text-align:center;font-size:13px">Error cargando</p>'; }
+}
+
+async function resolverVacacion(id, estado) {
+  try {
+    await api('/licencias/vacaciones/'+id, {method:'PATCH', body:JSON.stringify({estado})});
+    toast(estado==='aprobada'?'Vacaciones aprobadas ✓':'Vacaciones rechazadas', estado==='aprobada'?'success':'info');
+  } catch(e) { toast(e.message, 'error'); }
+  finally { cargarPendientesAdmin(); cargarDashboardAdmin(); }
 }
 
 async function cargarVisitasPendientesAdmin() {
@@ -2510,7 +2589,7 @@ async function aprobarVisita(id) {
   try {
     await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify({estado:'programada'})});
     toast('Visita aprobada ✓', 'success');
-    await cargarVisitasPendientesAdmin();
+    await cargarPendientesAdmin();
     cargarDashboardAdmin();
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -2528,7 +2607,7 @@ async function confirmarRechazoVisita() {
     await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify({estado:'rechazada', motivo_rechazo:motivo||null})});
     cerrarModal('modal-rechazar-visita');
     toast('Visita rechazada', 'info');
-    await cargarVisitasPendientesAdmin();
+    await cargarPendientesAdmin();
     cargarDashboardAdmin();
   } catch(e) { toast(e.message, 'error'); }
 }
