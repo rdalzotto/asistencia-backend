@@ -122,6 +122,10 @@ async function notificarHorasExtra(empleadoId, empleadorId, nombre) {
 async function cronJornadaInteligente() {
   const { h, m } = horaARActual();
   const minAhora = h * 60 + m;
+  // Log incondicional por tick — antes el cron era 100% silencioso si no
+  // encontraba nada que procesar, y eso hacía imposible distinguir "está
+  // corriendo bien y no hay nada pendiente" de "dejó de correr".
+  console.log(`[CRON] Tick ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} AR`);
 
   try {
     // ── 1. Enviar consulta de egreso al cumplirse hora_egreso del turno ────────
@@ -209,6 +213,7 @@ async function cronJornadaInteligente() {
             AND m.tipo IN ('egreso','fin_jornada_remota')
         )
     `);
+    console.log(`[CRON] Paso 2: ${sinRespuesta.length} fila(s) vencida(s) encontrada(s)`);
 
     for (const row of sinRespuesta) {
       const nombre = `${row.nombre || ''} ${row.apellido || ''}`.trim();
