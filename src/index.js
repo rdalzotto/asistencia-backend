@@ -74,17 +74,17 @@ function minDesde(hhmm) {
   return h * 60 + m;
 }
 
-async function registrarEgresoAuto(empleadoId, empleadorId, motivo) {
+async function registrarEgresoAuto(empleadoId, empleadorId, motivo, tipo = 'egreso') {
   const crypto = require('crypto');
   const hash = crypto.createHash('sha256')
-    .update(JSON.stringify({ tipo: 'egreso_automatico', empleadoId, hora: new Date().toISOString(), motivo }))
+    .update(JSON.stringify({ tipo: 'egreso_automatico', subtipo: tipo, empleadoId, hora: new Date().toISOString(), motivo }))
     .digest('hex');
 
   await db.query(`
     INSERT INTO public.movimientos
       (empleado_id, empleador_id, tipo, fecha, hora, cierre_automatico, validado, hash_sha256)
-    VALUES ($1, $2, 'egreso', CURRENT_DATE, NOW(), TRUE, TRUE, $3)
-  `, [empleadoId, empleadorId, hash]);
+    VALUES ($1, $2, $4, CURRENT_DATE, NOW(), TRUE, TRUE, $3)
+  `, [empleadoId, empleadorId, hash, tipo]);
 
   const client = await db.connect();
   try {
@@ -348,6 +348,44 @@ async function cronJornadaInteligente() {
       const n = push.notif.cierreSinValidacionGps(nombre);
       await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
       console.log(`[CRON] Cierre por GPS sin validar (1h): ${nombre}`);
+    }
+
+    // ── 5b. Cierre forzado por jornada remota/externa sin validar tras 3 horas ──
+    // Rediseño de fichaje sin GPS de oficina (26/08/2026), Parte A.5: los
+    // fichajes "inicio_jornada_remota" que quedaron pendientes de validación
+    // del admin (Caso 2 — remoto sin cliente, o Caso 3 — cliente sin visita
+    // propia ni acompañante) tenían antes una ventana de 1 hora en el paso
+    // anterior, pero ESE paso nunca los alcanzaba (filtra es_remoto=FALSE) —
+    // en la práctica quedaban abiertos hasta el cierre de seguridad de las
+    // 20:00. Ahora se cierran a las 3 horas, igual que pedía el punto A.5,
+    // sin afectar el fichaje de oficina sin GPS (paso 5, sigue en 1 hora) ni
+    // los casos auto-aprobados (Caso 1/4, que ya nacen con validado=true y no
+    // entran acá). El movimiento original de inicio sigue con validado=FALSE
+    // — las horas quedan excluidas del banco hasta que el admin lo valide
+    // más tarde, no se pierden para siempre.
+    const { rows: remotosSinValidarVencidos } = await db.query(`
+      SELECT DISTINCT m.empleado_id, m.empleador_id
+      FROM public.movimientos m
+      WHERE m.es_remoto = TRUE AND m.validado = FALSE
+        AND m.tipo = 'inicio_jornada_remota'
+        AND m.hora <= NOW() - INTERVAL '3 hours'
+        AND m.fecha = CURRENT_DATE
+        AND NOT EXISTS (
+          SELECT 1 FROM public.movimientos m2
+          WHERE m2.empleado_id = m.empleado_id AND m2.fecha = m.fecha
+            AND m2.tipo = 'fin_jornada_remota' AND m2.hora > m.hora
+        )
+    `);
+
+    for (const row of remotosSinValidarVencidos) {
+      const { rows: [emp] } = await db.query(
+        'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [row.empleado_id]
+      );
+      const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+      await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'remoto_sin_validar_3h', 'fin_jornada_remota');
+      const n = push.notif.cierreSinValidacionGps(nombre);
+      await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
+      console.log(`[CRON] Cierre por jornada remota/externa sin validar (3h): ${nombre}`);
     }
 
   } catch (err) {

@@ -64,6 +64,24 @@ async function tieneVisitaAutorizadaHoy(empleadoId, client) {
   return rows.length > 0;
 }
 
+// ─── ¿Tiene una visita propia programada para HOY (sin restricción de horario
+// excepcional)? ────────────────────────────────────────────────────────────
+// Se usa para el fichaje "Externo" sin GPS/fuera de radio: si el colaborador
+// ya tiene una visita propia cargada para hoy, el fichaje como Externo queda
+// auto-aprobado sin pasar por validación del admin (Parte A, Caso 1 del
+// rediseño de fichaje sin GPS de oficina — 26/08/2026).
+async function tieneVisitaPropiaHoy(empleadoId, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const fecha = fechaHoyArgentina();
+  const { rows } = await queryFn(`
+    SELECT 1 FROM public.visitas
+    WHERE empleado_id = $1 AND fecha = $2
+      AND estado IN ('programada', 'en_curso', 'completada')
+    LIMIT 1
+  `, [empleadoId, fecha]);
+  return rows.length > 0;
+}
+
 // ─── ¿La hora actual cae dentro de la jornada habitual del empleado (con
 // margen de 60 min antes del ingreso)? ────────────────────────────────────
 // Se usa para validar el arranque de una jornada remota cuando SÍ hay GPS
@@ -144,15 +162,20 @@ function calcularTardanza(horaIngreso, jornadaConfig, convenio) {
 async function calcularHorasJornada(empleadoId, fecha, client, contarAbierta = false) {
   const queryFn = client ? client.query.bind(client) : db.query.bind(db);
 
-  // Si el día tiene algún fichaje de oficina sin GPS todavía sin validar por
-  // el admin, el día completo no suma horas hasta que se valide (Bug 1,
-  // puntos 2 y 3 del spec) — ni siquiera el tramo previo al fichaje dudoso,
-  // para no dar una falsa sensación de "ya está resuelto" en el banco de
-  // horas mientras sigue pendiente.
+  // Si el día tiene algún fichaje sin validar por el admin —ya sea de oficina
+  // sin GPS (gps_valido=false) o remoto/externo sin auto-aprobación
+  // (es_remoto=true, validado=false)— el día completo no suma horas hasta que
+  // se valide (Bug 1, puntos 2 y 3 del spec original; extendido a jornadas
+  // remotas/externas en el rediseño del 26/08/2026, Parte A) — ni siquiera el
+  // tramo previo al fichaje dudoso, para no dar una falsa sensación de "ya
+  // está resuelto" en el banco de horas mientras sigue pendiente. Los
+  // movimientos remotos auto-aprobados (Caso 1/4 — visita propia o
+  // acompañante) ya nacen con validado=true, así que no caen acá.
   const { rows: pendientes } = await queryFn(`
     SELECT 1 FROM public.movimientos
     WHERE empleado_id = $1 AND fecha = $2
-      AND gps_valido = FALSE AND validado = FALSE AND es_remoto = FALSE
+      AND validado = FALSE
+      AND (gps_valido = FALSE OR es_remoto = TRUE)
     LIMIT 1
   `, [empleadoId, fecha]);
   if (pendientes.length > 0) return 0;
@@ -482,6 +505,7 @@ module.exports = {
   estaEnVentanaExcepcional,
   horaEnVentanaExcepcional,
   tieneVisitaAutorizadaHoy,
+  tieneVisitaPropiaHoy,
   validarHorarioRemoto,
   getJornadaConfig,
   calcularTardanza,

@@ -1817,6 +1817,27 @@ async function sincronizarMovimientosPendientes() {
 
 async function confirmarMovimiento() {
   const tipo = document.getElementById('reg-tipo').value;
+
+  // Sin GPS al arrancar la jornada: no asumimos "oficina" por descarte.
+  // Preguntamos explícitamente adónde va a trabajar antes de mandar nada —
+  // rediseño de fichaje sin GPS de oficina (26/08/2026), Parte A.
+  if (tipo === 'ingreso' && !STATE.gpsCoords?.lat) {
+    document.getElementById('btn-confirmar-mov').disabled = false;
+    mostrarPreguntaModalidad('sin_gps');
+    return;
+  }
+  if (tipo === 'inicio_jornada_remota' && !STATE.gpsCoords?.lat) {
+    document.getElementById('btn-confirmar-mov').disabled = false;
+    mostrarPreguntaModalidad('sin_gps_remoto');
+    return;
+  }
+
+  await enviarMovimientoDirecto(tipo);
+}
+
+// Envía el fichaje tal cual (ya sea porque no hacía falta preguntar, o porque
+// la pregunta de "sin GPS"/"fuera de radio" ya se resolvió).
+async function enviarMovimientoDirecto(tipo) {
   const catId = document.getElementById('reg-categoria').value;
   const destId = document.getElementById('reg-destino').value;
   const desc = document.getElementById('reg-descripcion').value;
@@ -1849,13 +1870,12 @@ async function confirmarMovimiento() {
       await mostrarPendientesMovimientos();
     } else if (e.message && e.message.includes('GPS fuera del área')) {
       btn.innerHTML = 'Confirmar'; btn.disabled = false;
-      const tipoActual = document.getElementById('reg-tipo').value;
-      if (tipoActual === 'egreso' || tipoActual === 'fin_jornada_remota') {
+      if (tipo === 'egreso' || tipo === 'fin_jornada_remota') {
         cerrarModal('modal-registro');
         abrirSalidaJustificada('gps_falla');
       } else {
         toast('📍 Estás fuera del radio de la oficina — elegí abajo cómo vas a trabajar hoy', 'info', 4500);
-        mostrarOpcionRemota();
+        mostrarPreguntaModalidad('fuera_radio');
       }
       return;
     } else if (e.message && e.message.includes('fuera de su jornada normal')) {
@@ -1865,18 +1885,39 @@ async function confirmarMovimiento() {
   } finally { btn.innerHTML = 'Confirmar'; btn.disabled = false; }
 }
 
-function mostrarOpcionRemota() {
+// Empleado en la oficina real, pero le falló el GPS del teléfono (elección
+// legítima de no compartir ubicación, o falla puntual de señal) — se respeta
+// tal cual el diseño original del Bug 1: queda como ingreso normal, pendiente
+// de validación admin, SIN pasar por la pregunta de cliente/remoto.
+async function confirmarIngresoOficinaSinGps() {
+  const banner = document.getElementById('banner-remoto');
+  if (banner) banner.remove();
+  await enviarMovimientoDirecto('ingreso');
+}
+
+// Pregunta obligatoria cuando el sistema no puede confirmar "oficina" por GPS
+// — motivo 'sin_gps': no hubo señal al fichar Ingreso (incluye la opción de
+// "estoy en la oficina, falló el GPS"); 'sin_gps_remoto': se eligió a mano
+// "Inicio jornada remota" sin señal (sin esa tercera opción, no tiene
+// sentido ahí); 'fuera_radio': hubo GPS pero cayó fuera del radio de oficina
+// (sin esa tercera opción, el GPS ya probó que no está en la oficina).
+function mostrarPreguntaModalidad(motivo) {
   const existing = document.getElementById('banner-remoto');
   if (existing) { existing.scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
   const banner = document.createElement('div');
   banner.id = 'banner-remoto';
   banner.style.cssText = 'background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:16px;margin-top:12px;text-align:center;';
+  const titulo = motivo === 'fuera_radio' ? '📍 Estás fuera del radio de la oficina' : '📍 No se pudo obtener tu ubicación';
+  const botonOficina = motivo === 'sin_gps'
+    ? `<button class="btn btn-secondary" style="border:1px solid var(--text3);color:var(--text2);background:transparent;width:100%;padding:8px;font-size:12.5px;margin-top:4px" onclick="confirmarIngresoOficinaSinGps()">🏢 Estoy en la oficina (falló el GPS)</button>`
+    : '';
   banner.innerHTML = `
-    <div style="font-size:13px;color:var(--orange);font-weight:600;margin-bottom:8px">📍 Estás fuera del radio de la oficina</div>
-    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">¿Cómo vas a trabajar hoy?</div>
+    <div style="font-size:13px;color:var(--orange);font-weight:600;margin-bottom:8px">${titulo}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">¿A qué cliente vas a visitar, o vas a trabajar desde tu casa (remoto)?</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
       <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;width:100%;padding:12px" onclick="mostrarSelectorExterno()">🚗 Trabajo Externo (viaje a cliente)</button>
       <button class="btn btn-secondary" style="border:1px solid var(--orange);color:var(--orange);background:transparent;width:100%;padding:8px;font-size:12.5px" onclick="registrarComoRemoto('domicilio')">🏠 Trabajo Remoto (desde casa)</button>
+      ${botonOficina}
     </div>
     <div id="selector-externo" style="display:none;text-align:left;margin-top:8px">
       <div class="form-group"><label>Cliente / destino</label><select id="reg-destino-externo"><option value="">— Seleccionar destino —</option></select></div>
@@ -1913,11 +1954,16 @@ async function registrarComoRemoto(contexto) {
     destino_id: destId || null, destino_descripcion: desc || null,
   };
   try {
-    await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
+    const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
     if (banner) banner.remove();
     cerrarModal('modal-registro');
     cargarDashboardEmpleado();
     mostrarExito('inicio_jornada_remota');
+    if (resp?.movimiento?.validado) {
+      setTimeout(() => toast('✓ Viaje a cliente registrado — aprobado automáticamente porque tenés una visita programada para hoy.', 'success', 6000), 800);
+    } else {
+      setTimeout(() => toast('Registrado. Avisale a tu administrador para que lo valide y así se contabilicen las horas en tu planilla.', 'info', 9000), 800);
+    }
   } catch(e) {
     if (esErrorDeConexion(e)) {
       await encolarMovimientoOffline(body);

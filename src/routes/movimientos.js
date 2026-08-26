@@ -201,6 +201,19 @@ router.post('/registrar', auth, async (req, res) => {
       minutosTardanza = tardanza.minutos;
     }
 
+    // ─ Auto-aprobación de "Externo": si el colaborador ya tiene una visita
+    // propia programada para hoy, el fichaje como Externo (contexto_remoto=
+    // 'externo') queda validado=true desde el insert, sin pasar por
+    // pendientes-validacion — Parte A, Caso 1 del rediseño de fichaje sin GPS
+    // de oficina (26/08/2026). Sin visita propia (Caso 3) o si es "trabajo
+    // remoto" sin cliente (Caso 2), sigue el criterio anterior: pendiente de
+    // validación manual. ─
+    let validadoVal = es_remoto ? false : gpsValido;
+    if (tipo === 'inicio_jornada_remota' && contextoRemotoVal === 'externo') {
+      const tieneVisitaPropia = await jornada.tieneVisitaPropiaHoy(empleadoId, client);
+      if (tieneVisitaPropia) validadoVal = true;
+    }
+
     // ─ Hash SHA-256 (Ley 25.506) ─
     const hashData = {
       tipo, empleadoId, empleadorId: req.user.empleadorId,
@@ -249,7 +262,7 @@ router.post('/registrar', auth, async (req, res) => {
       esTardanza, minutosTardanza,
       feriado,
       consentimiento_extra || null,
-      es_remoto ? false : gpsValido,
+      validadoVal,
       hash,
       observacionAuto,
       contextoRemotoVal,
