@@ -1440,8 +1440,8 @@ async function cargarEquipoEstado() {
   try {
     const equipo = await api('/config/equipo-estado');
     if (!equipo.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Sin datos del equipo</p>'; return; }
-    const colEstado = {en_oficina:'badge-green',en_externo:'badge-orange',en_almuerzo:'badge-yellow',ausente:'badge-red',retirado:'badge-gray',remoto_pendiente:'badge-blue'};
-    const lblEstado = {en_oficina:'En oficina',en_externo:'En externo',en_almuerzo:'Almorzando',ausente:'Ausente',retirado:'Retirado',remoto_pendiente:'Remoto'};
+    const colEstado = {en_oficina:'badge-green',en_externo:'badge-orange',en_almuerzo:'badge-yellow',ausente:'badge-red',retirado:'badge-gray',remoto_pendiente:'badge-blue',externo_pendiente:'badge-orange'};
+    const lblEstado = {en_oficina:'En oficina',en_externo:'En externo',en_almuerzo:'Almorzando',ausente:'Ausente',retirado:'Retirado',remoto_pendiente:'Remoto',externo_pendiente:'Externo'};
     cont.innerHTML = equipo.map(e => `
       <div class="emp-item">
         <div class="avatar">${(e.nombre||'?').charAt(0)}</div>
@@ -2364,8 +2364,8 @@ async function cargarDashboardAdmin() {
     const cont = document.getElementById('lista-estado-personal');
     if (!emps.length) { cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin empleados registrados</p>'; }
     else {
-      const colEstado = {en_oficina:'badge-green',en_externo:'badge-orange',en_almuerzo:'badge-yellow',ausente:'badge-red',retirado:'badge-gray',remoto_pendiente:'badge-blue'};
-      const lblEstado = {en_oficina:'En oficina',en_externo:'En externo',en_almuerzo:'Almorzando',ausente:'Ausente',retirado:'Retirado',remoto_pendiente:'Remoto'};
+      const colEstado = {en_oficina:'badge-green',en_externo:'badge-orange',en_almuerzo:'badge-yellow',ausente:'badge-red',retirado:'badge-gray',remoto_pendiente:'badge-blue',externo_pendiente:'badge-orange'};
+      const lblEstado = {en_oficina:'En oficina',en_externo:'En externo',en_almuerzo:'Almorzando',ausente:'Ausente',retirado:'Retirado',remoto_pendiente:'Remoto',externo_pendiente:'Externo'};
       cont.innerHTML = emps.map(e => `
         <div class="emp-item">
           <div class="avatar">${(e.nombre||'?').charAt(0)}</div>
@@ -2375,7 +2375,7 @@ async function cargarDashboardAdmin() {
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span class="badge ${colEstado[e.estado]||'badge-gray'}">${lblEstado[e.estado]||e.estado}</span>
-            ${['en_oficina','en_almuerzo','en_externo','remoto_pendiente'].includes(e.estado) ? `<button class="btn btn-sm btn-danger" style="padding:4px 10px;font-size:12px" onclick="abrirEgresoManual(${e.empleado_id},'${e.nombre} ${e.apellido}')">⏎ Egresar</button>` : ''}
+            ${['en_oficina','en_almuerzo','en_externo','remoto_pendiente','externo_pendiente'].includes(e.estado) ? `<button class="btn btn-sm btn-danger" style="padding:4px 10px;font-size:12px" onclick="abrirEgresoManual(${e.empleado_id},'${e.nombre} ${e.apellido}')">⏎ Egresar</button>` : ''}
           </div>
         </div>
       `).join('');
