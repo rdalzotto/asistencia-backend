@@ -1533,7 +1533,13 @@ function renderMovimientosHoy(movs) {
   const btnOlvide = document.getElementById('btn-olvide-salida');
   if (btnOlvide) {
     const jornadaActiva = ['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(ultimo.tipo);
-    btnOlvide.style.display = jornadaActiva ? 'block' : 'none';
+    // Recién se sugiere "¿Olvidaste registrar la salida?" pasadas 6 horas desde
+    // que arrancó el tramo activo — antes aparecía apenas había jornada abierta,
+    // sin ninguna condición de tiempo (confirmado en producción 26/08/2026).
+    // Mismo criterio para oficina, remoto y externo: no depende de tener
+    // horario de salida configurado.
+    const horasDesdeActivo = jornadaActiva ? (Date.now() - new Date(ultimo.hora)) / 3600000 : 0;
+    btnOlvide.style.display = (jornadaActiva && horasDesdeActivo >= 6) ? 'block' : 'none';
   }
   cont.innerHTML = movs.map((m, idx) => `
     <div class="mov-item">
