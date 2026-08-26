@@ -1465,9 +1465,9 @@ const TRANSICIONES_FICHAJE = {
   regreso_almuerzo:      ['salida_externa','egreso'],
   salida_externa:        ['regreso_externo'],
   regreso_externo:       ['salida_externa','egreso'],
-  egreso:                ['ingreso'],
+  egreso:                ['ingreso','inicio_jornada_remota'],
   inicio_jornada_remota: ['fin_jornada_remota'],
-  fin_jornada_remota:    ['ingreso'],
+  fin_jornada_remota:    ['ingreso','inicio_jornada_remota'],
 };
 
 function tiposPermitidosAhora() {

@@ -417,9 +417,14 @@ const TRANSICIONES_FICHAJE = {
   regreso_almuerzo:       ['salida_externa', 'egreso'],
   salida_externa:         ['regreso_externo'],
   regreso_externo:        ['salida_externa', 'egreso'],
-  egreso:                 ['ingreso'],
+  // Reabrir jornada el mismo día en cualquier modalidad (oficina o
+  // remoto/externo) tras haber cerrado antes — ej: cerró oficina a mediodía
+  // y a la tarde sale de viaje a un cliente. Antes solo se permitía volver a
+  // 'ingreso', lo cual bloqueaba con error a quien elegía Externo/Remoto en
+  // el modal de "sin GPS" después de haber fichado egreso ese mismo día.
+  egreso:                 ['ingreso', 'inicio_jornada_remota'],
   inicio_jornada_remota:  ['fin_jornada_remota'],
-  fin_jornada_remota:     ['ingreso'],
+  fin_jornada_remota:     ['ingreso', 'inicio_jornada_remota'],
 };
 
 function tipoMovimientoPermitido(ultimoTipo, tipoNuevo) {
