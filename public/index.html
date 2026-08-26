@@ -748,7 +748,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   <div class="modal" style="max-height:90vh;overflow-y:auto">
     <div class="modal-handle"></div>
     <div class="modal-title" id="modal-visita-titulo">Programar visita</div>
-    <div class="form-group" id="grupo-empleado-visita" style="display:none"><label>Empleado</label><select id="vis-empleado-id"></select></div>
+    <div class="form-group" id="grupo-empleado-visita" style="display:none"><label>Empleado</label><select id="vis-empleado-id" onchange="renderSelectAcompanantes()"></select></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="form-group"><label>Fecha</label><input type="date" id="vis-fecha" onchange="validarFechaHoraVisita()"></div>
       <div class="form-group"><label>Hora estimada de salida</label><input type="time" id="vis-hora-salida" onchange="validarFechaHoraVisita()"></div>
@@ -771,6 +771,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <input type="hidden" id="vis-dest-id">
         <button class="btn btn-secondary btn-sm" onclick="agregarDestinoVisita()">+ Agregar otro cliente (opcional)</button>
       </div>
+    </div>
+    <div class="form-group">
+      <label>¿Quién más viaja con vos? (opcional)</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <select id="vis-acomp-select" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-family:var(--font)"><option value="">— Elegir compañero —</option></select>
+        <button class="btn btn-secondary btn-sm" onclick="agregarAcompanante()">+ Agregar</button>
+      </div>
+      <div id="vis-acompanantes-lista"></div>
     </div>
     <div class="form-group"><label>Recursos necesarios (opcional)</label><div style="font-size:11px;color:var(--text3);margin-top:-10px;margin-bottom:10px">🟢 Disponible = libre ahora · 🔴 En uso = reservado en este momento</div><div id="vis-recursos-checks" style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px;max-height:240px;overflow-y:auto"><p style="color:var(--text3);font-size:13px">Cargando recursos...</p></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -4209,6 +4217,7 @@ async function cargarReporteVisitas() {
 
 async function abrirModalNuevaVisita() {
   visDestinos=[];
+  visAcompanantes=[];
   document.getElementById('vis-edit-id').value='';
   document.getElementById('vis-modo').value='admin';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
@@ -4234,11 +4243,14 @@ async function abrirModalNuevaVisita() {
   btn.textContent = 'Guardar visita';
   await cargarCheckboxRecursos('vis-recursos-checks');
   await cargarDestinosCache();
+  await cargarColegasParaAcompanantes();
+  renderAcompanantesVisita();
   abrirModal('modal-nueva-visita');
 }
 
 async function abrirModalNuevaVisitaEmp() {
   visDestinos=[];
+  visAcompanantes=[];
   document.getElementById('vis-edit-id').value='';
   document.getElementById('vis-modo').value='empleado';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
@@ -4260,6 +4272,8 @@ async function abrirModalNuevaVisitaEmp() {
   btn.textContent = 'Guardar visita';
   try { await cargarCheckboxRecursos('vis-recursos-checks'); } catch {}
   try { await cargarDestinosCache(); } catch {}
+  try { await cargarColegasParaAcompanantes(); } catch {}
+  renderAcompanantesVisita();
   abrirModal('modal-nueva-visita');
 }
 
@@ -4302,6 +4316,109 @@ function agregarDestinoVisita() {
 }
 
 function quitarDestinoVisita(idx) { visDestinos.splice(idx,1); renderizarDestinosVisita(); }
+
+// ── ACOMPAÑANTES DE VIAJE (Parte C.1, 27/08/2026) ──────────────────────────
+// visAcompanantes: [{empleado_id, nombre, tipo:'mismo_cliente'|'otro_cliente'|'mixta',
+//   clientesOtro:[{destino_id, destino_descripcion, destino_nombre}]}]
+let visAcompanantes = [];
+let _equipoAcompCache = [];
+
+async function cargarColegasParaAcompanantes() {
+  try { _equipoAcompCache = await api('/config/equipo-estado'); } catch { _equipoAcompCache = []; }
+  renderSelectAcompanantes();
+}
+
+function renderSelectAcompanantes() {
+  const sel = document.getElementById('vis-acomp-select');
+  if (!sel) return;
+  const modo = document.getElementById('vis-modo').value;
+  const propioId = modo === 'admin' ? parseInt(document.getElementById('vis-empleado-id')?.value) || null : STATE.empleadoId;
+  const yaAgregados = visAcompanantes.map(a => a.empleado_id);
+  const disponibles = _equipoAcompCache.filter(e => e.empleado_id !== propioId && !yaAgregados.includes(e.empleado_id));
+  sel.innerHTML = '<option value="">— Elegir compañero —</option>' +
+    disponibles.map(e => '<option value="'+e.empleado_id+'">'+(e.nombre||'')+' '+(e.apellido||'')+'</option>').join('');
+}
+
+function agregarAcompanante() {
+  const sel = document.getElementById('vis-acomp-select');
+  const id = parseInt(sel.value);
+  if (!id) return;
+  const emp = _equipoAcompCache.find(e => e.empleado_id === id);
+  visAcompanantes.push({empleado_id:id, nombre:(emp?.nombre||'')+' '+(emp?.apellido||''), tipo:'mismo_cliente', clientesOtro:[]});
+  renderAcompanantesVisita();
+}
+
+function quitarAcompanante(id) {
+  visAcompanantes = visAcompanantes.filter(a => a.empleado_id !== id);
+  renderAcompanantesVisita();
+}
+
+function cambiarTipoAcompanante(id, tipo) {
+  const a = visAcompanantes.find(a => a.empleado_id === id);
+  if (a) a.tipo = tipo;
+  renderAcompanantesVisita();
+}
+
+// Reusa el catálogo de destinos (_destinosCache, mismo origen que /config/destinos
+// que ya usa el selector de "Trabajo Externo" del fichaje) + texto libre para
+// actividades puntuales autorizadas que no están en el catálogo.
+function agregarClienteOtroAcompanante(id) {
+  const a = visAcompanantes.find(a => a.empleado_id === id);
+  if (!a) return;
+  const selD = document.getElementById('aco-dest-sel-'+id);
+  const txtD = document.getElementById('aco-dest-txt-'+id);
+  const destinoId = selD?.value || '';
+  const destinoDesc = txtD?.value?.trim() || '';
+  if (!destinoId && !destinoDesc) { toast('Elegí un cliente de la lista o escribí una actividad puntual', 'error'); return; }
+  const destinoNombre = destinoId ? (selD.options[selD.selectedIndex]?.text || '') : '';
+  a.clientesOtro.push({
+    destino_id: destinoId ? parseInt(destinoId) : null,
+    destino_descripcion: destinoId ? null : destinoDesc,
+    destino_nombre: destinoNombre,
+  });
+  renderAcompanantesVisita();
+}
+
+function quitarClienteOtroAcompanante(id, idx) {
+  const a = visAcompanantes.find(a => a.empleado_id === id);
+  if (a) a.clientesOtro.splice(idx, 1);
+  renderAcompanantesVisita();
+}
+
+function renderAcompanantesVisita() {
+  renderSelectAcompanantes();
+  const cont = document.getElementById('vis-acompanantes-lista');
+  if (!cont) return;
+  cont.innerHTML = visAcompanantes.map(a => `
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-weight:600;font-size:13px">👤 ${a.nombre}</div>
+        <button class="btn btn-secondary btn-sm" style="padding:2px 8px" onclick="quitarAcompanante(${a.empleado_id})">✕</button>
+      </div>
+      <div style="display:flex;gap:12px;font-size:12.5px;margin-bottom:6px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="aco-tipo-${a.empleado_id}" ${a.tipo==='mismo_cliente'?'checked':''} onchange="cambiarTipoAcompanante(${a.empleado_id},'mismo_cliente')"> Mismo cliente</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="aco-tipo-${a.empleado_id}" ${a.tipo==='otro_cliente'?'checked':''} onchange="cambiarTipoAcompanante(${a.empleado_id},'otro_cliente')"> Otro cliente</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="aco-tipo-${a.empleado_id}" ${a.tipo==='mixta'?'checked':''} onchange="cambiarTipoAcompanante(${a.empleado_id},'mixta')"> Mixta</label>
+      </div>
+      ${a.tipo !== 'mismo_cliente' ? `
+        <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+          ${a.clientesOtro.map((c,idx) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0">
+              <span>• ${c.destino_nombre || c.destino_descripcion}</span>
+              <button class="btn btn-secondary btn-sm" style="padding:0 6px" onclick="quitarClienteOtroAcompanante(${a.empleado_id},${idx})">✕</button>
+            </div>
+          `).join('')}
+          <select id="aco-dest-sel-${a.empleado_id}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;font-size:12px;margin-top:4px">
+            <option value="">— Cliente catalogado —</option>
+            ${_destinosCache.map(d => '<option value="'+d.id+'">'+d.nombre+(d.localidad?' ('+d.localidad+')':'')+'</option>').join('')}
+          </select>
+          <input type="text" id="aco-dest-txt-${a.empleado_id}" placeholder="o actividad puntual (texto libre, ej: una medición)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:6px 8px;margin-top:6px;font-size:12px">
+          <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="agregarClienteOtroAcompanante(${a.empleado_id})">+ Agregar destino</button>
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+}
 
 function renderizarDestinosVisita() {
   const cont=document.getElementById('vis-destinos-lista');
@@ -4382,7 +4499,11 @@ async function guardarVisita() {
   const textoOriginal = btn.textContent;
   btn.textContent = 'Guardando...';
   try {
-    const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,hora_estimada_regreso:document.getElementById('vis-hora-regreso').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId};
+    const acompanantesBody = visAcompanantes.map(a => ({
+      empleado_id: a.empleado_id, tipo: a.tipo,
+      clientes_otro: (a.clientesOtro||[]).map(c => ({destino_id: c.destino_id||null, destino_descripcion: c.destino_descripcion||null}))
+    }));
+    const body={fecha,hora_estimada_salida:document.getElementById('vis-hora-salida').value||null,hora_estimada_regreso:document.getElementById('vis-hora-regreso').value||null,origen:document.getElementById('vis-origen').value,km_estimados:parseFloat(document.getElementById('vis-km-est').value)||0,viatico_estimado:parseFloat(document.getElementById('vis-viatico-est').value)||0,observaciones:document.getElementById('vis-obs').value.trim(),destinos:visDestinos,recursos_ids:recursosIds,empleado_id:empId,acompanantes:acompanantesBody};
     if (editId) { await api('/visitas/'+editId,{method:'PATCH',body:JSON.stringify(body)}); toast('Visita actualizada ✓','success'); }
     else {
       const nueva = await api('/visitas',{method:'POST',body:JSON.stringify(body)});
@@ -4392,7 +4513,7 @@ async function guardarVisita() {
         toast(modo==='empleado'?'Visita programada ✓ — el admin recibe un aviso informativo':'Visita programada ✓','success');
       }
     }
-    cerrarModal('modal-nueva-visita'); visDestinos=[];
+    cerrarModal('modal-nueva-visita'); visDestinos=[]; visAcompanantes=[];
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
   } catch(e) { toast(e.message,'error'); }
   finally { btn.disabled = false; btn.textContent = textoOriginal; }
@@ -4649,6 +4770,10 @@ async function editarVisita(id) {
     }
 
     visDestinos = (v.destinos||[]).map(d => ({cliente_nombre:d.cliente_nombre, domicilio:d.domicilio||'', motivo:d.motivo||'', lat:d.lat||null, lng:d.lng||null}));
+    visAcompanantes = (v.acompanantes||[]).map(a => ({
+      empleado_id: a.empleado_id, nombre: (a.nombre||'')+' '+(a.apellido||''), tipo: a.tipo,
+      clientesOtro: (a.clientes_otro||[]).map(c => ({destino_id:c.destino_id, destino_descripcion:c.destino_descripcion, destino_nombre:c.destino_nombre||c.destino_descripcion}))
+    }));
     document.getElementById('vis-edit-id').value = id;
     document.getElementById('vis-modo').value = STATE.rol==='admin' ? 'admin' : 'empleado';
     document.getElementById('modal-visita-titulo').textContent = 'Editar visita';
@@ -4681,6 +4806,8 @@ async function editarVisita(id) {
       cb.checked = idsRecursos.includes(parseInt(cb.value));
     });
     await cargarDestinosCache();
+    await cargarColegasParaAcompanantes();
+    renderAcompanantesVisita();
 
     const btn = document.getElementById('btn-guardar-visita');
     btn.textContent = 'Guardar cambios';

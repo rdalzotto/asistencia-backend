@@ -188,8 +188,16 @@ router.get('/', auth, async (req, res) => {
         (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
          FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos,
         (SELECT json_agg(vg) FROM public.visita_gastos vg WHERE vg.visita_id = v.id) as gastos,
-        (SELECT json_agg(json_build_object('id', va.id, 'empleado_id', va.empleado_id,
-           'nombre', ea.nombre, 'apellido', ea.apellido, 'tipo', va.tipo, 'confirmado', va.confirmado))
+        (SELECT json_agg(json_build_object(
+           'id', va.id, 'empleado_id', va.empleado_id,
+           'nombre', ea.nombre, 'apellido', ea.apellido, 'tipo', va.tipo, 'confirmado', va.confirmado,
+           'clientes_otro', (
+             SELECT json_agg(json_build_object('destino_id', vac.destino_id, 'destino_descripcion', vac.destino_descripcion, 'destino_nombre', d.nombre))
+             FROM public.visita_acompanante_clientes vac
+             LEFT JOIN public.destinos_externos d ON d.id = vac.destino_id
+             WHERE vac.acompanante_id = va.id
+           )
+         ))
          FROM public.visita_acompanantes va JOIN public.empleados ea ON ea.id = va.empleado_id
          WHERE va.visita_id = v.id) as acompanantes
       FROM public.visitas v
@@ -293,8 +301,18 @@ router.post('/', auth, async (req, res) => {
         (SELECT json_agg(vd ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as destinos,
         (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
          FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos,
-        (SELECT json_agg(json_build_object('id', va.id, 'empleado_id', va.empleado_id, 'tipo', va.tipo, 'confirmado', va.confirmado))
-         FROM public.visita_acompanantes va WHERE va.visita_id = v.id) as acompanantes
+        (SELECT json_agg(json_build_object(
+           'id', va.id, 'empleado_id', va.empleado_id,
+           'nombre', ea.nombre, 'apellido', ea.apellido, 'tipo', va.tipo, 'confirmado', va.confirmado,
+           'clientes_otro', (
+             SELECT json_agg(json_build_object('destino_id', vac.destino_id, 'destino_descripcion', vac.destino_descripcion, 'destino_nombre', d.nombre))
+             FROM public.visita_acompanante_clientes vac
+             LEFT JOIN public.destinos_externos d ON d.id = vac.destino_id
+             WHERE vac.acompanante_id = va.id
+           )
+         ))
+         FROM public.visita_acompanantes va JOIN public.empleados ea ON ea.id = va.empleado_id
+         WHERE va.visita_id = v.id) as acompanantes
       FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id WHERE v.id = $1
     `, [v.id]);
     res.json(visita);
@@ -455,8 +473,18 @@ router.patch('/:id', auth, async (req, res) => {
         (SELECT json_agg(vd ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as destinos,
         (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
          FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos,
-        (SELECT json_agg(json_build_object('id', va.id, 'empleado_id', va.empleado_id, 'tipo', va.tipo, 'confirmado', va.confirmado))
-         FROM public.visita_acompanantes va WHERE va.visita_id = v.id) as acompanantes
+        (SELECT json_agg(json_build_object(
+           'id', va.id, 'empleado_id', va.empleado_id,
+           'nombre', ea.nombre, 'apellido', ea.apellido, 'tipo', va.tipo, 'confirmado', va.confirmado,
+           'clientes_otro', (
+             SELECT json_agg(json_build_object('destino_id', vac.destino_id, 'destino_descripcion', vac.destino_descripcion, 'destino_nombre', d.nombre))
+             FROM public.visita_acompanante_clientes vac
+             LEFT JOIN public.destinos_externos d ON d.id = vac.destino_id
+             WHERE vac.acompanante_id = va.id
+           )
+         ))
+         FROM public.visita_acompanantes va JOIN public.empleados ea ON ea.id = va.empleado_id
+         WHERE va.visita_id = v.id) as acompanantes
       FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id WHERE v.id = $1
     `, [req.params.id]);
 
