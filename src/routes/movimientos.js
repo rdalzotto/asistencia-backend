@@ -10,7 +10,7 @@ router.post('/registrar', auth, async (req, res) => {
     tipo, lat, lng, foto_url,
     categoria_salida_id, destino_id, destino_descripcion,
     es_remoto, domicilio_partida_lat, domicilio_partida_lng,
-    consentimiento_extra, contexto_remoto,
+    consentimiento_extra, contexto_remoto, acompanante_id,
   } = req.body;
 
   // 'domicilio' = arrancó la jornada trabajando desde su casa
@@ -201,17 +201,36 @@ router.post('/registrar', auth, async (req, res) => {
       minutosTardanza = tardanza.minutos;
     }
 
-    // ─ Auto-aprobación de "Externo": si el colaborador ya tiene una visita
-    // propia programada para hoy, el fichaje como Externo (contexto_remoto=
-    // 'externo') queda validado=true desde el insert, sin pasar por
-    // pendientes-validacion — Parte A, Caso 1 del rediseño de fichaje sin GPS
-    // de oficina (26/08/2026). Sin visita propia (Caso 3) o si es "trabajo
-    // remoto" sin cliente (Caso 2), sigue el criterio anterior: pendiente de
-    // validación manual. ─
+    // ─ Auto-aprobación de "Externo": el fichaje como Externo (contexto_remoto=
+    // 'externo') queda validado=true desde el insert sin pasar por
+    // pendientes-validacion cuando: (Caso 1) el colaborador ya tiene una
+    // visita propia programada para hoy, o (Caso 4) figura como acompañante
+    // "mismo_cliente"/"mixta" de la visita de otro colaborador organizada
+    // para hoy — Parte A y C del rediseño de fichaje sin GPS de oficina
+    // (26/08/2026). Sin ninguno de los dos respaldos (Caso 2/3), sigue el
+    // criterio anterior: pendiente de validación manual. Un acompañante
+    // "otro_cliente" NO alcanza por sí solo — necesita además su propia
+    // visita cargada (Caso 1), tal cual pedía el spec. ─
     let validadoVal = es_remoto ? false : gpsValido;
+    let acompananteRow = null;
     if (tipo === 'inicio_jornada_remota' && contextoRemotoVal === 'externo') {
-      const tieneVisitaPropia = await jornada.tieneVisitaPropiaHoy(empleadoId, client);
-      if (tieneVisitaPropia) validadoVal = true;
+      if (acompanante_id) {
+        const { rows: [ac] } = await client.query(`
+          SELECT va.id, va.tipo
+          FROM public.visita_acompanantes va
+          JOIN public.visitas v ON v.id = va.visita_id
+          WHERE va.id = $1 AND va.empleado_id = $2
+            AND v.fecha = CURRENT_DATE AND v.estado IN ('programada','en_curso','completada')
+        `, [acompanante_id, empleadoId]);
+        if (ac) {
+          acompananteRow = ac;
+          if (['mismo_cliente', 'mixta'].includes(ac.tipo)) validadoVal = true;
+        }
+      }
+      if (!validadoVal) {
+        const tieneVisitaPropia = await jornada.tieneVisitaPropiaHoy(empleadoId, client);
+        if (tieneVisitaPropia) validadoVal = true;
+      }
     }
 
     // ─ Hash SHA-256 (Ley 25.506) ─
@@ -269,6 +288,17 @@ router.post('/registrar', auth, async (req, res) => {
       kmEstimados,
       salidaFueraRadioVal,
     ]);
+
+    // ─ Marcar la fila de acompañante como confirmada (Parte C.2) — aunque no
+    // haya alcanzado para auto-aprobar (caso "otro_cliente" sin visita
+    // propia), queda registrado que el colaborador sí confirmó salir de
+    // viaje con el organizador. ─
+    if (acompananteRow) {
+      await client.query(
+        `UPDATE public.visita_acompanantes SET confirmado = TRUE, confirmado_en = NOW() WHERE id = $1`,
+        [acompananteRow.id]
+      );
+    }
 
     // ─ Actualizar banco de horas ─
     await jornada.actualizarBancoHoras(empleadoId, hoy, client);

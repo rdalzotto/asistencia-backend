@@ -58,6 +58,31 @@ async function buscarConflictoRecursos(queryable, empleadorId, recursosIds, fech
   return null;
 }
 
+// ── ACOMPAÑANTES DE VIAJE (organizador declara con quién viaja) ────────────────
+// Reemplaza todas las filas de acompañantes de una visita — mismo patrón que ya
+// usan destinos/recursos en POST/PATCH. Cada item: { empleado_id, tipo:
+// 'mismo_cliente'|'otro_cliente'|'mixta', clientes_otro: [{destino_id?, destino_descripcion?}] }
+// Parte C.1 del rediseño de fichaje sin GPS de oficina (26/08/2026).
+async function guardarAcompanantes(client, visitaId, acompanantes) {
+  await client.query(`DELETE FROM public.visita_acompanantes WHERE visita_id = $1`, [visitaId]);
+  for (const a of acompanantes) {
+    if (!a.empleado_id || !['mismo_cliente', 'otro_cliente', 'mixta'].includes(a.tipo)) continue;
+    const { rows: [va] } = await client.query(`
+      INSERT INTO public.visita_acompanantes (visita_id, empleado_id, tipo)
+      VALUES ($1, $2, $3) RETURNING id
+    `, [visitaId, a.empleado_id, a.tipo]);
+    if (['otro_cliente', 'mixta'].includes(a.tipo) && Array.isArray(a.clientes_otro)) {
+      for (const c of a.clientes_otro) {
+        if (!c.destino_id && !c.destino_descripcion) continue;
+        await client.query(`
+          INSERT INTO public.visita_acompanante_clientes (acompanante_id, destino_id, destino_descripcion)
+          VALUES ($1, $2, $3)
+        `, [va.id, c.destino_id || null, c.destino_descripcion || null]);
+      }
+    }
+  }
+}
+
 // ── GET /visitas/reporte ──────────────────────────────────────
 router.get('/reporte', auth, soloAdmin, async (req, res) => {
   const { desde, hasta } = req.query;
@@ -87,6 +112,56 @@ router.get('/reporte', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// ── GET /visitas/acompanante-hoy ────────────────────────────────────────────
+// ¿El empleado logueado figura como acompañante de una visita de HOY
+// organizada por OTRO colaborador? Se usa al fichar sin GPS/fuera de radio
+// para mostrar la confirmación "Salís de viaje con [organizador]..." antes
+// de la pregunta genérica Cliente/Remoto/Oficina — Parte C.2 del rediseño
+// de fichaje sin GPS de oficina (26/08/2026).
+router.get('/acompanante-hoy', auth, async (req, res) => {
+  const empleadoId = req.user.empleadoId;
+  if (!empleadoId) return res.json({ esAcompanante: false });
+  try {
+    const { rows: [ac] } = await db.query(`
+      SELECT va.id as acompanante_id, va.tipo, v.id as visita_id,
+        e.nombre as organizador_nombre, e.apellido as organizador_apellido
+      FROM public.visita_acompanantes va
+      JOIN public.visitas v ON v.id = va.visita_id
+      JOIN public.empleados e ON e.id = v.empleado_id
+      WHERE va.empleado_id = $1
+        AND v.fecha = CURRENT_DATE
+        AND v.estado IN ('programada', 'en_curso')
+        AND v.empleado_id != $1
+      ORDER BY v.hora_estimada_salida ASC NULLS LAST
+      LIMIT 1
+    `, [empleadoId]);
+    if (!ac) return res.json({ esAcompanante: false });
+
+    const { rows: clientes } = await db.query(
+      `SELECT cliente_nombre FROM public.visita_destinos WHERE visita_id = $1 ORDER BY orden`,
+      [ac.visita_id]
+    );
+    const { rows: clientesOtro } = await db.query(`
+      SELECT vac.destino_descripcion, d.nombre as destino_nombre
+      FROM public.visita_acompanante_clientes vac
+      LEFT JOIN public.destinos_externos d ON d.id = vac.destino_id
+      WHERE vac.acompanante_id = $1
+    `, [ac.acompanante_id]);
+
+    res.json({
+      esAcompanante: true,
+      acompananteId: ac.acompanante_id,
+      tipo: ac.tipo,
+      organizador: { nombre: ac.organizador_nombre, apellido: ac.organizador_apellido },
+      clientes: clientes.map(c => c.cliente_nombre),
+      clientesOtro: clientesOtro.map(c => c.destino_nombre || c.destino_descripcion),
+    });
+  } catch (e) {
+    console.error('[VISITAS ACOMPANANTE-HOY]', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ── GET /visitas ──────────────────────────────────────────────
 router.get('/', auth, async (req, res) => {
   const { desde, hasta, empleado_id, visto_admin, estado, todos } = req.query;
@@ -112,7 +187,11 @@ router.get('/', auth, async (req, res) => {
         (SELECT json_agg(vd ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as destinos,
         (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
          FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos,
-        (SELECT json_agg(vg) FROM public.visita_gastos vg WHERE vg.visita_id = v.id) as gastos
+        (SELECT json_agg(vg) FROM public.visita_gastos vg WHERE vg.visita_id = v.id) as gastos,
+        (SELECT json_agg(json_build_object('id', va.id, 'empleado_id', va.empleado_id,
+           'nombre', ea.nombre, 'apellido', ea.apellido, 'tipo', va.tipo, 'confirmado', va.confirmado))
+         FROM public.visita_acompanantes va JOIN public.empleados ea ON ea.id = va.empleado_id
+         WHERE va.visita_id = v.id) as acompanantes
       FROM public.visitas v
       JOIN public.empleados e ON e.id = v.empleado_id
       ${where}
@@ -128,7 +207,7 @@ router.get('/', auth, async (req, res) => {
 // ── POST /visitas ─────────────────────────────────────────────
 router.post('/', auth, async (req, res) => {
   const { fecha, hora_estimada_salida, hora_estimada_regreso, origen, origen_lat, origen_lng,
-          km_estimados, viatico_estimado, observaciones, destinos, recursos_ids, estado } = req.body;
+          km_estimados, viatico_estimado, observaciones, destinos, recursos_ids, estado, acompanantes } = req.body;
   if (!fecha || !destinos?.length)
     return res.status(400).json({ error: 'Fecha y al menos un destino son requeridos' });
   // No permitir crear visitas con fecha anterior a hoy (validación de respaldo a la del frontend)
@@ -205,12 +284,17 @@ router.post('/', auth, async (req, res) => {
         await client.query(`INSERT INTO public.visita_recursos (visita_id, recurso_id) VALUES ($1,$2)`, [v.id, rid]);
       }
     }
+    if (Array.isArray(acompanantes) && acompanantes.length) {
+      await guardarAcompanantes(client, v.id, acompanantes);
+    }
     await client.query('COMMIT');
     const { rows: [visita] } = await db.query(`
       SELECT v.*, e.nombre as emp_nombre, e.apellido as emp_apellido,
         (SELECT json_agg(vd ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as destinos,
         (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
-         FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos
+         FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos,
+        (SELECT json_agg(json_build_object('id', va.id, 'empleado_id', va.empleado_id, 'tipo', va.tipo, 'confirmado', va.confirmado))
+         FROM public.visita_acompanantes va WHERE va.visita_id = v.id) as acompanantes
       FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id WHERE v.id = $1
     `, [v.id]);
     res.json(visita);
@@ -229,7 +313,7 @@ router.patch('/:id', auth, async (req, res) => {
           lat_inicio_real, lng_inicio_real, hora_inicio_real,
           suspendido_por, contacto_cliente_suspension, visita_reprogramacion_id,
           fecha, hora_estimada_salida, hora_estimada_regreso, origen, km_estimados, viatico_estimado,
-          empleado_id, destinos, recursos_ids } = req.body;
+          empleado_id, destinos, recursos_ids, acompanantes } = req.body;
   const sets = [];
   const params = [req.params.id, req.user.empleadorId];
   if (estado)                        { params.push(estado);                     sets.push(`estado = $${params.length}`); }
@@ -258,7 +342,7 @@ router.patch('/:id', auth, async (req, res) => {
   if (estado && estado !== 'suspendida') {
     sets.push(`motivo_suspension = NULL`, `suspendido_por = NULL`, `contacto_cliente_suspension = NULL`);
   }
-  if (!sets.length && !destinos && !recursos_ids) return res.status(400).json({ error: 'Nada que actualizar' });
+  if (!sets.length && !destinos && !recursos_ids && !acompanantes) return res.status(400).json({ error: 'Nada que actualizar' });
 
   // "en_curso" y "completada" representan la ejecución real de la visita en el cliente
   // (no la planificación), así que un técnico solo puede marcarlas con jornada activa.
@@ -327,6 +411,10 @@ router.patch('/:id', auth, async (req, res) => {
         await client.query(`INSERT INTO public.visita_recursos (visita_id, recurso_id) VALUES ($1,$2)`, [req.params.id, rid]);
       }
     }
+    // Si se editan acompañantes, reemplazar todos — Parte C.1
+    if (acompanantes && Array.isArray(acompanantes)) {
+      await guardarAcompanantes(client, req.params.id, acompanantes);
+    }
 
     if (estado === 'suspendida' && visitaActual?.estado === 'en_curso' && visitaActual?.empleado_id) {
       await client.query(`
@@ -366,7 +454,9 @@ router.patch('/:id', auth, async (req, res) => {
       SELECT v.*, e.nombre as emp_nombre, e.apellido as emp_apellido,
         (SELECT json_agg(vd ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) as destinos,
         (SELECT json_agg(json_build_object('id', vr.id, 'recurso_id', vr.recurso_id, 'nombre', r.nombre, 'tipo', r.tipo))
-         FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos
+         FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) as recursos,
+        (SELECT json_agg(json_build_object('id', va.id, 'empleado_id', va.empleado_id, 'tipo', va.tipo, 'confirmado', va.confirmado))
+         FROM public.visita_acompanantes va WHERE va.visita_id = v.id) as acompanantes
       FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id WHERE v.id = $1
     `, [req.params.id]);
 

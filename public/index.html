@@ -1907,7 +1907,45 @@ async function confirmarIngresoOficinaSinGps() {
 // "Inicio jornada remota" sin señal (sin esa tercera opción, no tiene
 // sentido ahí); 'fuera_radio': hubo GPS pero cayó fuera del radio de oficina
 // (sin esa tercera opción, el GPS ya probó que no está en la oficina).
-function mostrarPreguntaModalidad(motivo) {
+// Antes de armar esa pregunta, chequea si el empleado figura como acompañante
+// de un viaje organizado por otro colaborador hoy (Parte C.2) — si es así,
+// muestra esa confirmación primero en vez de ir directo a las 3 opciones.
+async function mostrarPreguntaModalidad(motivo) {
+  const existing = document.getElementById('banner-remoto');
+  if (existing) { existing.scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
+  let acompanante = null;
+  try { acompanante = await api('/visitas/acompanante-hoy'); } catch {}
+  if (acompanante?.esAcompanante) {
+    mostrarConfirmacionAcompanante(acompanante, motivo);
+    return;
+  }
+  mostrarOpcionesModalidad(motivo);
+}
+
+function mostrarConfirmacionAcompanante(info, motivoFallback) {
+  const existing = document.getElementById('banner-remoto');
+  if (existing) { existing.scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
+  const banner = document.createElement('div');
+  banner.id = 'banner-remoto';
+  banner.style.cssText = 'background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:16px;margin-top:12px;text-align:center;';
+  const clientesTexto = [...(info.clientes||[]), ...(info.clientesOtro||[])].filter(Boolean).join(', ') || 'cliente';
+  banner.innerHTML = `
+    <div style="font-size:13px;color:var(--orange);font-weight:600;margin-bottom:8px">🚗 Salís de viaje con ${info.organizador.nombre} ${info.organizador.apellido}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Van a visitar: ${clientesTexto}. ¿Confirmás?</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;width:100%;padding:12px" onclick="confirmarComoAcompanante(${info.acompananteId})">Sí, confirmar</button>
+      <button class="btn btn-secondary" style="border:1px solid var(--text3);color:var(--text2);background:transparent;width:100%;padding:8px;font-size:12.5px" onclick="document.getElementById('banner-remoto').remove(); mostrarOpcionesModalidad('${motivoFallback}')">No, elegir otra opción</button>
+    </div>`;
+  const modal = document.querySelector('#modal-registro .modal');
+  if (modal) modal.appendChild(banner);
+  banner.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+async function confirmarComoAcompanante(acompananteId) {
+  await registrarComoRemoto('externo', acompananteId);
+}
+
+function mostrarOpcionesModalidad(motivo) {
   const existing = document.getElementById('banner-remoto');
   if (existing) { existing.scrollIntoView({behavior:'smooth', block:'nearest'}); return; }
   const banner = document.createElement('div');
@@ -1945,7 +1983,7 @@ function mostrarSelectorExterno() {
   if (sel) { sel.style.display = 'block'; sel.scrollIntoView({behavior:'smooth', block:'nearest'}); }
 }
 
-async function registrarComoRemoto(contexto) {
+async function registrarComoRemoto(contexto, acompananteId) {
   contexto = contexto === 'externo' ? 'externo' : 'domicilio';
   const btn = document.getElementById('btn-confirmar-mov');
   btn.disabled = true;
@@ -1958,6 +1996,7 @@ async function registrarComoRemoto(contexto) {
     domicilio_partida_lat:STATE.gpsCoords?.lat, domicilio_partida_lng:STATE.gpsCoords?.lng,
     contexto_remoto: contexto,
     destino_id: destId || null, destino_descripcion: desc || null,
+    acompanante_id: acompananteId || null,
   };
   try {
     const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
@@ -1966,7 +2005,7 @@ async function registrarComoRemoto(contexto) {
     cargarDashboardEmpleado();
     mostrarExito('inicio_jornada_remota');
     if (resp?.movimiento?.validado) {
-      setTimeout(() => toast('✓ Viaje a cliente registrado — aprobado automáticamente porque tenés una visita programada para hoy.', 'success', 6000), 800);
+      setTimeout(() => toast('✓ Viaje a cliente registrado — aprobado automáticamente' + (acompananteId ? '.' : ' porque tenés una visita programada para hoy.'), 'success', 6000), 800);
     } else {
       setTimeout(() => toast('Registrado. Avisale a tu administrador para que lo valide y así se contabilicen las horas en tu planilla.', 'info', 9000), 800);
     }
