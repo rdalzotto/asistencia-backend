@@ -2424,13 +2424,19 @@ async function cargarDashboardAdmin() {
     const presentes = emps.filter(e=>e.estado==='en_oficina').length;
     const externos = emps.filter(e=>e.estado==='en_externo').length;
     const ausentes = emps.filter(e=>e.estado==='ausente').length;
-    // Contar visitas pendientes de aprobación para el badge
-    let visitasPend = 0;
+    // Contar visitas y compensatorios pendientes de aprobación para el badge
+    // (no vienen en /config/dashboard, se consultan aparte igual que ya se
+    // hacía con visitas)
+    let visitasPend = 0, compensatorioPend = 0;
     try {
       const vp = await api('/visitas?estado=pendiente_aprobacion');
       visitasPend = vp.length;
     } catch {}
-    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+visitasPend;
+    try {
+      const cp = await api('/licencias/compensatorio/pendientes');
+      compensatorioPend = cp.length;
+    } catch {}
+    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+(data.pendientes_vacacion?.length||0)+visitasPend+compensatorioPend;
     document.getElementById('dash-presentes').textContent = presentes;
     document.getElementById('dash-externos').textContent = externos;
     document.getElementById('dash-ausentes').textContent = ausentes;

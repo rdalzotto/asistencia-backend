@@ -476,7 +476,7 @@ router.post('/convenios', auth, soloAdmin, async (req, res) => {
 router.get('/dashboard', auth, soloAdmin, async (req, res) => {
   try {
     const empleadorId = await getEmpleadorId(req);
-    const [estado, pendientesRemoto, pendientesSolicitudes, pendientesAusencias] =
+    const [estado, pendientesRemoto, pendientesSolicitudes, pendientesAusencias, pendientesVacaciones] =
       await Promise.all([
         db.query('SELECT * FROM public.v_estado_empleados WHERE empleador_id = $1', [empleadorId]),
         db.query(`
@@ -500,6 +500,13 @@ router.get('/dashboard', auth, soloAdmin, async (req, res) => {
           WHERE a.empleador_id = $1 AND a.estado = 'pendiente'
           ORDER BY a.creado_en DESC
         `, [empleadorId]),
+        db.query(`
+          SELECT v.*, e.nombre, e.apellido
+          FROM public.vacaciones_tomadas v
+          JOIN public.empleados e ON e.id = v.empleado_id
+          WHERE v.empleador_id = $1 AND v.estado = 'pendiente'
+          ORDER BY v.fecha_inicio ASC
+        `, [empleadorId]),
       ]);
 
     res.json({
@@ -507,6 +514,7 @@ router.get('/dashboard', auth, soloAdmin, async (req, res) => {
       pendientes_remoto:    pendientesRemoto.rows,
       pendientes_solicitud: pendientesSolicitudes.rows,
       pendientes_ausencia:  pendientesAusencias.rows,
+      pendientes_vacacion:  pendientesVacaciones.rows,
     });
   } catch (err) {
     console.error('[CFG] Dashboard error:', err.message);
