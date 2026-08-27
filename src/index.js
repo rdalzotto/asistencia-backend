@@ -315,10 +315,10 @@ async function cronJornadaInteligente() {
       }
     }
 
-    // ── 5. Cierre forzado por fichaje sin GPS no validado tras 1 hora ─────────
+    // ── 5. Cierre forzado por fichaje sin GPS no validado tras 3 horas ────────
     // Bug 1, punto 3 del spec: el fichaje sin GPS en horario normal (no el
     // bloqueado del punto 1) queda pendiente de validación del admin; si no
-    // lo valida en 1 hora, el sistema fuerza el cierre de esa jornada como
+    // lo valida en 3 horas, el sistema fuerza el cierre de esa jornada como
     // medida preventiva (evita jornadas eternas abiertas). No es un veredicto
     // final: el movimiento original sigue con validado=FALSE, así que
     // calcularHorasJornada lo sigue excluyendo del banco de horas hasta que
@@ -330,7 +330,7 @@ async function cronJornadaInteligente() {
       FROM public.movimientos m
       WHERE m.gps_valido = FALSE AND m.validado = FALSE AND m.es_remoto = FALSE
         AND m.tipo IN ('ingreso','regreso_almuerzo','regreso_externo')
-        AND m.hora <= NOW() - INTERVAL '1 hour'
+        AND m.hora <= NOW() - INTERVAL '3 hours'
         AND m.fecha = CURRENT_DATE
         AND NOT EXISTS (
           SELECT 1 FROM public.movimientos m2
@@ -344,10 +344,10 @@ async function cronJornadaInteligente() {
         'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [row.empleado_id]
       );
       const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
-      await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'gps_sin_validar_1h');
+      await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'gps_sin_validar_3h');
       const n = push.notif.cierreSinValidacionGps(nombre);
       await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
-      console.log(`[CRON] Cierre por GPS sin validar (1h): ${nombre}`);
+      console.log(`[CRON] Cierre por GPS sin validar (3h): ${nombre}`);
     }
 
     // ── 5b. Cierre forzado por jornada remota/externa sin validar tras 3 horas ──

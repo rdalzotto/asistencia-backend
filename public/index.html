@@ -1908,7 +1908,7 @@ async function enviarMovimientoDirecto(tipo) {
     mostrarExito(tipo);
     if (tipo === 'egreso' || tipo === 'fin_jornada_remota') ocultarBannerAlertaJornada();
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
-      setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales. Si no se valida dentro de 1 hora, la jornada se cerrará automáticamente y esas horas no se contabilizarán.', 'info', 15000), 800);
+      setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales. Si no se valida dentro de 3 horas, la jornada se cerrará automáticamente y esas horas no se contabilizarán.', 'info', 15000), 800);
     }
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
