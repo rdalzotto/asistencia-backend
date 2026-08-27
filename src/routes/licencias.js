@@ -283,4 +283,92 @@ router.post('/compensacion', auth, soloAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
 
+// ════════════════════════════════════════════════════════════════
+// SOLICITUDES DE COMPENSATORIO (pedido del empleado con aprobación admin)
+// ════════════════════════════════════════════════════════════════
+
+router.post('/compensatorio/solicitar', auth, async (req, res) => {
+  const { bloques, fecha_solicitada, motivo } = req.body;
+  const empleadoId = req.user.empleadoId;
+  if (!empleadoId) return res.status(400).json({ error: 'Sin empleado asociado' });
+  const bloquesN = parseInt(bloques, 10);
+  if (!bloquesN || bloquesN < 1 || !fecha_solicitada) return res.status(400).json({ error: 'Datos incompletos' });
+  try {
+    const { rows: [bh] } = await db.query(
+      'SELECT saldo_disponible FROM public.v_banco_horas WHERE empleado_id = $1 AND empleador_id = $2',
+      [empleadoId, req.user.empleadorId]
+    );
+    const saldoDisponible = Number(bh?.saldo_disponible || 0);
+    if (saldoDisponible < bloquesN * 8) {
+      return res.status(400).json({ error: `Saldo insuficiente: tenés ${saldoDisponible.toFixed(1)}h disponibles, se necesitan ${bloquesN * 8}h` });
+    }
+    const { rows: [sol] } = await db.query(`
+      INSERT INTO public.solicitudes_compensatorio
+        (empleado_id, empleador_id, bloques_8hs, fecha_solicitada, motivo, estado)
+      VALUES ($1,$2,$3,$4,$5,'pendiente') RETURNING *
+    `, [empleadoId, req.user.empleadorId, bloquesN, fecha_solicitada, motivo || null]);
+    const { rows: [emp] } = await db.query('SELECT nombre, apellido FROM public.empleados WHERE id = $1', [empleadoId]);
+    const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+    const n = push.notif.compensatorioPendiente(nombre, bloquesN);
+    await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
+    res.json({ ok: true, solicitud: sol });
+  } catch (err) {
+    console.error('[LIC] Compensatorio solicitar error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.get('/compensatorio/pendientes', auth, soloAdmin, async (req, res) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT s.*, e.nombre, e.apellido, e.legajo FROM public.solicitudes_compensatorio s
+      JOIN public.empleados e ON e.id = s.empleado_id
+      WHERE s.empleador_id = $1 AND s.estado = 'pendiente'
+      ORDER BY s.creado_en ASC
+    `, [req.user.empleadorId]);
+    res.json(rows);
+  } catch (err) {
+    console.error('[LIC] Compensatorio pendientes error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.patch('/compensatorio/:id', auth, soloAdmin, async (req, res) => {
+  const { estado } = req.body;
+  if (!['aprobada','rechazada'].includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [sol] } = await client.query(`
+      SELECT * FROM public.solicitudes_compensatorio
+      WHERE id = $1 AND empleador_id = $2 AND estado = 'pendiente' FOR UPDATE
+    `, [req.params.id, req.user.empleadorId]);
+    if (!sol) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'No encontrada o ya resuelta' }); }
+
+    let compensacionId = null;
+    if (estado === 'aprobada') {
+      const { rows: [comp] } = await client.query(`
+        INSERT INTO public.compensaciones (empleado_id, empleador_id, fecha, horas_compensadas, tipo, motivo, aprobado_por)
+        VALUES ($1,$2,$3,$4,'dia_libre',$5,$6) RETURNING id
+      `, [sol.empleado_id, sol.empleador_id, sol.fecha_solicitada, sol.bloques_8hs * 8, sol.motivo, req.user.id]);
+      compensacionId = comp.id;
+    }
+
+    const { rows: [solActualizada] } = await client.query(`
+      UPDATE public.solicitudes_compensatorio
+      SET estado = $1, aprobado_por = $2, aprobado_en = NOW(), compensacion_id = $3
+      WHERE id = $4 RETURNING *
+    `, [estado, req.user.id, compensacionId, sol.id]);
+
+    await client.query('COMMIT');
+    res.json({ ok: true, solicitud: solActualizada });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[LIC] Compensatorio patch error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

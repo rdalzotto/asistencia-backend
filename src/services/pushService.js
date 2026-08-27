@@ -81,6 +81,11 @@ const notif = {
     cuerpo: `${nombre} — ${tipo}`,
   }),
 
+  compensatorioPendiente: (nombre, bloques) => ({
+    titulo: `🗓️ Compensatorio pendiente de aprobación`,
+    cuerpo: `${nombre} pidió ${bloques} bloque${bloques === 1 ? '' : 's'} de 8hs`,
+  }),
+
   solicitudExterna: (nombre, motivo) => ({
     titulo: `🔔 Solicitud de salida pendiente`,
     cuerpo: `${nombre}: ${motivo}`,

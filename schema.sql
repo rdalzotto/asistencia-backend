@@ -446,6 +446,29 @@ CREATE TABLE public.compensaciones (
 );
 
 -- ============================================================
+-- SOLICITUDES DE COMPENSATORIO (pedido del empleado, con aprobación admin)
+-- ============================================================
+-- El empleado pide días compensatorios en bloques completos de 8hs contra su
+-- saldo_disponible de v_banco_horas (no permite bloques parciales). Al
+-- aprobar, el backend inserta automáticamente la fila correspondiente en
+-- compensaciones (misma lógica que ya usaba POST /licencias/compensacion) y
+-- la deja referenciada acá vía compensacion_id, para poder auditar la
+-- solicitud original que originó cada descuento del banco de horas.
+CREATE TABLE public.solicitudes_compensatorio (
+  id              BIGSERIAL PRIMARY KEY,
+  empleado_id     INTEGER REFERENCES public.empleados(id) ON DELETE CASCADE,
+  empleador_id    INTEGER REFERENCES public.empleadores(id) ON DELETE CASCADE,
+  bloques_8hs     INTEGER NOT NULL CHECK (bloques_8hs >= 1),
+  fecha_solicitada DATE NOT NULL,
+  motivo          TEXT,
+  estado          TEXT DEFAULT 'pendiente', -- pendiente | aprobada | rechazada
+  aprobado_por    INTEGER REFERENCES public.usuarios(id),
+  aprobado_en     TIMESTAMPTZ,
+  compensacion_id BIGINT REFERENCES public.compensaciones(id),
+  creado_en       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
 -- PUSH SUBSCRIPTIONS (Web Push VAPID)
 -- ============================================================
 CREATE TABLE public.push_subscriptions (
@@ -627,6 +650,11 @@ WHERE e.activo = TRUE;
 -- ============================================================
 -- VISTA: banco de horas resumido
 -- ============================================================
+-- Ver db/views.sql para el detalle de por qué está armada con subconsultas
+-- agregadas por separado (evita producto cartesiano parcial entre
+-- banco_horas y compensaciones) y de dónde salen horas_convenio/
+-- horas_trabajadas/balance (mes actual, para el widget personal del
+-- empleado) — reescrita 27/08/2026.
 CREATE OR REPLACE VIEW public.v_banco_horas AS
 SELECT
   e.id AS empleado_id,
@@ -634,16 +662,33 @@ SELECT
   e.nombre,
   e.apellido,
   e.legajo,
-  COALESCE(SUM(bh.balance), 0) AS saldo_total_horas,
-  COALESCE(SUM(bh.horas_extra), 0) AS horas_extra_totales,
-  COALESCE(SUM(CASE WHEN bh.balance < 0 THEN ABS(bh.balance) ELSE 0 END), 0) AS horas_deuda,
-  COALESCE(SUM(c.horas_compensadas), 0) AS horas_compensadas,
-  COALESCE(SUM(bh.balance), 0) - COALESCE(SUM(c.horas_compensadas), 0) AS saldo_disponible
+  COALESCE(bh_tot.saldo_total_horas, 0) AS saldo_total_horas,
+  COALESCE(bh_tot.horas_extra_totales, 0) AS horas_extra_totales,
+  COALESCE(bh_tot.horas_deuda, 0) AS horas_deuda,
+  COALESCE(comp_tot.horas_compensadas, 0) AS horas_compensadas,
+  COALESCE(bh_tot.saldo_total_horas, 0) - COALESCE(comp_tot.horas_compensadas, 0) AS saldo_disponible,
+  COALESCE(bh_mes.horas_convenio, 0) AS horas_convenio,
+  COALESCE(bh_mes.horas_trabajadas, 0) AS horas_trabajadas,
+  COALESCE(bh_mes.balance, 0) AS balance
 FROM public.empleados e
-LEFT JOIN public.banco_horas bh ON bh.empleado_id = e.id
-LEFT JOIN public.compensaciones c ON c.empleado_id = e.id
-WHERE e.activo = TRUE
-GROUP BY e.id, e.empleador_id, e.nombre, e.apellido, e.legajo;
+LEFT JOIN (
+  SELECT empleado_id,
+    SUM(balance) AS saldo_total_horas,
+    SUM(horas_extra) AS horas_extra_totales,
+    SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END) AS horas_deuda
+  FROM public.banco_horas
+  GROUP BY empleado_id
+) bh_tot ON bh_tot.empleado_id = e.id
+LEFT JOIN (
+  SELECT empleado_id, SUM(horas_compensadas) AS horas_compensadas
+  FROM public.compensaciones
+  GROUP BY empleado_id
+) comp_tot ON comp_tot.empleado_id = e.id
+LEFT JOIN public.banco_horas bh_mes
+  ON bh_mes.empleado_id = e.id
+  AND bh_mes.anio = EXTRACT(YEAR FROM CURRENT_DATE)
+  AND bh_mes.mes = EXTRACT(MONTH FROM CURRENT_DATE)
+WHERE e.activo = TRUE;
 
 -- ============================================================
 -- FIN DEL ESQUEMA

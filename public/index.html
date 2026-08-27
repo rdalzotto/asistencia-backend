@@ -271,6 +271,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="info-row"><span class="lbl">Horas convenio</span><span class="val" id="banco-convenio">--</span></div>
       <div class="info-row"><span class="lbl">Balance</span><span class="val" id="banco-balance" style="color:var(--green)">--</span></div>
       <div class="banco-bar"><div class="banco-bar-fill" id="banco-bar-fill" style="width:0%;background:var(--green)"></div></div>
+      <div class="sep"></div>
+      <div class="info-row"><span class="lbl">Saldo acumulado disponible</span><span class="val" id="banco-saldo-disponible">--</span></div>
+      <div id="comp-bloques-info" style="font-size:12px;color:var(--text2);margin:4px 0 10px"></div>
+      <button class="btn btn-secondary btn-sm" id="btn-pedir-compensatorio" style="width:100%" onclick="abrirModalCompensatorio()">🗓️ Pedir compensatorio</button>
     </div>
     <div class="card">
       <div class="card-title">Vacaciones</div>
@@ -355,12 +359,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="tab" id="tab-pend-vacaciones-btn" onclick="tabPendientes('vacaciones',this)">Vacaciones</button>
         <button class="tab" id="tab-pend-visitas-btn" onclick="tabPendientes('visitas',this)">Visitas</button>
         <button class="tab" id="tab-pend-gps-btn" onclick="tabPendientes('gps',this)">Fichajes GPS</button>
+        <button class="tab" id="tab-pend-compensatorio-btn" onclick="tabPendientes('compensatorio',this)">Compensatorio</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section"><div id="lista-ausencias-pend"></div></div>
       <div id="pend-vacaciones" class="section"><div id="lista-vacaciones-pend"></div></div>
       <div id="pend-visitas" class="section"><div id="lista-visitas-pend"></div></div>
       <div id="pend-gps" class="section"><div id="lista-gps-pend"></div></div>
+      <div id="pend-compensatorio" class="section"><div id="lista-compensatorio-pend"></div></div>
     </div>
 
     <!-- RECURSOS ADMIN -->
@@ -1001,6 +1007,22 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
   </div>
 </div>
 
+<!-- MODAL COMPENSATORIO -->
+<div class="modal-overlay" id="modal-compensatorio">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Pedir compensatorio</div>
+    <div id="comp-saldo-info" style="background:rgba(0,200,255,0.08);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px;margin-bottom:12px"></div>
+    <div class="form-group"><label>Cantidad de bloques (1 bloque = 8hs)</label><input type="number" id="comp-bloques" min="1" step="1" value="1"></div>
+    <div class="form-group"><label>Fecha deseada</label><input type="date" id="comp-fecha"></div>
+    <div class="form-group"><label>Motivo (opcional)</label><input type="text" id="comp-motivo" placeholder="Ej: Trámite personal"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary" onclick="cerrarModal('modal-compensatorio')">Cancelar</button>
+      <button class="btn btn-primary" onclick="enviarCompensatorio()">Enviar solicitud</button>
+    </div>
+  </div>
+</div>
+
 <!-- PANELES EMPLEADO -->
 <div class="modal-overlay" id="panel-ausencias">
   <div class="modal" style="max-height:90vh">
@@ -1585,6 +1607,8 @@ function actualizarBadgeEstado(tipo, contextoRemoto) {
   badge.className = 'badge ' + cls; badge.textContent = txt;
 }
 
+let BANCO_SALDO_DISPONIBLE = 0;
+
 function renderBancoHoras(bh) {
   const hoy = new Date();
   document.getElementById('banco-mes').textContent = hoy.toLocaleString('es-AR',{month:'long',year:'numeric'});
@@ -1597,6 +1621,22 @@ function renderBancoHoras(bh) {
   const pct = bh.horas_convenio>0 ? Math.min(100,(bh.horas_trabajadas/bh.horas_convenio)*100) : 0;
   document.getElementById('banco-bar-fill').style.width = pct + '%';
   document.getElementById('banco-bar-fill').style.background = balance>=0 ? 'var(--green)' : 'var(--red)';
+
+  const saldoDisponible = Number(bh.saldo_disponible||0);
+  BANCO_SALDO_DISPONIBLE = saldoDisponible;
+  const saldoEl = document.getElementById('banco-saldo-disponible');
+  saldoEl.textContent = (saldoDisponible>=0?'+':'') + saldoDisponible.toFixed(1) + 'h';
+  saldoEl.style.color = saldoDisponible>=0 ? 'var(--green)' : 'var(--red)';
+  const bloquesDisponibles = Math.floor(saldoDisponible / 8);
+  const infoEl = document.getElementById('comp-bloques-info');
+  const btnEl = document.getElementById('btn-pedir-compensatorio');
+  if (bloquesDisponibles >= 1) {
+    infoEl.textContent = `Tenés ${bloquesDisponibles} bloque${bloquesDisponibles===1?'':'s'} de 8hs disponible${bloquesDisponibles===1?'':'s'} para pedir compensatorio.`;
+    btnEl.disabled = false;
+  } else {
+    infoEl.textContent = 'Necesitás al menos 8hs acumuladas en tu saldo disponible para pedir un compensatorio.';
+    btnEl.disabled = true;
+  }
 }
 
 function renderVacaciones(v) {
@@ -2260,6 +2300,35 @@ async function enviarAusencia() {
   } catch(e) { toast(e.message, 'error'); }
 }
 
+function abrirModalCompensatorio() {
+  const bloquesDisponibles = Math.floor(BANCO_SALDO_DISPONIBLE / 8);
+  if (bloquesDisponibles < 1) return toast('No tenés saldo suficiente para pedir un compensatorio', 'error');
+  document.getElementById('comp-saldo-info').textContent =
+    `Saldo disponible: ${BANCO_SALDO_DISPONIBLE.toFixed(1)}h — podés pedir hasta ${bloquesDisponibles} bloque${bloquesDisponibles===1?'':'s'} de 8hs.`;
+  const bloquesInput = document.getElementById('comp-bloques');
+  bloquesInput.value = 1;
+  bloquesInput.max = bloquesDisponibles;
+  document.getElementById('comp-fecha').value = new Date().toISOString().split('T')[0];
+  document.getElementById('comp-motivo').value = '';
+  abrirModal('modal-compensatorio');
+}
+
+async function enviarCompensatorio() {
+  const bloques = parseInt(document.getElementById('comp-bloques').value, 10);
+  const fecha = document.getElementById('comp-fecha').value;
+  const motivo = document.getElementById('comp-motivo').value.trim();
+  const bloquesDisponibles = Math.floor(BANCO_SALDO_DISPONIBLE / 8);
+  if (!bloques || bloques < 1) return toast('Ingresá una cantidad de bloques válida', 'error');
+  if (bloques > bloquesDisponibles) return toast(`Solo tenés ${bloquesDisponibles} bloque${bloquesDisponibles===1?'':'s'} disponible${bloquesDisponibles===1?'':'s'}`, 'error');
+  if (!fecha) return toast('Seleccioná la fecha deseada', 'error');
+  try {
+    await api('/licencias/compensatorio/solicitar', {method:'POST', body:JSON.stringify({bloques, fecha_solicitada:fecha, motivo})});
+    cerrarModal('modal-compensatorio');
+    toast('Solicitud de compensatorio enviada. Pendiente de aprobación.', 'success');
+    cargarDashboardEmpleado();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 async function abrirModalVacaciones() {
   const minFecha = new Date(); minFecha.setDate(minFecha.getDate()+15);
   const minStr = minFecha.toISOString().split('T')[0];
@@ -2483,12 +2552,12 @@ async function cargarEmpleadosAdmin() {
 // "Solicitudes" sin importar dónde estuviera realmente lo pendiente (esa era
 // la causa real de "la campanita no lleva a ningún lado": todo el volumen
 // estaba en Fichajes GPS, que ni siquiera tenía pestaña propia hasta ahora).
-let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0 };
+let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0, compensatorio: 0 };
 
 // Orden de prioridad para el salto directo. GPS primero porque hoy concentra
 // el 100% del volumen real; el resto en orden visual de las pestañas, para
 // cuando en el futuro haya pendientes repartidos en varias categorías a la vez.
-const ORDEN_TABS_PENDIENTES = ['gps', 'solicitudes', 'ausencias', 'vacaciones', 'visitas'];
+const ORDEN_TABS_PENDIENTES = ['gps', 'solicitudes', 'ausencias', 'vacaciones', 'visitas', 'compensatorio'];
 
 // Único punto de decisión de navegación: se llama tanto al entrar a Pendientes
 // (recién tocada la campanita) como después de resolver cualquier ítem. Si la
@@ -2570,6 +2639,7 @@ async function cargarPendientesAdmin() {
     await cargarVacacionesPendientesAdmin();
     await cargarVisitasPendientesAdmin();
     await cargarFichajesGpsPendientesAdmin();
+    await cargarCompensatorioPendientesAdmin();
     navegarPendientesSegunDatos();
   } catch(e) {
     console.error('[PENDIENTES]', e);
@@ -2690,6 +2760,42 @@ async function cargarFichajesGpsPendientesAdmin() {
       </div>`;
     }).join('');
   } catch(e) { cont.innerHTML = '<p style="color:var(--red);text-align:center;font-size:13px">Error cargando</p>'; }
+}
+
+// ── SOLICITUDES DE COMPENSATORIO PENDIENTES DE APROBACIÓN ──
+async function cargarCompensatorioPendientesAdmin() {
+  const cont = document.getElementById('lista-compensatorio-pend');
+  if (!cont) return;
+  try {
+    const sols = await api('/licencias/compensatorio/pendientes');
+    PENDIENTES_COUNTS.compensatorio = sols.length;
+    const tabBtn = document.getElementById('tab-pend-compensatorio-btn');
+    if (tabBtn) tabBtn.textContent = 'Compensatorio' + (sols.length ? ' ('+sols.length+')' : '');
+    if (!sols.length) {
+      cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin solicitudes de compensatorio pendientes</p>';
+      return;
+    }
+    cont.innerHTML = sols.map(s => `
+      <div class="card" style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600">${s.nombre} ${s.apellido}</div>
+        <div style="font-size:13px;color:var(--text2);margin:6px 0">${s.bloques_8hs} bloque${s.bloques_8hs===1?'':'s'} de 8hs (${s.bloques_8hs*8}h) · Fecha deseada: ${new Date(s.fecha_solicitada).toLocaleDateString('es-AR')}</div>
+        ${s.motivo?'<div style="font-size:12px;color:var(--text3)">'+s.motivo+'</div>':''}
+        <div style="font-size:12px;color:var(--text3);margin-top:2px">Pedido el ${new Date(s.creado_en).toLocaleString('es-AR')}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-sm btn-success" onclick="resolverCompensatorio(${s.id},'aprobada')">✓ Aprobar</button>
+          <button class="btn btn-sm btn-danger" onclick="resolverCompensatorio(${s.id},'rechazada')">✗ Rechazar</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { cont.innerHTML = '<p style="color:var(--red);text-align:center;font-size:13px">Error cargando</p>'; }
+}
+
+async function resolverCompensatorio(id, estado) {
+  try {
+    await api('/licencias/compensatorio/'+id, {method:'PATCH', body:JSON.stringify({estado})});
+    toast(estado==='aprobada'?'Compensatorio aprobado ✓':'Rechazado', estado==='aprobada'?'success':'info');
+  } catch(e) { toast(e.message, 'error'); }
+  finally { cargarPendientesAdmin(); cargarDashboardAdmin(); }
 }
 
 async function aprobarVisita(id) {
@@ -3224,6 +3330,7 @@ function tabPendientes(id, el) {
   if (el) el.classList.add('active');
   if (id === 'visitas') cargarVisitasPendientesAdmin();
   if (id === 'gps') cargarFichajesGpsPendientesAdmin();
+  if (id === 'compensatorio') cargarCompensatorioPendientesAdmin();
 }
 </script>
 
