@@ -469,6 +469,35 @@ router.post('/convenios', auth, soloAdmin, async (req, res) => {
   }
 });
 
+router.patch('/convenios/:id', auth, soloAdmin, async (req, res) => {
+  const {
+    horas_diarias, tolerancia_tardanza_min, texto_convenio,
+    vacaciones_dias_anticipacion, vacaciones_min_dias_bloque, vacaciones_permite_acuerdo_partes,
+  } = req.body;
+  const n = v => v === undefined ? null : v;
+  try {
+    const { rows: [conv] } = await db.query(`
+      UPDATE public.convenios SET
+        horas_diarias                     = COALESCE($1, horas_diarias),
+        tolerancia_tardanza_min           = COALESCE($2, tolerancia_tardanza_min),
+        texto_convenio                    = COALESCE($3, texto_convenio),
+        vacaciones_dias_anticipacion      = COALESCE($4, vacaciones_dias_anticipacion),
+        vacaciones_min_dias_bloque        = COALESCE($5, vacaciones_min_dias_bloque),
+        vacaciones_permite_acuerdo_partes = COALESCE($6, vacaciones_permite_acuerdo_partes)
+      WHERE id = $7 RETURNING *
+    `, [
+      n(horas_diarias), n(tolerancia_tardanza_min), n(texto_convenio),
+      n(vacaciones_dias_anticipacion), n(vacaciones_min_dias_bloque), n(vacaciones_permite_acuerdo_partes),
+      req.params.id,
+    ]);
+    if (!conv) return res.status(404).json({ error: 'Convenio no encontrado' });
+    res.json(conv);
+  } catch (err) {
+    console.error('[CFG] Convenio patch error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ════════════════════════════════════════════════════════════════
 // DASHBOARD — estado en tiempo real
 // ════════════════════════════════════════════════════════════════

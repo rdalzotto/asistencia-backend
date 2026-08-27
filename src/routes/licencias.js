@@ -109,7 +109,9 @@ router.get('/vacaciones/saldo', auth, async (req, res) => {
       SELECT e.id AS empleado_id, e.empleador_id, e.nombre, e.apellido, e.fecha_ingreso,
              EXTRACT(YEAR FROM AGE(CURRENT_DATE, e.fecha_ingreso))::INTEGER AS anios_antiguedad,
              c.vacaciones_hasta_5_anios, c.vacaciones_hasta_10_anios,
-             c.vacaciones_hasta_20_anios, c.vacaciones_mas_20_anios
+             c.vacaciones_hasta_20_anios, c.vacaciones_mas_20_anios,
+             c.vacaciones_dias_anticipacion, c.vacaciones_min_dias_bloque,
+             c.vacaciones_permite_acuerdo_partes
       FROM public.empleados e
       JOIN public.empleadores emp ON emp.id = e.empleador_id
       JOIN public.convenios c ON c.id = emp.convenio_id
@@ -172,6 +174,9 @@ router.get('/vacaciones/saldo', auth, async (req, res) => {
         fecha_limite_arrastre: fechaLimiteArrastre,
         anio_anterior: anioAnterior,
         saldo_total_disponible: Math.max(0, diasCorresponden - diasTomadosAnioActual) + arrastreValido,
+        vacaciones_dias_anticipacion: e.vacaciones_dias_anticipacion,
+        vacaciones_min_dias_bloque: e.vacaciones_min_dias_bloque,
+        vacaciones_permite_acuerdo_partes: e.vacaciones_permite_acuerdo_partes,
       });
     }
 
@@ -205,18 +210,39 @@ router.get('/vacaciones', auth, async (req, res) => {
 
 // POST /licencias/vacaciones — solicitar vacaciones
 router.post('/vacaciones', auth, async (req, res) => {
-  const { fecha_inicio, fecha_fin, tipo, motivo } = req.body;
+  const { fecha_inicio, fecha_fin, tipo, motivo, acuerdo_coordinado } = req.body;
   const empleadoId = req.user.empleadoId;
   if (!fecha_inicio || !fecha_fin) return res.status(400).json({ error: 'Fechas requeridas' });
-  // Validar anticipación mínima 15 días
-  const hoy = new Date();
-  const fechaDesde = new Date(fecha_inicio);
-  const diasAnticipacion = Math.round((fechaDesde - hoy) / 86400000);
-  if (diasAnticipacion < 15 && req.user.rol === 'empleado') {
-    return res.status(400).json({ error: 'Debés solicitar con al menos 15 días de anticipación' });
-  }
   const dias = Math.round((new Date(fecha_fin) - new Date(fecha_inicio)) / 86400000) + 1;
   try {
+    // Política de vacaciones del convenio del empleador — nunca confiar solo
+    // en lo que valide el frontend, son las mismas reglas pero del lado server.
+    const { rows: [politica] } = await db.query(`
+      SELECT c.vacaciones_dias_anticipacion, c.vacaciones_min_dias_bloque, c.vacaciones_permite_acuerdo_partes
+      FROM public.empleadores emp JOIN public.convenios c ON c.id = emp.convenio_id
+      WHERE emp.id = $1
+    `, [req.user.empleadorId]);
+
+    if (politica && dias < politica.vacaciones_min_dias_bloque) {
+      return res.status(400).json({ error: `El mínimo por pedido es de ${politica.vacaciones_min_dias_bloque} días corridos` });
+    }
+
+    // Validar anticipación mínima (configurable por convenio) — solo exigida
+    // a empleados, igual que antes; el admin puede cargar en nombre de otro
+    // sin esta restricción.
+    const hoy = new Date();
+    const fechaDesde = new Date(fecha_inicio);
+    const diasAnticipacion = Math.round((fechaDesde - hoy) / 86400000);
+    const diasMinimos = politica ? politica.vacaciones_dias_anticipacion : 15;
+    if (diasAnticipacion < diasMinimos && req.user.rol === 'empleado') {
+      const permiteAcuerdo = politica?.vacaciones_permite_acuerdo_partes;
+      if (!(permiteAcuerdo && acuerdo_coordinado === true)) {
+        return res.status(400).json({
+          error: `Debés solicitar con al menos ${diasMinimos} días de anticipación`
+            + (permiteAcuerdo ? ', salvo que confirmes que coordinaste la cobertura con tu empleador.' : '.'),
+        });
+      }
+    }
     const anio = new Date(fecha_inicio).getFullYear();
     const { rows: [vac] } = await db.query(`
       INSERT INTO public.vacaciones_tomadas

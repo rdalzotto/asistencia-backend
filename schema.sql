@@ -101,6 +101,13 @@ CREATE TABLE public.convenios (
   enfermedad_max_dias_sin_cert INTEGER DEFAULT 3,
   -- Texto completo del convenio (para IA)
   texto_convenio            TEXT,
+  -- Política interna de solicitud de vacaciones (no son exigencias del
+  -- convenio 130/75 en sí — la LCT obliga al revés, es el empleador quien
+  -- debe avisar la fecha con 45 días). Son configurables por el admin desde
+  -- el panel de Config, agregadas el 27/08/2026.
+  vacaciones_dias_anticipacion      INTEGER NOT NULL DEFAULT 15,
+  vacaciones_min_dias_bloque        INTEGER NOT NULL DEFAULT 7,
+  vacaciones_permite_acuerdo_partes BOOLEAN NOT NULL DEFAULT true,
   es_default                BOOLEAN DEFAULT FALSE,
   creado_en                 TIMESTAMPTZ DEFAULT NOW()
 );

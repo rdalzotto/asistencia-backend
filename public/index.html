@@ -983,7 +983,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <strong style="color:var(--text1)">Condiciones según Convenio de Comercio (LCT):</strong>
       <ul style="margin:6px 0 0 16px;padding:0">
         <li>Los días son <strong>corridos</strong> (incluyen fines de semana y feriados dentro del período, no se suman aparte).</li>
-        <li>El período debe ser <strong>continuo</strong>, de un mínimo de <strong>7 días corridos</strong> por bloque.</li>
+        <li>El período debe ser <strong>continuo</strong>, de un mínimo de <strong><span id="vac-info-minbloque">7</span> días corridos</strong> por bloque.</li>
         <li>Debe <strong>comenzar un lunes</strong> (o el hábil siguiente si el lunes es feriado).</li>
         <li>No se pueden fraccionar en varios bloques cortos salteando fines de semana.</li>
         <li>Lo pendiente de un año se puede arrastrar al siguiente, pero solo hasta el <strong>31 de mayo</strong>; pasada esa fecha caduca y no se acumula más (nunca se arrastra de más de un año atrás).</li>
@@ -996,13 +996,20 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="form-group"><label>Hasta</label><input type="date" id="vac-hasta" onchange="calcularDiasVac()"></div>
     </div>
     <div id="vac-dias-info" style="font-size:13px;color:var(--accent);margin-bottom:8px;display:none"></div>
+    <div id="vac-minbloque-error" style="display:none;background:rgba(255,70,70,0.1);border:1px solid var(--red);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--red);margin-bottom:8px"></div>
     <div id="vac-condicion-warn" style="display:none;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:8px"></div>
-    <div id="vac-anticipacion-warn" style="display:none;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:8px">⚠ Las vacaciones deben solicitarse con al menos 15 días de anticipación.</div>
+    <div id="vac-anticipacion-warn" style="display:none;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--orange);margin-bottom:8px"></div>
+    <div id="vac-acuerdo-partes-wrap" style="display:none;margin-bottom:8px">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="vac-acuerdo-partes" onchange="calcularDiasVac()" style="margin-top:2px">
+        <span>Confirmo que coordiné con mi empleador la cobertura de mis actividades durante mi ausencia.</span>
+      </label>
+    </div>
     <div class="form-group"><label>Motivo (opcional)</label><input type="text" id="vac-motivo" placeholder="Ej: Viaje familiar"></div>
     <div id="vac-admin-info" style="display:none;background:rgba(0,200,255,0.08);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:12px;color:var(--text2);margin-bottom:8px">💻 En caso de urgencia, estarás disponible en forma remota.</div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-secondary" onclick="cerrarModal('modal-vacaciones')">Cancelar</button>
-      <button class="btn btn-primary" onclick="enviarVacaciones()">Enviar solicitud</button>
+      <button class="btn btn-primary" id="btn-enviar-vacaciones" onclick="enviarVacaciones()">Enviar solicitud</button>
     </div>
   </div>
 </div>
@@ -2329,24 +2336,43 @@ async function enviarCompensatorio() {
   } catch(e) { toast(e.message, 'error'); }
 }
 
+// Política de vacaciones del convenio del empleado (anticipación, mínimo de
+// bloque, si se permite acuerdo de partes) — se llena con lo que devuelve
+// GET /licencias/vacaciones/saldo al abrir el modal. Estos defaults solo se
+// usan un instante mientras esa respuesta llega.
+let VAC_POLITICA = { dias_anticipacion: 15, min_dias_bloque: 7, permite_acuerdo_partes: true };
+
 async function abrirModalVacaciones() {
-  const minFecha = new Date(); minFecha.setDate(minFecha.getDate()+15);
-  const minStr = minFecha.toISOString().split('T')[0];
-  document.getElementById('vac-desde').value = minStr;
-  document.getElementById('vac-desde').min = minStr;
-  document.getElementById('vac-hasta').value = minStr;
-  document.getElementById('vac-hasta').min = minStr;
+  const hoyStr = new Date().toISOString().split('T')[0];
+  document.getElementById('vac-desde').value = '';
+  document.getElementById('vac-desde').min = hoyStr;
+  document.getElementById('vac-hasta').value = '';
+  document.getElementById('vac-hasta').min = hoyStr;
   document.getElementById('vac-dias-info').style.display = 'none';
+  document.getElementById('vac-minbloque-error').style.display = 'none';
   document.getElementById('vac-anticipacion-warn').style.display = 'none';
   document.getElementById('vac-condicion-warn').style.display = 'none';
   document.getElementById('vac-admin-info').style.display = 'none';
+  document.getElementById('vac-acuerdo-partes-wrap').style.display = 'none';
+  document.getElementById('vac-acuerdo-partes').checked = false;
   document.getElementById('vac-motivo').value = '';
   document.getElementById('vac-resumen-saldo').style.display = 'none';
+  document.getElementById('btn-enviar-vacaciones').disabled = false;
   abrirModal('modal-vacaciones');
   try {
     const saldo = await api('/licencias/vacaciones/saldo');
     const s = saldo[0];
     if (s) {
+      VAC_POLITICA = {
+        dias_anticipacion: s.vacaciones_dias_anticipacion ?? 15,
+        min_dias_bloque: s.vacaciones_min_dias_bloque ?? 7,
+        permite_acuerdo_partes: !!s.vacaciones_permite_acuerdo_partes,
+      };
+      document.getElementById('vac-info-minbloque').textContent = VAC_POLITICA.min_dias_bloque;
+      const minFecha = new Date(); minFecha.setDate(minFecha.getDate() + VAC_POLITICA.dias_anticipacion);
+      const minStr = minFecha.toISOString().split('T')[0];
+      document.getElementById('vac-desde').value = minStr;
+      document.getElementById('vac-hasta').value = minStr;
       document.getElementById('vac-r-corresponden').textContent = s.dias_correspondientes + ' días';
       document.getElementById('vac-r-tomados').textContent = s.dias_tomados + ' días';
       document.getElementById('vac-r-disponibles').textContent = s.saldo_total_disponible + ' días';
@@ -2365,6 +2391,7 @@ async function abrirModalVacaciones() {
         filaVencido.style.display = 'none';
       }
       document.getElementById('vac-resumen-saldo').style.display = 'block';
+      calcularDiasVac();
     }
   } catch(e) { console.error('Error cargando saldo de vacaciones:', e); }
 }
@@ -2381,23 +2408,55 @@ function calcularDiasVac() {
   const dias = Math.round((new Date(hasta)-new Date(desde))/86400000)+1;
   const info = document.getElementById('vac-dias-info');
   info.style.display = 'block'; info.textContent = '📅 ' + dias + ' día' + (dias>1?'s':'');
-  const diasAnticipacion = Math.round((new Date(desde)-new Date())/86400000);
-  document.getElementById('vac-anticipacion-warn').style.display = diasAnticipacion<15 ? 'block' : 'none';
 
-  // Aviso (no bloquea el envío) si no cumple las condiciones del convenio:
-  // mínimo 7 días corridos y arranque en lunes.
+  // Mínimo de días por bloque — bloqueo real (configurable por convenio),
+  // no un simple aviso como antes.
+  const errMinBloque = document.getElementById('vac-minbloque-error');
+  const minBloqueOk = dias >= VAC_POLITICA.min_dias_bloque;
+  if (!minBloqueOk) {
+    errMinBloque.style.display = 'block';
+    errMinBloque.textContent = `✗ El mínimo por pedido es de ${VAC_POLITICA.min_dias_bloque} días corridos — elegiste ${dias}.`;
+  } else {
+    errMinBloque.style.display = 'none';
+  }
+
+  // Aviso informativo (no bloquea) si no arranca un lunes.
   const warn = document.getElementById('vac-condicion-warn');
-  const avisos = [];
-  if (dias < 7) avisos.push('el convenio pide un mínimo de 7 días corridos por período');
-  // getUTCDay para evitar corrimiento de zona horaria al parsear "YYYY-MM-DD"
+  // getDay() sobre "YYYY-MM-DDT00:00:00" evita corrimiento de zona horaria.
   const diaSemanaInicio = new Date(desde + 'T00:00:00').getDay(); // 0=dom,1=lun...
-  if (diaSemanaInicio !== 1) avisos.push('el convenio pide que arranque un lunes');
-  if (avisos.length) {
+  if (diaSemanaInicio !== 1) {
     warn.style.display = 'block';
-    warn.textContent = '⚠ Este pedido no cumple lo que marca el convenio: ' + avisos.join(' y ') + '. Podés enviarlo igual, pero quedará sujeto a que el admin lo evalúe puntualmente.';
+    warn.textContent = '⚠ El convenio pide que el período arranque un lunes. Podés enviarlo igual, pero quedará sujeto a que el admin lo evalúe puntualmente.';
   } else {
     warn.style.display = 'none';
   }
+
+  // Anticipación — configurable por convenio. Si no alcanza y la empresa
+  // permite acuerdo de partes, se puede continuar tildando la confirmación
+  // en vez de bloquear directo.
+  const diasAnticipacion = Math.round((new Date(desde)-new Date())/86400000);
+  const anticipacionOk = diasAnticipacion >= VAC_POLITICA.dias_anticipacion;
+  const avisoAnticip = document.getElementById('vac-anticipacion-warn');
+  const wrapAcuerdo = document.getElementById('vac-acuerdo-partes-wrap');
+  const chkAcuerdo = document.getElementById('vac-acuerdo-partes');
+  let anticipacionCumplida = anticipacionOk;
+  if (!anticipacionOk && VAC_POLITICA.permite_acuerdo_partes) {
+    avisoAnticip.style.display = 'block';
+    avisoAnticip.textContent = `⚠ El convenio/la empresa establece un mínimo de ${VAC_POLITICA.dias_anticipacion} días de anticipación para coordinar las actividades durante tu ausencia. Si coordinaste la cobertura con tu empleador, podés continuar.`;
+    wrapAcuerdo.style.display = 'block';
+    anticipacionCumplida = chkAcuerdo.checked;
+  } else if (!anticipacionOk) {
+    avisoAnticip.style.display = 'block';
+    avisoAnticip.textContent = `✗ Debés solicitar con al menos ${VAC_POLITICA.dias_anticipacion} días de anticipación.`;
+    wrapAcuerdo.style.display = 'none';
+    chkAcuerdo.checked = false;
+  } else {
+    avisoAnticip.style.display = 'none';
+    wrapAcuerdo.style.display = 'none';
+    chkAcuerdo.checked = false;
+  }
+
+  document.getElementById('btn-enviar-vacaciones').disabled = !(minBloqueOk && anticipacionCumplida);
 }
 
 async function enviarVacaciones() {
@@ -2405,11 +2464,20 @@ async function enviarVacaciones() {
   const hasta = document.getElementById('vac-hasta').value;
   const tipo = document.getElementById('vac-tipo').value;
   const motivo = document.getElementById('vac-motivo').value;
+  const acuerdoCoordinado = document.getElementById('vac-acuerdo-partes').checked;
   if (!desde || !hasta) return toast('Seleccioná las fechas', 'error');
-  if (Math.round((new Date(desde)-new Date())/86400000) < 15)
-    return toast('Debés solicitar las vacaciones con al menos 15 días de anticipación', 'error');
+  const dias = Math.round((new Date(hasta)-new Date(desde))/86400000)+1;
+  if (dias < VAC_POLITICA.min_dias_bloque)
+    return toast(`El mínimo por pedido es de ${VAC_POLITICA.min_dias_bloque} días corridos`, 'error');
+  const diasAnticipacion = Math.round((new Date(desde)-new Date())/86400000);
+  if (diasAnticipacion < VAC_POLITICA.dias_anticipacion) {
+    if (!VAC_POLITICA.permite_acuerdo_partes)
+      return toast(`Debés solicitar con al menos ${VAC_POLITICA.dias_anticipacion} días de anticipación`, 'error');
+    if (!acuerdoCoordinado)
+      return toast('Confirmá que coordinaste la cobertura con tu empleador para continuar', 'error');
+  }
   try {
-    await api('/licencias/vacaciones', {method:'POST', body:JSON.stringify({fecha_inicio:desde, fecha_fin:hasta, tipo, motivo})});
+    await api('/licencias/vacaciones', {method:'POST', body:JSON.stringify({fecha_inicio:desde, fecha_fin:hasta, tipo, motivo, acuerdo_coordinado:acuerdoCoordinado})});
     cerrarModal('modal-vacaciones');
     toast('Solicitud enviada. Pendiente de aprobación.', 'success');
     cargarDashboardEmpleado();
@@ -3345,9 +3413,9 @@ function tabPendientes(id, el) {
 function abrirPanelConfig() {
   const existing = document.getElementById('modal-config');
   if (existing) existing.remove();
-  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div style="display:flex;gap:6px;margin-bottom:10px" id="dest-filtro-tabs"><button type="button" class="btn btn-sm btn-primary" onclick="filtrarDestinosConfig('todos',this)" style="flex:1">Todos</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('cliente',this)" style="flex:1">Propios</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('contratista',this)" style="flex:1">Contratistas</button></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
+  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div style="display:flex;gap:6px;margin-bottom:10px" id="dest-filtro-tabs"><button type="button" class="btn btn-sm btn-primary" onclick="filtrarDestinosConfig('todos',this)" style="flex:1">Todos</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('cliente',this)" style="flex:1">Propios</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('contratista',this)" style="flex:1">Contratistas</button></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="sep"></div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Política interna de solicitud de vacaciones (no son exigencias del convenio 130/75 en sí, son configurables por la empresa):</div><div class="form-group"><label>Días de anticipación requeridos</label><input type="number" id="conv-vac-anticipacion" value="15" min="0"></div><div class="form-group"><label>Mínimo de días corridos por pedido</label><input type="number" id="conv-vac-minbloque" value="7" min="1"></div><div class="form-group" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="conv-vac-acuerdo-partes" style="width:auto"><label style="margin:0" for="conv-vac-acuerdo-partes">Permitir acuerdo de partes (el empleado puede pedir con menos anticipación si confirma que coordinó la cobertura con su empleador)</label></div><div class="sep"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
-  cargarConfigEmpresa(); cargarDestinosConfig();
+  cargarConfigEmpresa(); cargarDestinosConfig(); cargarConfigConvenio();
   api('/config/empleados').then(emps => {
     const sel = document.getElementById('cfg-jornada-emp');
     if (sel) sel.innerHTML = emps.map(e => '<option value="'+e.id+'">'+e.nombre+' '+e.apellido+'</option>').join('');
@@ -3513,9 +3581,39 @@ async function importarDestinos(input) {
   } catch { toast('Error al leer el archivo','error'); }
 }
 
+let CONVENIO_ACTUAL_ID = null;
+
+async function cargarConfigConvenio() {
+  try {
+    const [emp, convenios] = await Promise.all([api('/config/empleador'), api('/config/convenios')]);
+    const conv = convenios.find(c => c.id === emp.convenio_id) || convenios.find(c => c.es_default) || convenios[0];
+    if (!conv) return;
+    CONVENIO_ACTUAL_ID = conv.id;
+    const f = (id,val) => { const el=document.getElementById(id); if(el&&val!=null) el.value=val; };
+    f('conv-horas', conv.horas_diarias);
+    f('conv-toler', conv.tolerancia_tardanza_min);
+    f('conv-vac-anticipacion', conv.vacaciones_dias_anticipacion);
+    f('conv-vac-minbloque', conv.vacaciones_min_dias_bloque);
+    f('conv-texto', conv.texto_convenio || '');
+    const chk = document.getElementById('conv-vac-acuerdo-partes');
+    if (chk) chk.checked = !!conv.vacaciones_permite_acuerdo_partes;
+  } catch(e) { console.error('Error cargando convenio:', e); }
+}
+
 async function guardarConvenio() {
-  try { await api('/config/empleador',{method:'PATCH',body:JSON.stringify({})}); toast('Convenio actualizado ✓','success'); }
-  catch(e) { toast(e.message,'error'); }
+  if (!CONVENIO_ACTUAL_ID) return toast('No se encontró el convenio a editar', 'error');
+  const body = {
+    horas_diarias: parseFloat(document.getElementById('conv-horas')?.value) || undefined,
+    tolerancia_tardanza_min: parseInt(document.getElementById('conv-toler')?.value) || undefined,
+    texto_convenio: document.getElementById('conv-texto')?.value || undefined,
+    vacaciones_dias_anticipacion: parseInt(document.getElementById('conv-vac-anticipacion')?.value),
+    vacaciones_min_dias_bloque: parseInt(document.getElementById('conv-vac-minbloque')?.value),
+    vacaciones_permite_acuerdo_partes: document.getElementById('conv-vac-acuerdo-partes')?.checked,
+  };
+  try {
+    await api('/config/convenios/'+CONVENIO_ACTUAL_ID, {method:'PATCH', body:JSON.stringify(body)});
+    toast('Convenio actualizado ✓','success');
+  } catch(e) { toast(e.message,'error'); }
 }
 </script>
 
