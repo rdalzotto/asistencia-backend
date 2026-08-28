@@ -128,6 +128,27 @@ async function getJornadaConfig(empleadoId) {
   return rows[0] || null;
 }
 
+// ─── Hora de egreso configurada para HOY (jornadas_por_dia, con fallback a
+// jornadas_config general) — mismo patrón que ya usan GET /movimientos/
+// horario-hoy y POST /movimientos/confirmar-jornada, centralizado acá para
+// el criterio de egreso de oficina sin GPS (rework 28/08/2026, Caso A). ─
+async function obtenerHoraEgresoHoy(empleadoId, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  const { dow } = horaAhoraArgentina();
+  const { rows: jpd } = await queryFn(
+    'SELECT hora_egreso FROM public.jornadas_por_dia WHERE empleado_id = $1 AND dia_semana = $2',
+    [empleadoId, dow]
+  );
+  if (jpd[0]?.hora_egreso) return jpd[0].hora_egreso;
+
+  const { rows: jc } = await queryFn(
+    `SELECT jc.hora_egreso FROM public.jornadas_config jc
+     JOIN public.empleados e ON e.jornada_config_id = jc.id WHERE e.id = $1`,
+    [empleadoId]
+  );
+  return jc[0]?.hora_egreso || null;
+}
+
 // ─── Calcular tardanza ───────────────────────────────────────────────────────
 function calcularTardanza(horaIngreso, jornadaConfig, convenio) {
   if (!jornadaConfig?.hora_ingreso) return { esTardanza: false, minutos: 0 };
@@ -513,6 +534,7 @@ module.exports = {
   tieneVisitaPropiaHoy,
   validarHorarioRemoto,
   getJornadaConfig,
+  obtenerHoraEgresoHoy,
   calcularTardanza,
   calcularHorasJornada,
   calcularHorasExtra,

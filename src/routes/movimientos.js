@@ -11,6 +11,7 @@ router.post('/registrar', auth, async (req, res) => {
     categoria_salida_id, destino_id, destino_descripcion,
     es_remoto, domicilio_partida_lat, domicilio_partida_lng,
     consentimiento_extra, contexto_remoto, acompanante_id,
+    hora_estimada_fin,
   } = req.body;
 
   // 'domicilio' = arrancó la jornada trabajando desde su casa
@@ -201,6 +202,69 @@ router.post('/registrar', auth, async (req, res) => {
       minutosTardanza = tardanza.minutos;
     }
 
+    // ─ Hora estimada de fin de jornada (Caso B del rework de egreso sin GPS,
+    // 28/08/2026): al arrancar una jornada remota/externa, el empleado
+    // declara cuándo estima volver. Si el frontend no la mandó, se intenta
+    // prellenar con la visita propia de hoy que tenga hora_estimada_regreso
+    // cargada — el dato igual queda guardado en este movimiento de inicio,
+    // no depende de que la visita siga existiendo después. ─
+    let horaEstimadaFinVal = null;
+    if (tipo === 'inicio_jornada_remota') {
+      if (/^\d{2}:\d{2}$/.test(hora_estimada_fin || '')) {
+        horaEstimadaFinVal = hora_estimada_fin;
+      } else {
+        const { rows: [visitaHoy] } = await client.query(`
+          SELECT hora_estimada_regreso FROM public.visitas
+          WHERE empleado_id = $1 AND fecha = CURRENT_DATE
+            AND hora_estimada_regreso IS NOT NULL
+            AND estado IN ('programada','en_curso','completada')
+          ORDER BY hora_estimada_regreso ASC LIMIT 1
+        `, [empleadoId]);
+        if (visitaHoy?.hora_estimada_regreso) {
+          horaEstimadaFinVal = String(visitaHoy.hora_estimada_regreso).slice(0, 5);
+        }
+      }
+    }
+
+    // ─ Validación del egreso sin GPS (rework 28/08/2026) — a diferencia del
+    // ingreso, un egreso adelantado ya perjudica al propio empleado (le
+    // faltan horas en el resumen mensual), así que no debería trabar el
+    // fichaje ni pedir validación activa en la mayoría de los casos:
+    //
+    // Caso A — egreso de oficina (tipo='egreso', es_remoto=false) sin GPS:
+    // se compara contra la hora_egreso configurada de hoy. Hasta 30 min
+    // antes (o después, sin límite) se acepta solo, validado=true. Con más
+    // de 30 min de anticipación, sigue yendo a Pendientes como antes.
+    //
+    // Caso B — egreso remoto/externo (tipo='fin_jornada_remota'): ya viene
+    // acumulando horas reales de trabajo en cliente, así que el fichaje
+    // explícito del empleado (a horario o tarde) se acepta directo,
+    // validado=true. El resguardo acá no es una validación pendiente del
+    // admin, sino el aviso al llegar la hora_estimada_fin y el tope duro de
+    // 12hs, ambos manejados por el cron (ver index.js).
+    let validadoVal = es_remoto ? false : gpsValido;
+
+    if (tipo === 'egreso' && !es_remoto && !tieneGps) {
+      const horaEgresoHoy = await jornada.obtenerHoraEgresoHoy(empleadoId, client);
+      if (horaEgresoHoy) {
+        const { h: hAR, m: mAR } = jornada.horaAhoraArgentina();
+        const minAhora   = hAR * 60 + mAR;
+        const [hEgr, mEgr] = horaEgresoHoy.split(':').map(Number);
+        const minEgreso  = hEgr * 60 + mEgr;
+        if (minAhora >= minEgreso - 30) {
+          validadoVal = true;
+          observacionAuto = `Egreso sin señal GPS, dentro del margen del horario habitual (${horaEgresoHoy}) — aprobado automáticamente`;
+        } else {
+          validadoVal = false;
+          observacionAuto = `Egreso sin señal GPS con ${minEgreso - minAhora} min de anticipación respecto al horario habitual (${horaEgresoHoy}) — pendiente de validación`;
+        }
+      }
+      // Sin horario configurado para hoy: se mantiene el criterio anterior
+      // (pendiente de validación), ya cubierto por validadoVal = gpsValido = false.
+    } else if (tipo === 'fin_jornada_remota') {
+      validadoVal = true;
+    }
+
     // ─ Auto-aprobación de "Externo": el fichaje como Externo (contexto_remoto=
     // 'externo') queda validado=true desde el insert sin pasar por
     // pendientes-validacion cuando: (Caso 1) el colaborador ya tiene una
@@ -211,7 +275,6 @@ router.post('/registrar', auth, async (req, res) => {
     // criterio anterior: pendiente de validación manual. Un acompañante
     // "otro_cliente" NO alcanza por sí solo — necesita además su propia
     // visita cargada (Caso 1), tal cual pedía el spec. ─
-    let validadoVal = es_remoto ? false : gpsValido;
     let acompananteRow = null;
     if (tipo === 'inicio_jornada_remota' && contextoRemotoVal === 'externo') {
       if (acompanante_id) {
@@ -253,7 +316,7 @@ router.post('/registrar', auth, async (req, res) => {
         consentimiento_extra, consentimiento_hora,
         validado, hash_sha256, observacion_admin,
         contexto_remoto, km_estimados,
-        salida_fuera_radio
+        salida_fuera_radio, hora_estimada_fin
       ) VALUES (
         $1,$2,$3,CURRENT_DATE,NOW(),
         $4,$5,$6,$7,
@@ -265,7 +328,7 @@ router.post('/registrar', auth, async (req, res) => {
         $19, CASE WHEN $19 THEN NOW() ELSE NULL END,
         $20,$21,$22,
         $23,$24,
-        $25
+        $25,$26
       ) RETURNING *
     `, [
       empleadoId, req.user.empleadorId, tipo,
@@ -287,6 +350,7 @@ router.post('/registrar', auth, async (req, res) => {
       contextoRemotoVal,
       kmEstimados,
       salidaFueraRadioVal,
+      horaEstimadaFinVal,
     ]);
 
     // ─ Marcar la fila de acompañante como confirmada (Parte C.2) — aunque no

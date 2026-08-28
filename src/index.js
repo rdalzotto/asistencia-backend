@@ -136,6 +136,14 @@ async function cronJornadaInteligente() {
       return js === 0 ? 7 : js;
     })();
 
+    // Solo jornadas de OFICINA activas ahora mismo — el último movimiento de
+    // hoy tiene que ser uno de los tres que dejan la jornada abierta en modo
+    // oficina. Esto excluye tanto a quien todavía no fichó nada, como a quien
+    // ya cerró (egreso/fin_jornada_remota), como a quien está en un tramo
+    // remoto/externo abierto (inicio_jornada_remota como último movimiento)
+    // — ese caso lo cubre el Caso B del rework de egreso sin GPS (28/08/2026,
+    // ver paso 2b más abajo), con su propia hora_estimada_fin por movimiento
+    // en vez de la hora_egreso general de la jornada de oficina.
     const { rows: conConsulta } = await db.query(`
       SELECT e.id as empleado_id, e.empleador_id, e.nombre, e.apellido,
              COALESCE(jpd.hora_egreso, jc.hora_egreso) AS hora_egreso,
@@ -147,18 +155,11 @@ async function cronJornadaInteligente() {
         ON jpd.empleado_id = e.id AND jpd.dia_semana = $1
       WHERE COALESCE(jpd.hora_egreso, jc.hora_egreso) IS NOT NULL
         AND e.activo = TRUE
-        AND EXISTS (
-          SELECT 1 FROM public.movimientos m
-          WHERE m.empleado_id = e.id
-            AND m.fecha = CURRENT_DATE
-            AND m.tipo IN ('ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota')
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM public.movimientos m2
-          WHERE m2.empleado_id = e.id
-            AND m2.fecha = CURRENT_DATE
-            AND m2.tipo IN ('egreso','fin_jornada_remota')
-        )
+        AND (
+          SELECT m.tipo FROM public.movimientos m
+          WHERE m.empleado_id = e.id AND m.fecha = CURRENT_DATE
+          ORDER BY m.hora DESC LIMIT 1
+        ) IN ('ingreso','regreso_almuerzo','regreso_externo')
         AND NOT EXISTS (
           SELECT 1 FROM public.consultas_egreso ce
           WHERE ce.empleado_id = e.id
@@ -182,24 +183,18 @@ async function cronJornadaInteligente() {
       console.log(`[CRON] Consulta egreso enviada a ${emp.nombre} ${emp.apellido} (${emp.hora_egreso})`);
     }
 
-    // ── 2. Consulta vencida sin respuesta ───────────────────────────────────────
-    // Jornadas remotas: comportamiento sin cambios (cierre automático, aviso
-    // solo al admin) — su duración es variable, un recordatorio de "terminó
-    // tu jornada" no tiene sentido ahí.
-    // Jornadas de oficina: YA NO se cierran solas acá. En vez de eso, se le
-    // manda un recordatorio push AL EMPLEADO (una sola vez, marcado con
-    // recordatorio_enviado) y la jornada queda genuinamente abierta hasta que
-    // la fiche él mismo — el cartel persistente en el dashboard usa el mismo
-    // flag vía GET /movimientos/consulta-egreso-pendiente. El cierre de
-    // seguridad de las 20:00 (paso 4 más abajo) sigue como último resguardo.
+    // ── 2. Consulta vencida sin respuesta (jornada de oficina) ────────────────
+    // Ya no se cierra sola acá. En vez de eso, se le manda un recordatorio
+    // push AL EMPLEADO (una sola vez, marcado con recordatorio_enviado) y la
+    // jornada queda genuinamente abierta hasta que la fiche él mismo — el
+    // cartel persistente en el dashboard usa el mismo flag vía GET
+    // /movimientos/consulta-egreso-pendiente. El cierre de seguridad de las
+    // 20:00 (paso 4 más abajo) sigue como último resguardo. Las consultas
+    // acá siempre son de oficina (paso 1 ya excluye jornadas remotas/
+    // externas activas — esas usan su propio aviso en el paso 2b).
     const { rows: sinRespuesta } = await db.query(`
       SELECT ce.id as consulta_id, ce.empleado_id, ce.empleador_id, ce.enviado_en,
-        e.nombre, e.apellido, e.usuario_id,
-        EXISTS (
-          SELECT 1 FROM public.movimientos m3
-          WHERE m3.empleado_id = ce.empleado_id AND m3.fecha = CURRENT_DATE
-            AND m3.tipo = 'inicio_jornada_remota'
-        ) AS es_remoto
+        e.nombre, e.apellido, e.usuario_id
       FROM public.consultas_egreso ce
       JOIN public.empleados e ON e.id = ce.empleado_id
       WHERE ce.fecha = CURRENT_DATE
@@ -222,33 +217,65 @@ async function cronJornadaInteligente() {
       // pasos del cron ni quedar reintentando la misma fila en bucle cada
       // minuto sin que nadie se entere del motivo real.
       try {
-        if (row.es_remoto) {
-          await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'sin_respuesta');
-          await notificarHorasExtra(row.empleado_id, row.empleador_id, nombre);
+        const horaEgreso = new Date(row.enviado_en).toLocaleTimeString('es-AR', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires',
+        });
+        const n = push.notif.recordatorioEgreso(horaEgreso);
+        await push.pushUsuario(row.usuario_id, n.titulo, n.cuerpo);
 
-          const n = push.notif.cierreSinRespuesta(nombre);
-          await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
-
-          await db.query(
-            `UPDATE public.consultas_egreso SET respondido = TRUE, respuesta = 'vencida' WHERE id = $1`,
-            [row.consulta_id]
-          );
-          console.log(`[CRON] Egreso por inactividad (remoto): ${nombre}`);
-        } else {
-          const horaEgreso = new Date(row.enviado_en).toLocaleTimeString('es-AR', {
-            hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires',
-          });
-          const n = push.notif.recordatorioEgreso(horaEgreso);
-          await push.pushUsuario(row.usuario_id, n.titulo, n.cuerpo);
-
-          await db.query(
-            `UPDATE public.consultas_egreso SET recordatorio_enviado = TRUE WHERE id = $1`,
-            [row.consulta_id]
-          );
-          console.log(`[CRON] Recordatorio de egreso enviado (oficina): ${nombre}`);
-        }
+        await db.query(
+          `UPDATE public.consultas_egreso SET recordatorio_enviado = TRUE WHERE id = $1`,
+          [row.consulta_id]
+        );
+        console.log(`[CRON] Recordatorio de egreso enviado (oficina): ${nombre}`);
       } catch (errFila) {
-        console.error(`[CRON] Error procesando consulta_id=${row.consulta_id} (empleado_id=${row.empleado_id}, es_remoto=${row.es_remoto}):`, errFila.message);
+        console.error(`[CRON] Error procesando consulta_id=${row.consulta_id} (empleado_id=${row.empleado_id}):`, errFila.message);
+      }
+    }
+
+    // ── 2b. Aviso de fin de jornada externa/remota (hora estimada propia) ────
+    // Caso B del rework de egreso sin GPS (28/08/2026): al arrancar
+    // "inicio_jornada_remota" el empleado declara una hora estimada de
+    // regreso (columna hora_estimada_fin, propia de ESE movimiento, no la
+    // hora_egreso general de la jornada de oficina). Al llegarla sin que
+    // haya fichado "fin_jornada_remota", se avisa al empleado y se informa
+    // al admin — no se cierra la jornada sola acá; eso solo pasa si llega al
+    // tope duro de 12hs (paso 5c) o cuando el empleado ficha su egreso.
+    const { rows: externasPorAvisar } = await db.query(`
+      SELECT m.id, m.empleado_id, m.empleador_id, m.hora_estimada_fin,
+             e.nombre, e.apellido, e.usuario_id
+      FROM public.movimientos m
+      JOIN public.empleados e ON e.id = m.empleado_id
+      WHERE m.fecha = CURRENT_DATE
+        AND m.tipo = 'inicio_jornada_remota'
+        AND m.hora_estimada_fin IS NOT NULL
+        AND m.aviso_hora_estimada_enviado = FALSE
+        AND NOT EXISTS (
+          SELECT 1 FROM public.movimientos m2
+          WHERE m2.empleado_id = m.empleado_id AND m2.fecha = CURRENT_DATE
+            AND m2.tipo = 'fin_jornada_remota' AND m2.hora > m.hora
+        )
+    `);
+
+    for (const row of externasPorAvisar) {
+      const horaEstStr = String(row.hora_estimada_fin).slice(0, 5);
+      if (minAhora < minDesde(horaEstStr)) continue;
+
+      const nombre = `${row.nombre || ''} ${row.apellido || ''}`.trim();
+      try {
+        const nEmp = push.notif.consultaFinJornadaExterna(horaEstStr);
+        await push.pushUsuario(row.usuario_id, nEmp.titulo, nEmp.cuerpo);
+
+        const nAdmin = push.notif.finJornadaExternaSinFichar(nombre, horaEstStr);
+        await push.pushAdmins(row.empleador_id, nAdmin.titulo, nAdmin.cuerpo);
+
+        await db.query(
+          'UPDATE public.movimientos SET aviso_hora_estimada_enviado = TRUE WHERE id = $1',
+          [row.id]
+        );
+        console.log(`[CRON] Aviso de fin de jornada externa enviado: ${nombre} (estimado ${horaEstStr})`);
+      } catch (errFila) {
+        console.error(`[CRON] Error en aviso jornada externa (movimiento_id=${row.id}):`, errFila.message);
       }
     }
 
@@ -386,6 +413,40 @@ async function cronJornadaInteligente() {
       const n = push.notif.cierreSinValidacionGps(nombre);
       await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
       console.log(`[CRON] Cierre por jornada remota/externa sin validar (3h): ${nombre}`);
+    }
+
+    // ── 5c. Tope duro de 12 horas para jornada remota/externa ────────────────
+    // Caso B, punto 4 del rework de egreso sin GPS (28/08/2026): nadie puede
+    // trabajar más de 12hs seguidas en modalidad remota/externa, sin
+    // tolerancia extra. Corre en cada tick del cron (no atado a un horario
+    // fijo tipo 20hs) para cubrir a quien arranca muy temprano (ej. entrada
+    // 5am + 12h = cierre a las 17hs). A diferencia del paso 5b (que cierra
+    // por FALTA de validación del inicio), esto cierra por exceso de tiempo
+    // aunque el inicio ya esté validado — el cierre en sí siempre queda
+    // validado=true (registrarEgresoAuto), no es un veredicto sobre si el
+    // trabajo fue legítimo, solo un tope de seguridad.
+    const { rows: excesoDoceHoras } = await db.query(`
+      SELECT DISTINCT m.empleado_id, m.empleador_id
+      FROM public.movimientos m
+      WHERE m.tipo = 'inicio_jornada_remota'
+        AND m.fecha = CURRENT_DATE
+        AND m.hora <= NOW() - INTERVAL '12 hours'
+        AND NOT EXISTS (
+          SELECT 1 FROM public.movimientos m2
+          WHERE m2.empleado_id = m.empleado_id AND m2.fecha = m.fecha
+            AND m2.tipo = 'fin_jornada_remota' AND m2.hora > m.hora
+        )
+    `);
+
+    for (const row of excesoDoceHoras) {
+      const { rows: [emp] } = await db.query(
+        'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [row.empleado_id]
+      );
+      const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
+      await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'tope_12h', 'fin_jornada_remota');
+      const n = push.notif.cierreTope12Horas(nombre);
+      await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
+      console.log(`[CRON] Cierre por tope de 12hs: ${nombre}`);
     }
 
   } catch (err) {

@@ -2022,6 +2022,11 @@ function mostrarOpcionesModalidad(motivo) {
     <div id="selector-externo" style="display:none;text-align:left;margin-top:8px">
       <div class="form-group"><label>Cliente / destino</label><select id="reg-destino-externo"><option value="">— Seleccionar destino —</option></select></div>
       <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="reg-descripcion-externo" placeholder="Detalles adicionales"></div>
+      <div class="form-group">
+        <label>¿A qué hora estimás terminar / volver hoy?</label>
+        <input type="time" id="reg-hora-estimada-fin">
+        <div id="reg-hora-estimada-fin-nota" style="display:none;font-size:11px;color:var(--text3);margin-top:4px">Prellenado de tu visita de hoy — podés ajustarlo si tu estimación es distinta.</div>
+      </div>
       <button class="btn btn-primary" style="background:var(--orange);color:#0f1923;width:100%" onclick="registrarComoRemoto('externo')">Confirmar viaje a cliente</button>
     </div>`;
   const modal = document.querySelector('#modal-registro .modal');
@@ -2037,15 +2042,58 @@ function mostrarOpcionesModalidad(motivo) {
 function mostrarSelectorExterno() {
   const sel = document.getElementById('selector-externo');
   if (sel) { sel.style.display = 'block'; sel.scrollIntoView({behavior:'smooth', block:'nearest'}); }
+  prellenarHoraEstimadaFin();
+}
+
+// Busca una visita propia de hoy con hora_estimada_regreso cargada para
+// prellenar el campo de "hora estimada de fin" del fichaje Externo — Caso B
+// del rework de egreso sin GPS (28/08/2026). Sigue siendo editable: si el
+// empleado ya escribió algo en el campo, no lo pisa.
+async function prellenarHoraEstimadaFin() {
+  const input = document.getElementById('reg-hora-estimada-fin');
+  const nota  = document.getElementById('reg-hora-estimada-fin-nota');
+  if (!input || input.value) return;
+  try {
+    const hoy = new Date().toISOString().split('T')[0];
+    const visitas = await api('/visitas?desde='+hoy+'&hasta='+hoy);
+    const conHora = (visitas || [])
+      .filter(v => ['programada','en_curso','completada'].includes(v.estado) && v.hora_estimada_regreso)
+      .sort((a, b) => String(a.hora_estimada_regreso).localeCompare(String(b.hora_estimada_regreso)))[0];
+    if (conHora && !input.value) {
+      input.value = String(conHora.hora_estimada_regreso).slice(0, 5);
+      if (nota) nota.style.display = 'block';
+    }
+  } catch {}
 }
 
 async function registrarComoRemoto(contexto, acompananteId) {
   contexto = contexto === 'externo' ? 'externo' : 'domicilio';
   const btn = document.getElementById('btn-confirmar-mov');
-  btn.disabled = true;
   const banner = document.getElementById('banner-remoto');
   const destId = contexto === 'externo' ? document.getElementById('reg-destino-externo')?.value : null;
   const desc   = contexto === 'externo' ? document.getElementById('reg-descripcion-externo')?.value : null;
+  const horaEstimadaFin = contexto === 'externo' ? document.getElementById('reg-hora-estimada-fin')?.value : null;
+
+  // Caso B del rework de egreso sin GPS (28/08/2026): la hora estimada de
+  // fin es obligatoria para "Externo" (salvo que ya venga prellenada de una
+  // visita) y tiene que ser posterior a la hora actual — no tiene sentido
+  // "estimar regreso" en el pasado.
+  if (contexto === 'externo') {
+    if (!horaEstimadaFin) {
+      toast('Indicá a qué hora estimás terminar / volver hoy antes de confirmar.', 'error', 5000);
+      return;
+    }
+    const ahora = new Date();
+    const [hEst, mEst] = horaEstimadaFin.split(':').map(Number);
+    const estimado = new Date(ahora);
+    estimado.setHours(hEst, mEst, 0, 0);
+    if (estimado <= ahora) {
+      toast('La hora estimada tiene que ser más tarde que la hora actual.', 'error', 5000);
+      return;
+    }
+  }
+
+  btn.disabled = true;
   const body = {
     tipo:'inicio_jornada_remota', lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng,
     foto_url:STATE.fotoBase64, es_remoto:true,
@@ -2053,6 +2101,7 @@ async function registrarComoRemoto(contexto, acompananteId) {
     contexto_remoto: contexto,
     destino_id: destId || null, destino_descripcion: desc || null,
     acompanante_id: acompananteId || null,
+    hora_estimada_fin: horaEstimadaFin || null,
   };
   try {
     const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});

@@ -149,6 +149,25 @@ const notif = {
     titulo: '⏰ Fichá tu egreso',
     cuerpo: `Tu jornada terminó hace 15 minutos (${horaEgreso}). Fichá tu egreso para que se registre correctamente.`,
   }),
+
+  // Va al EMPLEADO — Caso B del rework de egreso sin GPS (28/08/2026).
+  // Jornada remota/externa que llegó a la hora estimada de regreso propia
+  // (hora_estimada_fin) sin que haya fichado egreso todavía.
+  consultaFinJornadaExterna: (horaEstimada) => ({
+    titulo: '🕐 ¿Ya terminaste tu jornada externa?',
+    cuerpo: `Llegaste a tu hora estimada de regreso (${horaEstimada}). Si ya terminaste, fichá tu egreso.`,
+  }),
+
+  // Va al ADMIN — misma situación que consultaFinJornadaExterna, solo informativo.
+  finJornadaExternaSinFichar: (nombre, horaEstimada) => ({
+    titulo: `📍 ${nombre} — sin fichar egreso externo`,
+    cuerpo: `Pasó su hora estimada de regreso (${horaEstimada}) y todavía no fichó egreso.`,
+  }),
+
+  cierreTope12Horas: (nombre) => ({
+    titulo: `🔒 Cierre por tope de 12hs — ${nombre}`,
+    cuerpo: 'Superó las 12 horas de jornada externa sin fichar egreso. Cerrada automáticamente.',
+  }),
 };
 
 module.exports = { pushUsuario, pushAdmins, notif };
