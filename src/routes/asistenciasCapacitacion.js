@@ -44,11 +44,13 @@ router.post('/entrada', auth, async (req, res) => {
 
   try {
     const { rows: [cap] } = await db.query(
-      `SELECT * FROM public.capacitaciones WHERE id = $1 AND empleador_id = $2`,
+      `SELECT *, (CURRENT_DATE BETWEEN fecha_inicio AND fecha_fin) AS vigente
+       FROM public.capacitaciones WHERE id = $1 AND empleador_id = $2`,
       [capacitacion_id, req.user.empleadorId]
     );
     if (!cap) return res.status(404).json({ error: 'Capacitación no encontrada' });
     if (cap.estado !== 'activa') return res.status(400).json({ error: 'Esta capacitación está cancelada' });
+    if (!cap.vigente) return res.status(400).json({ error: 'Esta capacitación no está vigente hoy' });
 
     const { rows: [existente] } = await db.query(
       `SELECT * FROM public.asistencias_capacitacion
