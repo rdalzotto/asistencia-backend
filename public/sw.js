@@ -7,7 +7,7 @@
 // actualización subida al servidor quedaba invisible para el usuario hasta
 // que se le ocurriera borrar el caché a mano. Con Network First evitamos eso.
 
-const CACHE_NAME = 'asistencia-v6';
+const CACHE_NAME = 'asistencia-v8';
 const EXTINTORES_CACHE = 'extintores-v2';
 
 // Assets que se cachean al instalar el SW (para poder abrir la app offline)
@@ -49,6 +49,12 @@ self.addEventListener('activate', event => {
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
+  // Cualquier petición que no sea GET (POST/PUT/PATCH/DELETE) va siempre
+  // directo a la red, sin pasar por ninguna lógica de cache — la Cache API
+  // no admite cachear requests no-GET, y este Service Worker no tiene
+  // ningún motivo para interceptarlas de todos modos.
+  if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
 
   // Las llamadas a /api/* nunca se interceptan — van siempre a la red.
