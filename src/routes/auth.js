@@ -29,11 +29,20 @@ router.post('/login', async (req, res) => {
 
     let empleadoData = null;
     if (usr.rol === 'empleado') {
-      const { rows: [emp] } = await db.query(
-        'SELECT * FROM public.empleados WHERE usuario_id = $1',
+      // usuario_id no tiene constraint UNIQUE en empleados — si por algún
+      // problema de datos (ej: reconstrucción tras un incidente) quedó más
+      // de una fila para la misma cuenta, esto evita levantar una fila
+      // vieja/incompleta al azar: preferimos la que ya tiene el onboarding
+      // hecho, y entre iguales la más reciente.
+      const { rows } = await db.query(
+        `SELECT * FROM public.empleados WHERE usuario_id = $1
+         ORDER BY onboarding_completo DESC NULLS LAST, actualizado_en DESC NULLS LAST, id DESC`,
         [usr.id]
       );
-      empleadoData = emp;
+      if (rows.length > 1) {
+        console.warn(`[AUTH] usuario_id=${usr.id} tiene ${rows.length} filas en empleados (ids: ${rows.map(r => r.id).join(',')}) — usando id=${rows[0].id}`);
+      }
+      empleadoData = rows[0] || null;
     }
 
     const token = jwt.sign(
@@ -75,10 +84,16 @@ router.get('/me', auth, async (req, res) => {
     // cargo/matrícula por defecto al firmar constancias.
     let empleado = null;
     {
-      const { rows: [e] } = await db.query(
-        'SELECT * FROM public.empleados WHERE usuario_id = $1', [req.user.id]
+      // Mismo resguardo que en /auth/login por si hay filas duplicadas.
+      const { rows } = await db.query(
+        `SELECT * FROM public.empleados WHERE usuario_id = $1
+         ORDER BY onboarding_completo DESC NULLS LAST, actualizado_en DESC NULLS LAST, id DESC`,
+        [req.user.id]
       );
-      empleado = e || null;
+      if (rows.length > 1) {
+        console.warn(`[AUTH] usuario_id=${req.user.id} tiene ${rows.length} filas en empleados (ids: ${rows.map(r => r.id).join(',')}) — usando id=${rows[0].id}`);
+      }
+      empleado = rows[0] || null;
     }
     res.json({ usuario: usr, empleado });
   } catch (err) {

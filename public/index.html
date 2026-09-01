@@ -1230,6 +1230,7 @@ async function doLogin() {
     localStorage.setItem('ar_rol', data.rol);
     try { await ARStorage.set('ar_token_backup', {token: data.token, rol: data.rol}); } catch {}
     if (!data.onboarding) { mostrarScreen('onboarding'); return; }
+    cachearPerfilOffline();
     irADashboard(data.rol);
   } catch(e) { toast(e.message || 'Error de conexión', 'error'); }
   finally { btn.innerHTML = 'Ingresar'; btn.disabled = false; }
@@ -1357,6 +1358,7 @@ async function autoLoginInterno() {
     STATE.apellido = me.empleado ? (me.empleado.apellido || '') : '';
     STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
     STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
+    if (me.empleado) ARStorage.set('ar_perfil_cache', {empleado: me.empleado, email: me.usuario.email}).catch(() => {});
     irADashboard(rol);
   } catch (e) {
     if (e.status === 401 || e.status === 403) {
@@ -1712,27 +1714,49 @@ async function cargarHistorial() {
   } catch(e) { toast(e.message, 'error'); }
 }
 
+// Guarda en IndexedDB (vía ARStorage) el perfil ya confirmado como completo
+// por el servidor (onboarding_completo=true), para poder mostrarlo en
+// "Mi perfil" cuando el dispositivo se quede sin conexión más adelante.
+// Nunca decide si mostrar la pantalla de onboarding — esa decisión la toma
+// siempre el campo `onboarding` que devuelve el servidor en /auth/login,
+// no lo que haya (o no haya) guardado acá.
+async function cachearPerfilOffline() {
+  try {
+    const me = await api('/auth/me');
+    if (me.empleado) await ARStorage.set('ar_perfil_cache', {empleado: me.empleado, email: me.usuario.email});
+  } catch {}
+}
+
+function renderPerfil(e, email, offline) {
+  const cont = document.getElementById('datos-perfil');
+  if (e.foto_perfil_url) {
+    const fc = document.getElementById('foto-perfil-actual');
+    fc.innerHTML = '<img src="'+e.foto_perfil_url+'" style="width:100%;height:100%;object-fit:cover">';
+  }
+  cont.innerHTML = `
+    ${offline ? '<div class="info-row" style="color:var(--yellow)"><span class="lbl">⚠ Sin conexión</span><span class="val">Mostrando últimos datos guardados</span></div>' : ''}
+    <div class="info-row"><span class="lbl">Nombre</span><span class="val">${e.nombre||''} ${e.apellido||''}</span></div>
+    <div class="info-row"><span class="lbl">DNI</span><span class="val">${e.dni||'--'}</span></div>
+    <div class="info-row"><span class="lbl">CUIL</span><span class="val">${e.cuil||'--'}</span></div>
+    <div class="info-row"><span class="lbl">Legajo</span><span class="val">${e.legajo||'--'}</span></div>
+    <div class="info-row"><span class="lbl">Categoría</span><span class="val">${e.categoria||'--'}</span></div>
+    <div class="info-row"><span class="lbl">Ingreso</span><span class="val">${e.fecha_ingreso||'--'}</span></div>
+    <div class="info-row"><span class="lbl">Teléfono</span><span class="val">${e.telefono||'--'}</span></div>
+    <div class="info-row"><span class="lbl">Email</span><span class="val">${email}</span></div>
+  `;
+}
+
 async function cargarMiPerfil() {
   try {
     const me = await api('/auth/me');
-    const e = me.empleado;
-    const cont = document.getElementById('datos-perfil');
-    if (!e) return;
-    if (e.foto_perfil_url) {
-      const fc = document.getElementById('foto-perfil-actual');
-      fc.innerHTML = '<img src="'+e.foto_perfil_url+'" style="width:100%;height:100%;object-fit:cover">';
-    }
-    cont.innerHTML = `
-      <div class="info-row"><span class="lbl">Nombre</span><span class="val">${e.nombre||''} ${e.apellido||''}</span></div>
-      <div class="info-row"><span class="lbl">DNI</span><span class="val">${e.dni||'--'}</span></div>
-      <div class="info-row"><span class="lbl">CUIL</span><span class="val">${e.cuil||'--'}</span></div>
-      <div class="info-row"><span class="lbl">Legajo</span><span class="val">${e.legajo||'--'}</span></div>
-      <div class="info-row"><span class="lbl">Categoría</span><span class="val">${e.categoria||'--'}</span></div>
-      <div class="info-row"><span class="lbl">Ingreso</span><span class="val">${e.fecha_ingreso||'--'}</span></div>
-      <div class="info-row"><span class="lbl">Teléfono</span><span class="val">${e.telefono||'--'}</span></div>
-      <div class="info-row"><span class="lbl">Email</span><span class="val">${me.usuario.email}</span></div>
-    `;
-  } catch(e) { toast(e.message, 'error'); }
+    if (!me.empleado) return;
+    renderPerfil(me.empleado, me.usuario.email, false);
+    await ARStorage.set('ar_perfil_cache', {empleado: me.empleado, email: me.usuario.email});
+  } catch(e) {
+    const cache = await ARStorage.get('ar_perfil_cache').catch(() => null);
+    if (cache) { renderPerfil(cache.empleado, cache.email, true); return; }
+    toast(e.message, 'error');
+  }
 }
 </script>
 
