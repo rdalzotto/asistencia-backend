@@ -20,6 +20,8 @@ DROP TABLE IF EXISTS public.convenios CASCADE;
 DROP TABLE IF EXISTS public.empleadores CASCADE;
 DROP TABLE IF EXISTS public.feriados CASCADE;
 DROP TABLE IF EXISTS public.categorias_salida CASCADE;
+DROP TABLE IF EXISTS public.asistencias_capacitacion CASCADE;
+DROP TABLE IF EXISTS public.capacitaciones CASCADE;
 
 -- ============================================================
 -- FERIADOS NACIONALES
@@ -696,6 +698,55 @@ LEFT JOIN public.banco_horas bh_mes
   AND bh_mes.anio = EXTRACT(YEAR FROM CURRENT_DATE)
   AND bh_mes.mes = EXTRACT(MONTH FROM CURRENT_DATE)
 WHERE e.activo = TRUE;
+
+-- ============================================================
+-- CAPACITACIÓN / FORMACIÓN AUTORIZADA
+-- Circuito de fichaje independiente de movimientos/banco de horas/convenio.
+-- Ver db/capacitaciones_schema.sql para el comentario completo.
+-- ============================================================
+CREATE TABLE public.capacitaciones (
+  id SERIAL PRIMARY KEY,
+  empleador_id INTEGER NOT NULL REFERENCES public.empleadores(id) ON DELETE CASCADE,
+  titulo TEXT NOT NULL,
+  descripcion TEXT,
+  fecha_inicio DATE NOT NULL,
+  fecha_fin DATE NOT NULL,
+  lugar TEXT,
+  lat NUMERIC,
+  lng NUMERIC,
+  es_dia_habil BOOLEAN NOT NULL,
+  pago_como_jornada BOOLEAN NOT NULL,
+  costo_inscripcion NUMERIC,
+  costo_viaticos NUMERIC,
+  creado_por INTEGER NOT NULL REFERENCES public.empleados(id),
+  estado TEXT NOT NULL DEFAULT 'activa',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.asistencias_capacitacion (
+  id SERIAL PRIMARY KEY,
+  capacitacion_id INTEGER NOT NULL REFERENCES public.capacitaciones(id),
+  empleado_id INTEGER NOT NULL REFERENCES public.empleados(id),
+  fecha DATE NOT NULL,
+  hora_entrada TIMESTAMPTZ NOT NULL,
+  hora_salida TIMESTAMPTZ,
+  gps_entrada_lat NUMERIC,
+  gps_entrada_lng NUMERIC,
+  gps_salida_lat NUMERIC,
+  gps_salida_lng NUMERIC,
+  horas_calculadas NUMERIC,
+  horas_pagadas NUMERIC,
+  validado BOOLEAN NOT NULL DEFAULT false,
+  validado_por INTEGER REFERENCES public.empleados(id),
+  validado_at TIMESTAMPTZ,
+  observaciones TEXT,
+  sincronizado_offline BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(capacitacion_id, empleado_id, fecha)
+);
+
+CREATE INDEX idx_asistencias_capacitacion_pendientes
+  ON public.asistencias_capacitacion (validado) WHERE validado = false;
 
 -- ============================================================
 -- FIN DEL ESQUEMA
