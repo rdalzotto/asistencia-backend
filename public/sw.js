@@ -7,7 +7,7 @@
 // actualización subida al servidor quedaba invisible para el usuario hasta
 // que se le ocurriera borrar el caché a mano. Con Network First evitamos eso.
 
-const CACHE_NAME = 'asistencia-v5';
+const CACHE_NAME = 'asistencia-v6';
 const EXTINTORES_CACHE = 'extintores-v2';
 
 // Assets que se cachean al instalar el SW (para poder abrir la app offline)

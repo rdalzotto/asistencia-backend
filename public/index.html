@@ -5316,6 +5316,19 @@ function aplicarLogoEmpresa(logoUrl) {
 }
 
 // ── SERVICE WORKER / PUSH ─────────────────────────────────────────────────────
+// Cuando un Service Worker nuevo toma control de la página (tras su
+// skipWaiting()/clients.claim() en sw.js), recarga la pestaña una sola vez —
+// sin esto, la instancia ya abierta sigue ejecutando el JS viejo servido por
+// el SW anterior hasta que la persona cierra y vuelve a abrir la app a mano.
+if ('serviceWorker' in navigator) {
+  let swRefrescando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swRefrescando) return;
+    swRefrescando = true;
+    window.location.reload();
+  });
+}
+
 async function registrarSW() {
   if (!('serviceWorker' in navigator)) return;
   try {
