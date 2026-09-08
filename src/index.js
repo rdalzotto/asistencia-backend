@@ -10,8 +10,9 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 // ─── Middlewares ──────────────────────────────────────────────────────────────
+const allowedOrigins = [process.env.FRONTEND_URL, 'https://localhost'].filter(Boolean);
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: allowedOrigins.length ? allowedOrigins : '*',
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
