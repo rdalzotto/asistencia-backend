@@ -332,6 +332,11 @@ CREATE TABLE public.movimientos (
   es_feriado      BOOLEAN DEFAULT FALSE,
   -- Cierre automático
   cierre_automatico BOOLEAN DEFAULT FALSE,
+  -- Extensión de jornada en oficina (aviso al llegar a horas_diarias_objetivo
+  -- sin egreso todavía — agregado vía ALTER TABLE, no por schema.sql)
+  aviso_extension_oficina_en TIMESTAMPTZ,
+  motivo_extension TEXT,
+  extension_sin_responder BOOLEAN NOT NULL DEFAULT FALSE,
   -- Integridad
   hash_sha256     TEXT,              -- sello digital Ley 25.506
   creado_en       TIMESTAMPTZ DEFAULT NOW()

@@ -149,6 +149,19 @@ const notif = {
     titulo: '⏰ Fichá tu egreso',
     cuerpo: `Tu jornada terminó hace 15 minutos (${horaEgreso}). Fichá tu egreso para que se registre correctamente.`,
   }),
+
+  // Va al EMPLEADO — extensión de jornada en oficina (horas_diarias_objetivo
+  // alcanzadas sin egreso todavía). Distinto de recordatorioEgreso: ese dispara
+  // por horario de turno, este por horas efectivamente trabajadas.
+  avisoExtensionOficina: (horasHoy) => ({
+    titulo: '⏱️ ¿Seguís en la oficina?',
+    cuerpo: `Ya llevás ${horasHoy}h trabajadas hoy. Si vas a quedarte, avisá el motivo en la app.`,
+  }),
+
+  extensionOficinaSinRespuesta: (nombre) => ({
+    titulo: `⏱️ ${nombre} — extensión sin respuesta`,
+    cuerpo: 'Superó su jornada de oficina sin responder el aviso. Jornada pendiente de validación.',
+  }),
 };
 
 module.exports = { pushUsuario, pushAdmins, notif };

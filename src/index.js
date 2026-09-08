@@ -128,6 +128,9 @@ async function cronJornadaInteligente() {
   // corriendo bien y no hay nada pendiente" de "dejó de correr".
   console.log(`[CRON] Tick ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} AR`);
 
+  const jornadaSvc = require('./services/jornadaService');
+  const hoyStr = jornadaSvc.fechaHoyArgentina();
+
   try {
     // ── 1. Enviar consulta de egreso al cumplirse hora_egreso del turno ────────
     // dia_semana: 1=lun … 6=sab, 7=dom (igual que jornadas_por_dia)
@@ -387,6 +390,98 @@ async function cronJornadaInteligente() {
       const n = push.notif.cierreSinValidacionGps(nombre);
       await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
       console.log(`[CRON] Cierre por jornada remota/externa sin validar (3h): ${nombre}`);
+    }
+
+    // ── 6. Aviso de extensión de jornada en oficina ───────────────────────────
+    // Regla nueva, exclusiva de oficina (no aplica a remoto/externo, que ya
+    // tienen su propio aviso de hora_estimada_fin y su tope de 12hs): al
+    // llegar a las horas de jornadas_config.horas_diarias_objetivo sin fichar
+    // egreso todavía, se avisa al empleado. Se calcula con
+    // calcularHorasJornada(..., contarAbierta=true) para contar el tramo
+    // abierto hasta este momento, igual que se le muestra al empleado en la
+    // app. El aviso se manda una sola vez por jornada (aviso_extension_oficina_en
+    // marca que ya se envió) y solo si "m" sigue siendo el último movimiento
+    // del día (jornada realmente activa ahora, no en almuerzo/externo/cerrada).
+    const { rows: candidatosExtension } = await db.query(`
+      SELECT m.id, m.empleado_id, m.empleador_id, e.nombre, e.apellido, e.usuario_id,
+             COALESCE(jc.horas_diarias_objetivo, 8) AS horas_objetivo
+      FROM public.movimientos m
+      JOIN public.empleados e ON e.id = m.empleado_id
+      LEFT JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
+      WHERE m.fecha = CURRENT_DATE
+        AND m.tipo IN ('ingreso','regreso_almuerzo','regreso_externo')
+        AND m.es_remoto = FALSE
+        AND m.aviso_extension_oficina_en IS NULL
+        AND e.activo = TRUE
+        AND NOT EXISTS (
+          SELECT 1 FROM public.movimientos m2
+          WHERE m2.empleado_id = m.empleado_id AND m2.fecha = m.fecha
+            AND m2.hora > m.hora
+        )
+    `);
+
+    for (const cand of candidatosExtension) {
+      try {
+        const horasHoy = await jornadaSvc.calcularHorasJornada(cand.empleado_id, hoyStr, null, true);
+        if (horasHoy < Number(cand.horas_objetivo)) continue;
+
+        await db.query(
+          'UPDATE public.movimientos SET aviso_extension_oficina_en = NOW() WHERE id = $1',
+          [cand.id]
+        );
+        const n = push.notif.avisoExtensionOficina(horasHoy.toFixed(1));
+        await push.pushUsuario(cand.usuario_id, n.titulo, n.cuerpo);
+        console.log(`[CRON] Aviso de extensión de oficina enviado: ${cand.nombre} ${cand.apellido} (${horasHoy.toFixed(1)}h)`);
+      } catch (errFila) {
+        console.error(`[CRON] Error en aviso extensión oficina (movimiento_id=${cand.id}):`, errFila.message);
+      }
+    }
+
+    // ── 7. Cierre por extensión de oficina sin responder en 60 minutos ───────
+    // A diferencia de "3. Cerrar extensiones vencidas" (que sí cierra la
+    // jornada y valida las horas), acá la persona sigue trabajando — no se
+    // llama registrarEgresoAuto. Solo se marca el movimiento de apertura como
+    // pendiente de revisión del admin (extension_sin_responder=TRUE,
+    // validado=FALSE), lo que además hace que calcularHorasJornada excluya
+    // todo el día del banco de horas hasta que se valide manualmente vía el
+    // mismo POST /movimientos/validar-remoto/:id que ya se usa para GPS/remoto.
+    const { rows: vencidasSinResponder } = await db.query(`
+      SELECT m.id, m.empleado_id, m.empleador_id, m.fecha, e.nombre, e.apellido
+      FROM public.movimientos m
+      JOIN public.empleados e ON e.id = m.empleado_id
+      WHERE m.fecha = CURRENT_DATE
+        AND m.aviso_extension_oficina_en IS NOT NULL
+        AND m.aviso_extension_oficina_en <= NOW() - INTERVAL '60 minutes'
+        AND m.motivo_extension IS NULL
+        AND m.extension_sin_responder = FALSE
+        AND NOT EXISTS (
+          SELECT 1 FROM public.movimientos m2
+          WHERE m2.empleado_id = m.empleado_id AND m2.fecha = m.fecha
+            AND m2.tipo IN ('egreso','fin_jornada_remota') AND m2.hora > m.hora
+        )
+    `);
+
+    for (const row of vencidasSinResponder) {
+      const nombre = `${row.nombre || ''} ${row.apellido || ''}`.trim();
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          'UPDATE public.movimientos SET validado = FALSE, extension_sin_responder = TRUE WHERE id = $1',
+          [row.id]
+        );
+        await jornadaSvc.actualizarBancoHoras(row.empleado_id, row.fecha, client);
+        await client.query('COMMIT');
+
+        const n = push.notif.extensionOficinaSinRespuesta(nombre);
+        await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
+        console.log(`[CRON] Extensión de oficina sin responder — pendiente de validación: ${nombre}`);
+      } catch (errFila) {
+        await client.query('ROLLBACK');
+        console.error(`[CRON] Error cerrando extensión de oficina sin responder (movimiento_id=${row.id}):`, errFila.message);
+      } finally {
+        client.release();
+      }
     }
 
   } catch (err) {

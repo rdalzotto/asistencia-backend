@@ -1289,6 +1289,7 @@ async function irADashboard(rol) {
     cargarDashboardEmpleado();
     registrarSW();
     setTimeout(() => verificarConsultaEgreso(), 2000);
+    setTimeout(() => verificarExtensionOficina(), 2000);
   }
 }
 
@@ -2820,9 +2821,11 @@ async function cargarFichajesGpsPendientesAdmin() {
     }
     const nombresTipo = {ingreso:'Ingreso',egreso:'Egreso',salida_almuerzo:'Salida almuerzo',regreso_almuerzo:'Regreso almuerzo',salida_externa:'Salida externa',regreso_externo:'Regreso externo',inicio_jornada_remota:'Inicio remoto',fin_jornada_remota:'Fin remoto'};
     cont.innerHTML = movs.map(m => {
-      const motivo = m.es_remoto
-        ? (m.salida_fuera_radio ? '💻 Remoto/Externo · fuera de radio' : '💻 Remoto/Externo')
-        : '📍 Sin señal GPS';
+      const motivo = m.extension_sin_responder
+        ? '⏱️ Extensión de jornada sin respuesta' + (m.motivo_extension ? ' — "'+m.motivo_extension+'"' : '')
+        : m.es_remoto
+          ? (m.salida_fuera_radio ? '💻 Remoto/Externo · fuera de radio' : '💻 Remoto/Externo')
+          : '📍 Sin señal GPS';
       return `<div class="card" style="margin-bottom:12px">
         <div style="font-size:14px;font-weight:600">${m.nombre} ${m.apellido}</div>
         <div style="font-size:12.5px;font-weight:600;color:var(--orange);margin-top:2px">${motivo}</div>
@@ -7042,6 +7045,48 @@ async function responderEgreso(accion) {
     toast(e.message || 'Error al procesar la respuesta', 'error');
   }
 }
+
+// ── EXTENSIÓN DE JORNADA EN OFICINA ──────────────────────────────────────────
+// Distinto de la consulta de egreso de arriba: esa dispara por horario de
+// turno, esta por horas efectivamente trabajadas (jornadas_config.
+// horas_diarias_objetivo, ver paso 6/7 del cron en src/index.js).
+async function verificarExtensionOficina() {
+  if (!STATE.empleadoId || STATE.rol === 'admin') return;
+  try {
+    const data = await api('/movimientos/extension-oficina-pendiente');
+    if (!data?.pendiente) return;
+    document.getElementById('eo-subtitulo').textContent =
+      'Ya llevás ' + data.horas_trabajadas + 'h trabajadas hoy. ¿Seguís en la oficina?';
+    document.getElementById('eo-motivo').value = '';
+    document.getElementById('eo-paso-1').style.display = '';
+    document.getElementById('eo-paso-2').style.display = 'none';
+    abrirModal('modal-extension-oficina');
+  } catch (e) {
+    // Sin extensión pendiente o error: no mostrar nada
+  }
+}
+
+function eoMostrarMotivo() {
+  document.getElementById('eo-paso-1').style.display = 'none';
+  document.getElementById('eo-paso-2').style.display = '';
+}
+
+function eoTerminarAhora() {
+  cerrarModal('modal-extension-oficina');
+  abrirModalRegistro();
+}
+
+async function eoConfirmarQuedarme() {
+  const motivo = document.getElementById('eo-motivo').value.trim();
+  if (!motivo) return toast('Contá brevemente el motivo', 'error');
+  try {
+    await api('/movimientos/responder-extension-oficina', { method: 'POST', body: JSON.stringify({ motivo }) });
+    cerrarModal('modal-extension-oficina');
+    toast('Motivo registrado. Tus horas siguen contando con normalidad ✓', 'success');
+  } catch (e) {
+    toast(e.message || 'Error al procesar la respuesta', 'error');
+  }
+}
 </script>
 
 <!-- ─── MODAL EGRESO MANUAL ADMIN ─────────────────────────────────────────── -->
@@ -7096,6 +7141,38 @@ async function responderEgreso(accion) {
     </div>
 
     <p style="font-size:11px;color:var(--text3);text-align:center;margin-top:16px">Si no respondés en 15 minutos, el sistema registrará tu egreso automáticamente.</p>
+  </div>
+</div>
+
+<!-- ─── MODAL EXTENSIÓN DE JORNADA EN OFICINA ────────────────────────────── -->
+<div class="modal-overlay" id="modal-extension-oficina" style="z-index:600">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-handle"></div>
+    <div style="text-align:center;font-size:36px;margin-bottom:8px">⏱️</div>
+    <div class="modal-title" style="text-align:center">¿Seguís en la oficina?</div>
+    <p id="eo-subtitulo" style="text-align:center;color:var(--text2);margin-bottom:24px;font-size:15px"></p>
+
+    <div id="eo-paso-1">
+      <button class="btn btn-primary" style="width:100%;margin-bottom:12px;font-size:16px" onclick="eoTerminarAhora()">
+        🚪 Terminar y marcar salida ahora
+      </button>
+      <button class="btn btn-secondary" style="width:100%;font-size:14px" onclick="eoMostrarMotivo()">
+        Necesito quedarme
+      </button>
+    </div>
+
+    <div id="eo-paso-2" style="display:none">
+      <div class="form-group">
+        <label style="font-weight:600">Contanos brevemente el motivo</label>
+        <textarea id="eo-motivo" rows="3" style="width:100%;font-size:15px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1)"></textarea>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('eo-paso-1').style.display='';document.getElementById('eo-paso-2').style.display='none'">← Volver</button>
+        <button class="btn btn-primary" style="flex:1" onclick="eoConfirmarQuedarme()">Confirmar</button>
+      </div>
+    </div>
+
+    <p style="font-size:11px;color:var(--text3);text-align:center;margin-top:16px">Si no respondés en 60 minutos, tus horas quedarán pendientes de validación del administrador.</p>
   </div>
 </div>
 

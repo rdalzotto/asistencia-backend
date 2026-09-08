@@ -573,7 +573,8 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
         validado_por = $2,
         validado_en = NOW(),
         observacion_admin = $3
-      WHERE id = $4 AND empleador_id = $5 AND (es_remoto = TRUE OR gps_valido = FALSE OR salida_fuera_radio = TRUE)
+      WHERE id = $4 AND empleador_id = $5
+        AND (es_remoto = TRUE OR gps_valido = FALSE OR salida_fuera_radio = TRUE OR extension_sin_responder = TRUE)
       RETURNING *
     `, [aprobado !== false, req.user.id, observacion || null, id, req.user.empleadorId]);
 
@@ -607,7 +608,8 @@ router.get('/pendientes-validacion', auth, soloAdmin, async (req, res) => {
       FROM public.movimientos m
       JOIN public.empleados e ON e.id = m.empleado_id
       WHERE m.empleador_id = $1
-        AND (m.es_remoto = TRUE OR m.gps_valido = FALSE OR m.salida_fuera_radio = TRUE)
+        AND (m.es_remoto = TRUE OR m.gps_valido = FALSE OR m.salida_fuera_radio = TRUE
+             OR m.extension_sin_responder = TRUE)
         AND m.validado = FALSE
       ORDER BY m.hora DESC
     `, [req.user.empleadorId]);
@@ -867,6 +869,72 @@ router.post('/confirmar-jornada', auth, async (req, res) => {
     }
   } catch (err) {
     console.error('[MOV] confirmar-jornada error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── GET /movimientos/extension-oficina-pendiente ─────────────────────────────
+// Extensión de jornada en oficina (distinto de consulta-egreso-pendiente: ese
+// dispara por horario de turno, este por horas efectivamente trabajadas —
+// jornadas_config.horas_diarias_objetivo, ver paso 6 del cron en index.js).
+router.get('/extension-oficina-pendiente', auth, async (req, res) => {
+  const empleadoId = req.user.empleadoId;
+  if (!empleadoId) return res.json({ pendiente: false });
+  try {
+    const { rows: [mov] } = await db.query(`
+      SELECT id, aviso_extension_oficina_en FROM public.movimientos
+      WHERE empleado_id = $1
+        AND fecha = CURRENT_DATE
+        AND aviso_extension_oficina_en IS NOT NULL
+        AND motivo_extension IS NULL
+        AND extension_sin_responder = FALSE
+        AND aviso_extension_oficina_en > NOW() - INTERVAL '60 minutes'
+    `, [empleadoId]);
+
+    if (!mov) return res.json({ pendiente: false });
+
+    const horasTrabajadas = await jornada.calcularHorasJornada(empleadoId, jornada.fechaHoyArgentina(), null, true);
+    const minutosTranscurridos = Math.floor((Date.now() - new Date(mov.aviso_extension_oficina_en)) / 60000);
+    const minutosRestantes = Math.max(0, 60 - minutosTranscurridos);
+
+    res.json({ pendiente: true, horas_trabajadas: horasTrabajadas, minutos_restantes: minutosRestantes });
+  } catch (err) {
+    console.error('[MOV] extension-oficina-pendiente error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /movimientos/responder-extension-oficina ────────────────────────────
+// El empleado responde "Necesito quedarme" con un motivo obligatorio. Las
+// horas siguen contando normal (no toca `validado`, que ya es TRUE desde el
+// ingreso original) — solo deja constancia del motivo.
+router.post('/responder-extension-oficina', auth, async (req, res) => {
+  const { motivo } = req.body;
+  const empleadoId = req.user.empleadoId;
+
+  if (!empleadoId)
+    return res.status(400).json({ error: 'Usuario sin empleado asociado' });
+  if (!motivo || !motivo.trim())
+    return res.status(400).json({ error: 'El motivo es obligatorio' });
+
+  try {
+    const { rows: [mov] } = await db.query(`
+      UPDATE public.movimientos SET motivo_extension = $1
+      WHERE empleado_id = $2
+        AND fecha = CURRENT_DATE
+        AND aviso_extension_oficina_en IS NOT NULL
+        AND motivo_extension IS NULL
+        AND extension_sin_responder = FALSE
+        AND aviso_extension_oficina_en > NOW() - INTERVAL '60 minutes'
+      RETURNING id
+    `, [motivo.trim(), empleadoId]);
+
+    if (!mov)
+      return res.status(404).json({ error: 'No hay una extensión de jornada pendiente de respuesta' });
+
+    res.json({ ok: true, mensaje: 'Motivo registrado. Tus horas siguen contando con normalidad.' });
+  } catch (err) {
+    console.error('[MOV] responder-extension-oficina error:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });

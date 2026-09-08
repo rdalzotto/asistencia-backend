@@ -170,12 +170,15 @@ async function calcularHorasJornada(empleadoId, fecha, client, contarAbierta = f
   // tramo previo al fichaje dudoso, para no dar una falsa sensación de "ya
   // está resuelto" en el banco de horas mientras sigue pendiente. Los
   // movimientos remotos auto-aprobados (Caso 1/4 — visita propia o
-  // acompañante) ya nacen con validado=true, así que no caen acá.
+  // acompañante) ya nacen con validado=true, así que no caen acá. Mismo
+  // criterio para extension_sin_responder=true (extensión de jornada en
+  // oficina sin respuesta en 60 min, ver paso 6/7 del cron en index.js): todo
+  // el día queda afuera hasta validación manual, no solo el tramo extendido.
   const { rows: pendientes } = await queryFn(`
     SELECT 1 FROM public.movimientos
     WHERE empleado_id = $1 AND fecha = $2
       AND validado = FALSE
-      AND (gps_valido = FALSE OR es_remoto = TRUE)
+      AND (gps_valido = FALSE OR es_remoto = TRUE OR extension_sin_responder = TRUE)
     LIMIT 1
   `, [empleadoId, fecha]);
   if (pendientes.length > 0) return 0;
