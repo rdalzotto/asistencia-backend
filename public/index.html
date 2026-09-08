@@ -1128,7 +1128,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 </div>
 
 <script>
-const API = '/api';
+const API = 'https://asistencia-backend-production-a5b9.up.railway.app/api';
 
 let STATE = {
   token:null, rol:null, empleadoId:null, empleadorId:null, nombre:null,
@@ -6858,7 +6858,7 @@ async function confirmarEnvioEmailConstancia() {
     const {pdf, nombre, numero} = await generarPDFConstancia();
     const pdfBase64 = pdf.output('datauristring').split(',')[1];
     toast('Enviando email...', 'info');
-    const res = await fetch('/api/email/enviar', {
+    const res = await fetch(API + '/email/enviar', {
       method: 'POST',
       headers: {'Authorization': 'Bearer ' + STATE.token, 'Content-Type': 'application/json'},
       body: JSON.stringify({
