@@ -943,7 +943,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       ⚠ Este movimiento quedará marcado para revisión del administrador. Las horas se calcularán en base a la hora de retiro declarada.
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn btn-secondary" onclick="cerrarModal('modal-salida-justificada')" style="flex:1">Cancelar</button>
+      <button class="btn btn-secondary" onclick="limpiarAlertaTimers();cerrarModal('modal-salida-justificada')" style="flex:1">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarSalidaJustificada()" style="flex:1" id="btn-confirmar-salida-just">Registrar salida</button>
     </div>
   </div>
