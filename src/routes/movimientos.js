@@ -659,7 +659,7 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
 
     const { rows: [mov] } = await db.query(`
       INSERT INTO public.movimientos
-        (empleado_id, empleador_id, tipo, fecha, hora, cierre_automatico, validado, hash_sha256, observaciones)
+        (empleado_id, empleador_id, tipo, fecha, hora, cierre_automatico, validado, hash_sha256, observacion_admin)
       VALUES ($1, $2, 'egreso', $3, $4, FALSE, TRUE, $5, 'Registrado manualmente por administrador')
       RETURNING *
     `, [empleado_id, req.user.empleadorId, fecha, horaISO, hash]);
