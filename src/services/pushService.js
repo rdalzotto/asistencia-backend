@@ -162,6 +162,14 @@ const notif = {
     titulo: `⏱️ ${nombre} — extensión sin respuesta`,
     cuerpo: 'Superó su jornada de oficina sin responder el aviso. Jornada pendiente de validación.',
   }),
+
+  // Trabajo Externo sin restricción de horario de arranque, pero con tope
+  // legal de 12hs trabajadas — spec 10/09/2026. No bloquea el cierre, pero
+  // queda pendiente en "Fichajes GPS" para que el admin lo valide.
+  excesoHorasExterno: (nombre, horas) => ({
+    titulo: `⏱️ Externo superó 12hs — ${nombre}`,
+    cuerpo: `Lleva ${horas}h trabajadas en la jornada. Revisar y validar el cierre.`,
+  }),
 };
 
 module.exports = { pushUsuario, pushAdmins, notif };

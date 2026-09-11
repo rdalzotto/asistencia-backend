@@ -68,9 +68,12 @@ router.post('/registrar', auth, async (req, res) => {
 
     // ─ Bloqueo por horario excepcional (18:00-05:00, hora Argentina) sin GPS,
     // salvo que haya una visita programada ya autorizada por el admin para
-    // hoy — Bug 1, puntos 1 y 2 del spec. No se llega a insertar nada. ─
+    // hoy — Bug 1, puntos 1 y 2 del spec. No se llega a insertar nada.
+    // "Externo" (contexto_remoto='externo') queda exceptuado del todo: no
+    // tiene ninguna restricción de horario de arranque, spec aprobada por
+    // Rogelio el 10/09/2026 — "domicilio" sigue con este chequeo sin cambios. ─
     const MENSAJE_BLOQUEO_HORARIO = 'Este horario está fuera de su jornada normal. Avisá a tu administrador para que te autorice si es necesario, o programá una visita y pedile al administrador que te habilite.';
-    if (!tieneGps && jornada.estaEnVentanaExcepcional() && ['ingreso', 'inicio_jornada_remota'].includes(tipo)) {
+    if (!tieneGps && jornada.estaEnVentanaExcepcional() && ['ingreso', 'inicio_jornada_remota'].includes(tipo) && contextoRemotoVal !== 'externo') {
       const autorizado = await jornada.tieneVisitaAutorizadaHoy(empleadoId, client);
       if (!autorizado) {
         await client.query('ROLLBACK');
@@ -118,14 +121,21 @@ router.post('/registrar', auth, async (req, res) => {
     // ─ Inicio de jornada remota con GPS presente: validar contra la jornada
     // habitual del empleado (salvo visita autorizada), y marcar de forma
     // informativa (no bloquea) si cae fuera del radio de oficina, para el
-    // contador mensual separado — Bug 1, puntos 4 y 7 del spec. ─
+    // contador mensual separado — Bug 1, puntos 4 y 7 del spec.
+    // "Externo" queda exceptuado del chequeo de horario (mismo criterio que
+    // el bloqueo de arriba, spec 10/09/2026) — "domicilio" sigue validando
+    // contra la jornada habitual sin cambios. El cálculo de distancia a la
+    // oficina (salida_fuera_radio, solo informativo) sigue corriendo para
+    // ambos contextos, no depende del horario. ─
     if (tipo === 'inicio_jornada_remota' && tieneGps) {
-      const dentroDeHorario = await jornada.validarHorarioRemoto(empleadoId);
-      if (!dentroDeHorario) {
-        const autorizado = await jornada.tieneVisitaAutorizadaHoy(empleadoId, client);
-        if (!autorizado) {
-          await client.query('ROLLBACK');
-          return res.status(403).json({ error: MENSAJE_BLOQUEO_HORARIO });
+      if (contextoRemotoVal !== 'externo') {
+        const dentroDeHorario = await jornada.validarHorarioRemoto(empleadoId);
+        if (!dentroDeHorario) {
+          const autorizado = await jornada.tieneVisitaAutorizadaHoy(empleadoId, client);
+          if (!autorizado) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: MENSAJE_BLOQUEO_HORARIO });
+          }
         }
       }
 
@@ -233,6 +243,31 @@ router.post('/registrar', auth, async (req, res) => {
       }
     }
 
+    // ─ Aviso de exceso de 12hs (Trabajo Externo) — spec 10/09/2026: "externo"
+    // no tiene restricción de horario de arranque (ver bloqueos de arriba),
+    // así que el único control automático es el tope legal de 12hs
+    // trabajadas. No bloquea el cierre — el empleado igual puede fichar su
+    // salida — pero el movimiento queda pendiente de validación del admin,
+    // mismo mecanismo que el resto de "Fichajes GPS" pendientes
+    // (GET /pendientes-validacion + POST /validar-remoto/:id). ─
+    let excesoHorasExterno = null;
+    if (tipo === 'fin_jornada_remota') {
+      const { rows: [inicioExterno] } = await client.query(`
+        SELECT hora FROM public.movimientos
+        WHERE empleado_id = $1 AND fecha = CURRENT_DATE
+          AND tipo = 'inicio_jornada_remota' AND contexto_remoto = 'externo'
+        ORDER BY hora DESC LIMIT 1
+      `, [empleadoId]);
+      if (inicioExterno) {
+        const horasTrabajadas = (Date.now() - new Date(inicioExterno.hora).getTime()) / 3600000;
+        if (horasTrabajadas > 12) {
+          excesoHorasExterno = horasTrabajadas;
+          validadoVal = false;
+          observacionAuto = `Jornada Externo de ${horasTrabajadas.toFixed(1)}hs — supera el límite legal de 12hs, pendiente de validación del admin`;
+        }
+      }
+    }
+
     // ─ Hash SHA-256 (Ley 25.506) ─
     const hashData = {
       tipo, empleadoId, empleadorId: req.user.empleadorId,
@@ -335,6 +370,9 @@ router.post('/registrar', auth, async (req, res) => {
       await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
     } else if (tipo === 'inicio_jornada_remota') {
       const n = push.notif.jornadaRemota(nombre, hora);
+      await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
+    } else if (tipo === 'fin_jornada_remota' && excesoHorasExterno) {
+      const n = push.notif.excesoHorasExterno(nombre, excesoHorasExterno.toFixed(1));
       await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
     }
 
