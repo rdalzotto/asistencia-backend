@@ -1209,8 +1209,10 @@ function iniciarReloj() {
       const movs = STATE.movimientosHoy;
       let totalMin = 0, entrada = null;
       for (const m of movs) {
-        if (['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(m.tipo)) entrada = new Date(m.hora);
-        if (['egreso','salida_almuerzo','salida_externa','fin_jornada_remota'].includes(m.tipo) && entrada) {
+        // 'salida_externa'/'regreso_externo' no cortan el tramo: una visita a
+        // cliente cuenta como horas trabajadas, no como descanso.
+        if (['ingreso','regreso_almuerzo','inicio_jornada_remota'].includes(m.tipo)) entrada = new Date(m.hora);
+        if (['egreso','salida_almuerzo','fin_jornada_remota'].includes(m.tipo) && entrada) {
           totalMin += (new Date(m.hora) - entrada) / 60000; entrada = null;
         }
       }
@@ -1610,8 +1612,10 @@ function renderMovimientosHoy(movs) {
   `).join('');
   let totalMin = 0, entrada = null;
   for (const m of movs) {
-    if (['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(m.tipo)) entrada = new Date(m.hora);
-    if (['egreso','salida_almuerzo','salida_externa','fin_jornada_remota'].includes(m.tipo) && entrada) {
+    // 'salida_externa'/'regreso_externo' no cortan el tramo: una visita a
+    // cliente cuenta como horas trabajadas, no como descanso.
+    if (['ingreso','regreso_almuerzo','inicio_jornada_remota'].includes(m.tipo)) entrada = new Date(m.hora);
+    if (['egreso','salida_almuerzo','fin_jornada_remota'].includes(m.tipo) && entrada) {
       totalMin += (new Date(m.hora) - entrada) / 60000; entrada = null;
     }
   }
