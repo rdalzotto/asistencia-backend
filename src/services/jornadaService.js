@@ -201,7 +201,6 @@ async function calcularHorasJornada(empleadoId, fecha, client, contarAbierta = f
     switch (m.tipo) {
       case 'ingreso':
       case 'regreso_almuerzo':
-      case 'regreso_externo':
       case 'inicio_jornada_remota':
         horaEntrada = new Date(m.hora);
         enAlmuerzo = false;
@@ -215,11 +214,15 @@ async function calcularHorasJornada(empleadoId, fecha, client, contarAbierta = f
         }
         break;
 
+      // 'salida_externa' y 'regreso_externo' ya no cortan el tramo: toda salida
+      // externa es por motivos laborales (visita a cliente, gestión, trámite),
+      // así que el tiempo afuera cuenta como horas trabajadas igual que si
+      // hubiera seguido en oficina. Decisión confirmada por Rogelio 11/09/2026.
+      // Se siguen registrando como movimientos (para el mapa del día, las
+      // notificaciones push y los reportes de "día trabajado afuera"), solo
+      // que ya no afectan este cálculo.
       case 'salida_externa':
-        if (horaEntrada) {
-          totalMinutos += (new Date(m.hora) - horaEntrada) / 60000;
-          horaEntrada = null;
-        }
+      case 'regreso_externo':
         break;
 
       case 'egreso':

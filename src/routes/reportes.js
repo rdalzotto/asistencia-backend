@@ -616,13 +616,18 @@ function calcularHorasDesdeMovimientos(movsDia) {
     switch (m.tipo) {
       case 'ingreso':
       case 'regreso_almuerzo':
-      case 'regreso_externo':
       case 'inicio_jornada_remota':
         horaEntrada = new Date(m.hora);
         break;
 
-      case 'salida_almuerzo':
+      // 'salida_externa' y 'regreso_externo' ya no cortan el tramo — toda
+      // salida externa es laboral, cuenta como horas trabajadas. Ver el
+      // comentario equivalente en jornadaService.calcularHorasJornada.
       case 'salida_externa':
+      case 'regreso_externo':
+        break;
+
+      case 'salida_almuerzo':
       case 'egreso':
       case 'fin_jornada_remota':
         if (horaEntrada) {
