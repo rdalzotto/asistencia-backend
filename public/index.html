@@ -1239,6 +1239,16 @@ async function doLogin() {
 
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
+// "fin_jornada_remota" con contexto_remoto='externo' no es un cierre real de
+// jornada: es el empleado volviendo de un viaje a cliente a seguir
+// trabajando desde la oficina (por eso el overlay de éxito dice "¡Volviste a
+// la oficina!" y no "Fin de jornada remota"). Cerrarle la sesión ahí lo deja
+// sin poder fichar el "Ingreso" siguiente sin loguearse de nuevo.
+function esVueltaAOficina(tipo) {
+  console.log('[debug-sesion] esVueltaAOficina check → tipo=', tipo, 'STATE.contextoRemotoActivo=', STATE.contextoRemotoActivo);
+  return tipo === 'fin_jornada_remota' && STATE.contextoRemotoActivo === 'externo';
+}
+
 // Se llama después de registrar CUALQUIER cierre de jornada (egreso o
 // fin_jornada_remota) exitoso, sin importar si más tarde se retoma la
 // jornada el mismo día. El próximo ingreso a la app va a pedir login de
@@ -1926,7 +1936,7 @@ async function enviarMovimientoDirecto(tipo) {
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
     }
-    if (tipo === 'egreso' || tipo === 'fin_jornada_remota') {
+    if ((tipo === 'egreso' || tipo === 'fin_jornada_remota') && !esVueltaAOficina(tipo)) {
       cerrarSesionPorCierreJornada();
     }
   } catch(e) {
@@ -2262,7 +2272,7 @@ async function confirmarSalidaJustificada() {
     cargarDashboardEmpleado();
     mostrarExito(tipo);
     setTimeout(() => toast('Salida registrada. Quedará marcada para revisión del admin.', 'info', 5000), 800);
-    cerrarSesionPorCierreJornada();
+    if (!esVueltaAOficina(tipo)) cerrarSesionPorCierreJornada();
   } catch(e) {
     toast(e.message || 'Error al registrar salida', 'error');
   } finally {
@@ -2495,8 +2505,13 @@ async function cargarDashboardAdmin() {
   try {
     const data = await api('/config/dashboard');
     const emps = data.empleados||[];
+    console.log('[debug-dashboard] estados recibidos de /config/dashboard:', emps.map(e=>({nombre:e.nombre+' '+e.apellido, estado:e.estado})));
     const presentes = emps.filter(e=>e.estado==='en_oficina').length;
-    const externos = emps.filter(e=>e.estado==='en_externo').length;
+    // 'externo_pendiente' (fichaje "Trabajo Externo" pendiente de validación,
+    // desde inicio_jornada_remota+contexto_remoto='externo') se muestra como
+    // "Externo" en la lista de estado del personal igual que 'en_externo'
+    // (salida_externa) — el contador tiene que sumar ambos o no coincide.
+    const externos = emps.filter(e=>e.estado==='en_externo'||e.estado==='externo_pendiente').length;
     const ausentes = emps.filter(e=>e.estado==='ausente').length;
     // Contar visitas y compensatorios pendientes de aprobación para el badge
     // (no vienen en /config/dashboard, se consultan aparte igual que ya se
