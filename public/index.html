@@ -2295,7 +2295,7 @@ async function ejecutarCierreAutomatico(tipo, motivo) {
     ocultarBannerAlertaJornada();
     cargarDashboardEmpleado();
     toast('⏰ Tu jornada fue cerrada automáticamente. Quedará marcada para revisión.', 'info', 7000);
-    cerrarSesionPorCierreJornada();
+    if (!esVueltaAOficina(tipo)) cerrarSesionPorCierreJornada();
   } catch(e) { console.error('[cierre-auto]', e); }
 }
 </script>
