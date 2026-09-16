@@ -15,6 +15,13 @@
 -- contexto_remoto, así que un viaje a cliente marcado como Externo se
 -- mostraba igual que un "trabajo remoto desde casa" en la pantalla de
 -- Equipo, aunque la pantalla personal del empleado sí los distinguía bien.
+--
+-- Desde el 16/09/2026: un fin_jornada_remota con contexto_remoto='externo'
+-- es "Volver a la oficina" (el empleado sigue trabajando, solo que ahora
+-- físicamente en la oficina) — no un cierre real de jornada, así que no
+-- puede devolver 'retirado' como cualquier otro fin_jornada_remota. Pasa a
+-- 'en_oficina' apenas se registra el fichaje, sin depender de que el admin
+-- lo valide (misma lógica que 'ingreso').
 CREATE OR REPLACE VIEW public.v_estado_empleados AS
 SELECT
   e.id AS empleado_id, e.empleador_id, e.nombre, e.apellido, e.legajo, e.sector, e.foto_perfil_url,
@@ -30,6 +37,7 @@ SELECT
     WHEN m.tipo = 'egreso' THEN 'retirado'
     WHEN m.tipo = 'inicio_jornada_remota' AND m.contexto_remoto = 'externo' THEN 'externo_pendiente'
     WHEN m.tipo = 'inicio_jornada_remota' THEN 'remoto_pendiente'
+    WHEN m.tipo = 'fin_jornada_remota' AND m.contexto_remoto = 'externo' THEN 'en_oficina'
     WHEN m.tipo = 'fin_jornada_remota' THEN 'retirado'
     ELSE 'desconocido'
   END AS estado,
