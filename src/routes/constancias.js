@@ -149,12 +149,15 @@ router.patch('/destino-logo/:destino_id', auth, async (req, res) => {
 });
 
 // ── RESPONSABLES DE DESTINO ──────────────────────────────────────
+// Lista para autocompletar nombre y cargo de quien firma por el cliente. El
+// DNI NO se guarda ni se devuelve acá: queda solo en la firma de cada
+// constancia (constancia_firmas.dni) — decisión de Rogelio 27/09/2026.
 router.get('/responsables-destino', auth, async (req, res) => {
   const { destino_id } = req.query;
   if (!destino_id) return res.status(400).json({ error: 'destino_id requerido' });
   try {
     const { rows } = await db.query(`
-      SELECT id, nombre_apellido, cargo, dni
+      SELECT id, nombre_apellido, cargo
       FROM public.responsables_destino
       WHERE destino_id = $1 AND empleador_id = $2 AND activo = true
       ORDER BY creado_en DESC
@@ -167,18 +170,18 @@ router.get('/responsables-destino', auth, async (req, res) => {
 });
 
 router.post('/responsables-destino', auth, async (req, res) => {
-  const { destino_id, nombre_apellido, cargo, dni } = req.body;
+  const { destino_id, nombre_apellido, cargo } = req.body;
   if (!destino_id || !nombre_apellido) return res.status(400).json({ error: 'Datos incompletos' });
   try {
     const { rows: exist } = await db.query(`
-      SELECT id FROM public.responsables_destino
-      WHERE destino_id = $1 AND empleador_id = $2 AND lower(nombre_apellido) = lower($3) AND (dni = $4 OR ($4 IS NULL AND dni IS NULL))
-    `, [destino_id, req.user.empleadorId, nombre_apellido, dni || null]);
+      SELECT id, nombre_apellido, cargo FROM public.responsables_destino
+      WHERE destino_id = $1 AND empleador_id = $2 AND lower(nombre_apellido) = lower($3)
+    `, [destino_id, req.user.empleadorId, nombre_apellido]);
     if (exist.length) return res.json({ ok: true, responsable: exist[0], existente: true });
     const { rows: [r] } = await db.query(`
-      INSERT INTO public.responsables_destino (destino_id, empleador_id, nombre_apellido, cargo, dni)
-      VALUES ($1, $2, $3, $4, $5) RETURNING *
-    `, [destino_id, req.user.empleadorId, nombre_apellido, cargo || null, dni || null]);
+      INSERT INTO public.responsables_destino (destino_id, empleador_id, nombre_apellido, cargo)
+      VALUES ($1, $2, $3, $4) RETURNING id, nombre_apellido, cargo
+    `, [destino_id, req.user.empleadorId, nombre_apellido, cargo || null]);
     res.json({ ok: true, responsable: r });
   } catch (err) {
     console.error('[CONST] crear responsable error:', err.message);
@@ -386,23 +389,36 @@ router.post('/:id/firmas', auth, async (req, res) => {
       'SELECT 1 FROM public.constancias WHERE id = $1 AND empleador_id = $2', [req.params.id, req.user.empleadorId]);
     if (!propia) return res.status(404).json({ error: 'Constancia no encontrada' });
     await db.query(`DELETE FROM public.constancia_firmas WHERE constancia_id = $1 AND tipo = $2`, [req.params.id, tipo]);
-    const { rows: [firma] } = await db.query(`INSERT INTO public.constancia_firmas (constancia_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [req.params.id, tipo, nombre_apellido||null, cargo||null, matricula||null, firma_svg]);
+    // El DNI de quien firma por el cliente se guarda en la firma de ESTA
+    // constancia (único lugar donde vive el DNI). Si la columna todavía no
+    // existe en la base (falta correr la migración), se guarda la firma igual
+    // sin DNI en vez de fallar.
+    let firma;
+    try {
+      ({ rows: [firma] } = await db.query(`INSERT INTO public.constancia_firmas (constancia_id, tipo, nombre_apellido, cargo, matricula, firma_svg, dni) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [req.params.id, tipo, nombre_apellido||null, cargo||null, matricula||null, firma_svg, tipo === 'cliente' ? (dni || null) : null]));
+    } catch (errDni) {
+      if (errDni.code !== '42703') throw errDni; // 42703 = columna inexistente
+      console.warn('[CONST] constancia_firmas.dni no existe todavía — firma guardada sin DNI');
+      ({ rows: [firma] } = await db.query(`INSERT INTO public.constancia_firmas (constancia_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [req.params.id, tipo, nombre_apellido||null, cargo||null, matricula||null, firma_svg]));
+    }
     if (tipo !== 'cliente') {
       // Guardar firma por tipo (no borrar todas)
       await db.query(`DELETE FROM public.firmas_guardadas WHERE usuario_id = $1 AND tipo = $2`, [req.user.id, tipo]);
       await db.query(`INSERT INTO public.firmas_guardadas (usuario_id, empleador_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [req.user.id, req.user.empleadorId, tipo, nombre_apellido, cargo, matricula||null, firma_svg]);
     }
-    // Si es firma de cliente y viene destino_id, guardar/actualizar responsable
+    // Si es firma de cliente y viene destino_id, recordar nombre y cargo para
+    // autocompletar la próxima vez (sin DNI — ver /responsables-destino).
     if (tipo === 'cliente' && destino_id && nombre_apellido) {
       const { rows: exist } = await db.query(`
         SELECT id FROM public.responsables_destino
-        WHERE destino_id = $1 AND empleador_id = $2 AND lower(nombre_apellido) = lower($3) AND (dni = $4 OR ($4 IS NULL AND dni IS NULL))
-      `, [destino_id, req.user.empleadorId, nombre_apellido, dni || null]);
+        WHERE destino_id = $1 AND empleador_id = $2 AND lower(nombre_apellido) = lower($3)
+      `, [destino_id, req.user.empleadorId, nombre_apellido]);
       if (!exist.length) {
-        await db.query(`INSERT INTO public.responsables_destino (destino_id, empleador_id, nombre_apellido, cargo, dni) VALUES ($1,$2,$3,$4,$5)`,
-          [destino_id, req.user.empleadorId, nombre_apellido, cargo||null, dni||null]);
+        await db.query(`INSERT INTO public.responsables_destino (destino_id, empleador_id, nombre_apellido, cargo) VALUES ($1,$2,$3,$4)`,
+          [destino_id, req.user.empleadorId, nombre_apellido, cargo||null]);
       }
     }
     res.json({ ok: true, firma });
