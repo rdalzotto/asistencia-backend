@@ -382,6 +382,9 @@ router.post('/:id/firmas', auth, async (req, res) => {
   const { tipo, nombre_apellido, cargo, matricula, firma_svg, dni, destino_id } = req.body;
   if (!tipo || !firma_svg) return res.status(400).json({ error: 'Datos incompletos' });
   try {
+    const { rows: [propia] } = await db.query(
+      'SELECT 1 FROM public.constancias WHERE id = $1 AND empleador_id = $2', [req.params.id, req.user.empleadorId]);
+    if (!propia) return res.status(404).json({ error: 'Constancia no encontrada' });
     await db.query(`DELETE FROM public.constancia_firmas WHERE constancia_id = $1 AND tipo = $2`, [req.params.id, tipo]);
     const { rows: [firma] } = await db.query(`INSERT INTO public.constancia_firmas (constancia_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [req.params.id, tipo, nombre_apellido||null, cargo||null, matricula||null, firma_svg]);

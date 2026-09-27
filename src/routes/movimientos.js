@@ -11,7 +11,27 @@ router.post('/registrar', auth, async (req, res) => {
     categoria_salida_id, destino_id, destino_descripcion,
     es_remoto, domicilio_partida_lat, domicilio_partida_lng,
     consentimiento_extra, contexto_remoto, acompanante_id,
+    hora_offline,
   } = req.body;
+
+  // ─ Fichaje hecho sin señal y sincronizado después (tablets en campo): la
+  // app manda la hora real del dispositivo en hora_offline, y el movimiento
+  // se registra con ESA hora — antes quedaba con la hora de sincronización
+  // (fix 27/09/2026). Se acepta solo si es del pasado y de hasta 72hs atrás;
+  // el movimiento queda marcado en observacion_admin para que el admin sepa
+  // que la hora vino del dispositivo y no del servidor. ─
+  let horaMov = new Date();
+  let esFichajeOffline = false;
+  if (hora_offline) {
+    const h = new Date(hora_offline);
+    const atrasMs = Date.now() - h.getTime();
+    if (!Number.isFinite(h.getTime()) || atrasMs < -2 * 60 * 1000)
+      return res.status(400).json({ error: 'Hora de fichaje sin conexión inválida' });
+    if (atrasMs > 72 * 3600 * 1000)
+      return res.status(400).json({ error: 'Fichaje sin conexión de hace más de 72hs — pedile al administrador que lo cargue a mano.' });
+    if (atrasMs > 60 * 1000) { horaMov = h; esFichajeOffline = true; }
+  }
+  const horaMovISO = horaMov.toISOString();
 
   // 'domicilio' = arrancó la jornada trabajando desde su casa
   // 'externo'    = arrancó la jornada viajando directo hacia un cliente (sin pasar por oficina)
@@ -34,7 +54,10 @@ router.post('/registrar', auth, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const hoy     = new Date().toISOString().split('T')[0];
+    // Fecha del movimiento con el mismo criterio que CURRENT_DATE de la base
+    // (para un fichaje sin conexión, la fecha de la hora real, no la de hoy).
+    const { rows: [{ fecha_mov: hoy }] } = await client.query(
+      'SELECT ($1::timestamptz)::date::text AS fecha_mov', [horaMovISO]);
     const feriado = await jornada.esFeriado(hoy);
 
     // ─ Bloqueo: no se puede fichar si tiene vacaciones o ausencia APROBADA para hoy ─
@@ -48,7 +71,28 @@ router.post('/registrar', auth, async (req, res) => {
     // ─ Validar secuencia lógica del fichaje: solo se puede registrar el tipo que
     //   corresponde según el último movimiento del día (no se puede, por ej.,
     //   marcar "Salida externa" sin haber fichado "Ingreso" antes) ─
-    const ultimoMov = await jornada.obtenerUltimoMovimientoHoy(empleadoId, client);
+    // (último movimiento del día ANTERIOR a la hora del fichaje — en un
+    // fichaje en vivo es simplemente el último del día).
+    const { rows: [ultimoMov] } = await client.query(`
+      SELECT tipo, hora FROM public.movimientos
+      WHERE empleado_id = $1 AND fecha = $2 AND hora <= $3::timestamptz
+      ORDER BY hora DESC LIMIT 1
+    `, [empleadoId, hoy, horaMovISO]);
+    // Un fichaje sin conexión no puede meterse ANTES de movimientos que ya
+    // están registrados ese día (ej. un cierre automático del sistema que
+    // llegó primero) — quedaría una secuencia incoherente. Lo resuelve el admin.
+    if (esFichajeOffline) {
+      const { rows: [posterior] } = await client.query(`
+        SELECT tipo FROM public.movimientos
+        WHERE empleado_id = $1 AND fecha = $2 AND hora > $3::timestamptz LIMIT 1
+      `, [empleadoId, hoy, horaMovISO]);
+      if (posterior) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: `Fichaje sin conexión "${tipo}" no se pudo cargar: ya hay un movimiento posterior ese día ("${posterior.tipo}"). Pedile al administrador que lo corrija.`
+        });
+      }
+    }
     if (!jornada.tipoMovimientoPermitido(ultimoMov?.tipo || null, tipo)) {
       await client.query('ROLLBACK');
       return res.status(400).json({
@@ -73,7 +117,8 @@ router.post('/registrar', auth, async (req, res) => {
     // tiene ninguna restricción de horario de arranque, spec aprobada por
     // Rogelio el 10/09/2026 — "domicilio" sigue con este chequeo sin cambios. ─
     const MENSAJE_BLOQUEO_HORARIO = 'Este horario está fuera de su jornada normal. Avisá a tu administrador para que te autorice si es necesario, o programá una visita y pedile al administrador que te habilite.';
-    if (!tieneGps && jornada.estaEnVentanaExcepcional() && ['ingreso', 'inicio_jornada_remota'].includes(tipo) && contextoRemotoVal !== 'externo') {
+    const hhmmMov = horaMov.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
+    if (!tieneGps && jornada.horaEnVentanaExcepcional(hhmmMov) && ['ingreso', 'inicio_jornada_remota'].includes(tipo) && contextoRemotoVal !== 'externo') {
       const autorizado = await jornada.tieneVisitaAutorizadaHoy(empleadoId, client);
       if (!autorizado) {
         await client.query('ROLLBACK');
@@ -89,13 +134,17 @@ router.post('/registrar', auth, async (req, res) => {
     // normal, validando contra el radio de la oficina — Bug 3, 16/09/2026.
     let inicioExternoHoy = null;
     if (tipo === 'fin_jornada_remota') {
+      // El inicio que este fin cierra es el ÚLTIMO inicio_jornada_remota del
+      // día — solo es "volver a la oficina" si ESE fue Externo (antes se
+      // buscaba cualquier inicio Externo del día, y un Remoto posterior se
+      // confundía con una vuelta de Externo).
       const { rows: [inicioExt] } = await client.query(`
-        SELECT hora FROM public.movimientos
-        WHERE empleado_id = $1 AND fecha = CURRENT_DATE
-          AND tipo = 'inicio_jornada_remota' AND contexto_remoto = 'externo'
+        SELECT hora, contexto_remoto FROM public.movimientos
+        WHERE empleado_id = $1 AND fecha = $2 AND hora <= $3::timestamptz
+          AND tipo = 'inicio_jornada_remota'
         ORDER BY hora DESC LIMIT 1
-      `, [empleadoId]);
-      inicioExternoHoy = inicioExt || null;
+      `, [empleadoId, hoy, horaMovISO]);
+      inicioExternoHoy = inicioExt?.contexto_remoto === 'externo' ? inicioExt : null;
     }
     const esVueltaDeExterno = !!inicioExternoHoy;
     // El contexto no viaja en el body para el cierre (solo se manda al
@@ -219,19 +268,19 @@ router.post('/registrar', auth, async (req, res) => {
       const { rows: [inicioHoy] } = await client.query(`
         SELECT domicilio_partida_lat, domicilio_partida_lng, hora
         FROM public.movimientos
-        WHERE empleado_id = $1 AND fecha = CURRENT_DATE AND tipo = 'inicio_jornada_remota'
+        WHERE empleado_id = $1 AND fecha = $2::date AND tipo = 'inicio_jornada_remota'
         ORDER BY hora DESC LIMIT 1
-      `, [empleadoId]);
+      `, [empleadoId, hoy]);
       if (inicioHoy && inicioHoy.domicilio_partida_lat != null && inicioHoy.domicilio_partida_lng != null) {
         const { rows: visitasHoy } = await client.query(`
           SELECT lat_inicio_real, lng_inicio_real
           FROM public.visitas
           WHERE empleado_id = $1
             AND hora_inicio_real IS NOT NULL
-            AND hora_inicio_real >= $2 AND hora_inicio_real::DATE = CURRENT_DATE
+            AND hora_inicio_real >= $2 AND hora_inicio_real::DATE = $3::date
             AND lat_inicio_real IS NOT NULL AND lng_inicio_real IS NOT NULL
           ORDER BY hora_inicio_real ASC
-        `, [empleadoId, inicioHoy.hora]);
+        `, [empleadoId, inicioHoy.hora, hoy]);
 
         const puntos = [
           { lat: parseFloat(inicioHoy.domicilio_partida_lat), lng: parseFloat(inicioHoy.domicilio_partida_lng) },
@@ -257,7 +306,7 @@ router.post('/registrar', auth, async (req, res) => {
         JOIN public.empleadores e ON e.convenio_id = c.id
         WHERE e.id = $1
       `, [req.user.empleadorId]);
-      const tardanza = jornada.calcularTardanza(new Date(), jc, conv);
+      const tardanza = jornada.calcularTardanza(horaMov, jc, conv);
       esTardanza     = tardanza.esTardanza;
       minutosTardanza = tardanza.minutos;
     }
@@ -281,8 +330,8 @@ router.post('/registrar', auth, async (req, res) => {
           FROM public.visita_acompanantes va
           JOIN public.visitas v ON v.id = va.visita_id
           WHERE va.id = $1 AND va.empleado_id = $2
-            AND v.fecha = CURRENT_DATE AND v.estado IN ('programada','en_curso','completada')
-        `, [acompanante_id, empleadoId]);
+            AND v.fecha = $3::date AND v.estado IN ('programada','en_curso','completada')
+        `, [acompanante_id, empleadoId, hoy]);
         if (ac) {
           acompananteRow = ac;
           if (['mismo_cliente', 'mixta'].includes(ac.tipo)) validadoVal = true;
@@ -303,7 +352,7 @@ router.post('/registrar', auth, async (req, res) => {
     // (GET /pendientes-validacion + POST /validar-remoto/:id). ─
     let excesoHorasExterno = null;
     if (esVueltaDeExterno) {
-      const horasTrabajadas = (Date.now() - new Date(inicioExternoHoy.hora).getTime()) / 3600000;
+      const horasTrabajadas = (horaMov.getTime() - new Date(inicioExternoHoy.hora).getTime()) / 3600000;
       if (horasTrabajadas > 12) {
         excesoHorasExterno = horasTrabajadas;
         validadoVal = false;
@@ -312,10 +361,16 @@ router.post('/registrar', auth, async (req, res) => {
       }
     }
 
+    if (esFichajeOffline) {
+      const sincro = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+      const msgOffline = `Fichaje sin conexión — hora tomada del dispositivo, sincronizado el ${sincro}`;
+      observacionAuto = observacionAuto ? `${observacionAuto} | ${msgOffline}` : msgOffline;
+    }
+
     // ─ Hash SHA-256 (Ley 25.506) ─
     const hashData = {
       tipo, empleadoId, empleadorId: req.user.empleadorId,
-      hora: new Date().toISOString(), lat: latVal, lng: lngVal,
+      hora: horaMovISO, lat: latVal, lng: lngVal,
     };
     const hash = jornada.generarHash(hashData);
 
@@ -334,14 +389,14 @@ router.post('/registrar', auth, async (req, res) => {
         contexto_remoto, km_estimados,
         salida_fuera_radio
       ) VALUES (
-        $1,$2,$3,CURRENT_DATE,NOW(),
+        $1,$2,$3,($26::timestamptz)::date,$26::timestamptz,
         $4,$5,$6,$7,
         $8,$9,$10,
         $11,$12,
         $13,$14,$15,
         $16,$17,
         $18,
-        $19, CASE WHEN $19 THEN NOW() ELSE NULL END,
+        $19, CASE WHEN $19 THEN $26::timestamptz ELSE NULL END,
         $20,$21,$22,
         $23,$24,
         $25
@@ -366,6 +421,7 @@ router.post('/registrar', auth, async (req, res) => {
       contextoRemotoVal,
       kmEstimados,
       salidaFueraRadioVal,
+      horaMovISO,
     ]);
 
     // ─ "Volver a la oficina" continúa la jornada: el fin_jornada_remota de
@@ -381,7 +437,7 @@ router.post('/registrar', auth, async (req, res) => {
     if (esVueltaDeExterno) {
       const hashIngreso = jornada.generarHash({
         tipo: 'ingreso', empleadoId, empleadorId: req.user.empleadorId,
-        hora: new Date(Date.now() + 1000).toISOString(), lat: latVal, lng: lngVal,
+        hora: new Date(horaMov.getTime() + 1000).toISOString(), lat: latVal, lng: lngVal,
       });
       const { rows: [ing] } = await client.query(`
         INSERT INTO public.movimientos (
@@ -391,7 +447,7 @@ router.post('/registrar', auth, async (req, res) => {
           es_tardanza, minutos_tardanza, es_feriado,
           validado, hash_sha256, observacion_admin
         ) VALUES (
-          $1,$2,'ingreso',CURRENT_DATE,NOW() + INTERVAL '1 second',
+          $1,$2,'ingreso',($13::timestamptz)::date,$13::timestamptz + INTERVAL '1 second',
           $3,$4,$5,$6,
           FALSE,$7,$8,
           FALSE,0,$9,
@@ -406,6 +462,7 @@ router.post('/registrar', auth, async (req, res) => {
         gpsValido
           ? 'Ingreso automático a oficina al volver de Trabajo Externo'
           : 'Ingreso automático a oficina al volver de Trabajo Externo — ubicación no confirmada, pendiente de validación del admin',
+        horaMovISO,
       ]);
       ingresoOficinaAuto = ing;
     }

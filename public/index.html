@@ -10,9 +10,11 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Librerías incluidas en la app (no desde internet) para poder generar
+     PDF/Excel sin señal en campo — mismas versiones que antes usaba del CDN. -->
+<script src="js/vendor/xlsx.full.min.js"></script>
+<script src="js/vendor/jspdf.umd.min.js"></script>
+<script src="js/vendor/html2canvas.min.js"></script>
 <script src="js/ar-storage.js"></script>
 <style>
 :root {
@@ -1076,6 +1078,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <input type="date" id="vis-emp-hasta" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:8px;font-family:var(--font)">
         <button class="btn btn-secondary btn-sm" onclick="cargarMisVisitas()">Ver</button>
       </div>
+      <div id="banner-visitas-pendientes" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:10px;font-size:12.5px;color:var(--orange);text-align:center;cursor:pointer" onclick="procesarVisitasPendientes()"></div>
       <div id="lista-mis-visitas"><p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Seleccioná un período</p></div>
     </div>
     <div id="vis-emp-vista-calendario" style="display:none">
@@ -1370,8 +1373,10 @@ async function autoLoginInterno() {
   } catch (eMig) {
     console.warn('[MIGRACIÓN] Falló, se ignora y se sigue con el login:', eMig);
   }
-  if (navigator.onLine) setTimeout(() => procesarMovimientosPendientes(), 1500);
-  if (navigator.onLine) setTimeout(() => procesarReservasPendientes(), 1800);
+  // Al abrir la app con señal se sube todo lo pendiente (fichajes, reservas,
+  // constancias con sus firmas, visitas) — antes las constancias solo se
+  // subían cuando la señal "volvía", no si la app ya arrancaba conectada.
+  if (navigator.onLine) setTimeout(() => sincronizarTodoPendiente(), 1500);
   STATE.token = token; STATE.rol = rol;
   try {
     const me = await api('/auth/me');
@@ -1879,9 +1884,12 @@ function esErrorDeConexion(e) {
   return !navigator.onLine || e instanceof TypeError;
 }
 
-async function encolarMovimientoOffline(body) {
+// Guarda la hora REAL del fichaje (hora_offline): el servidor la usa en vez
+// de la hora de sincronización — antes un ingreso de las 7:00 sin señal
+// quedaba registrado a la hora en que volvía la señal.
+async function encolarMovimientoOffline(body, horaIntento) {
   const key = 'movimiento_pendiente_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-  await ARStorage.set(key, body);
+  await ARStorage.set(key, { ...body, hora_offline: horaIntento || new Date().toISOString() });
 }
 
 async function mostrarPendientesMovimientos() {
@@ -1952,6 +1960,7 @@ async function enviarMovimientoDirecto(tipo) {
   const esRemoto = tipo === 'inicio_jornada_remota' || tipo === 'fin_jornada_remota';
   const btn = document.getElementById('btn-confirmar-mov');
   btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+  const horaIntento = new Date().toISOString(); // hora real, por si queda en cola sin señal
   const body = {tipo, lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:esRemoto};
   if (tipo === 'salida_externa') { body.categoria_salida_id = catId||null; body.destino_id = destId||null; body.destino_descripcion = desc||null; }
   if (esRemoto) { body.domicilio_partida_lat = STATE.gpsCoords?.lat; body.domicilio_partida_lng = STATE.gpsCoords?.lng; }
@@ -1989,7 +1998,7 @@ async function enviarMovimientoDirecto(tipo) {
     }
   } catch(e) {
     if (esErrorDeConexion(e)) {
-      await encolarMovimientoOffline(body);
+      await encolarMovimientoOffline(body, horaIntento);
       cerrarModal('modal-registro');
       toast('📴 Sin conexión — el fichaje quedó guardado y se enviará solo al reconectar', 'info', 5000);
       await mostrarPendientesMovimientos();
@@ -2105,6 +2114,7 @@ function mostrarSelectorExterno() {
 }
 
 async function registrarComoRemoto(contexto, acompananteId) {
+  const horaIntento = new Date().toISOString(); // hora real, por si queda en cola sin señal
   contexto = contexto === 'externo' ? 'externo' : 'domicilio';
   const btn = document.getElementById('btn-confirmar-mov');
   btn.disabled = true;
@@ -2132,7 +2142,7 @@ async function registrarComoRemoto(contexto, acompananteId) {
     }
   } catch(e) {
     if (esErrorDeConexion(e)) {
-      await encolarMovimientoOffline(body);
+      await encolarMovimientoOffline(body, horaIntento);
       if (banner) banner.remove();
       cerrarModal('modal-registro');
       toast('📴 Sin conexión — el fichaje quedó guardado y se enviará solo al reconectar', 'info', 5000);
@@ -4473,6 +4483,94 @@ function renderTarjetaVisita(v, esAdmin) {
   </div>`;
 }
 
+// ── VISITAS SIN CONEXIÓN ─────────────────────────────────────────────────────
+// Iniciar viaje, "Llegué" y la rendición se guardan en la tablet si no hay
+// señal (visita_pendiente_<timestamp>) y se mandan solas al reconectar, en
+// orden. Las horas ya viajan en el cuerpo (hora_inicio_real, hora_llegada),
+// así que quedan con la hora real aunque se sincronicen después. La última
+// lista de visitas se guarda (visitas_cache) para poder verlas sin señal, con
+// los cambios pendientes ya aplicados en pantalla.
+async function encolarAccionVisita(visitaId, pasos, cambioLocal) {
+  const key = 'visita_pendiente_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  await ARStorage.set(key, { visitaId, pasos, cambioLocal });
+  await mostrarPendientesVisitas();
+}
+
+// Aplica sobre una visita (copia de la lista guardada) el cambio que quedó
+// pendiente, para que la pantalla muestre el estado real del trabajo.
+function aplicarCambioLocalVisita(v, c) {
+  if (!c) return v;
+  if (c.tipo === 'iniciar') return { ...v, estado: 'en_curso', hora_inicio_real: c.hora, lat_inicio_real: c.lat, lng_inicio_real: c.lng };
+  if (c.tipo === 'llegada') return { ...v, destinos: (v.destinos || []).map(d => d.id == c.destinoId ? { ...d, completado: true, hora_llegada: c.hora, lat_llegada: c.lat, lng_llegada: c.lng } : d) };
+  if (c.tipo === 'rendir') return { ...v, estado: 'completada', km_reales: c.km };
+  return v;
+}
+
+async function visitasConPendientesAplicados(visitas) {
+  const keys = (await ARStorage.keys('visita_pendiente_')).sort();
+  const pend = [];
+  for (const k of keys) { const p = await ARStorage.get(k); if (p) pend.push(p); }
+  return visitas.map(v => pend.filter(p => p.visitaId == v.id).reduce((acc, p) => aplicarCambioLocalVisita(acc, p.cambioLocal), v));
+}
+
+async function mostrarPendientesVisitas() {
+  const n = (await ARStorage.keys('visita_pendiente_')).length;
+  const el = document.getElementById('banner-visitas-pendientes');
+  if (!el) return;
+  el.style.display = n ? 'block' : 'none';
+  el.textContent = n ? '📴 ' + n + ' acción(es) de visitas guardadas sin señal — se envían solas al reconectar (tocá para reintentar)' : '';
+}
+
+async function procesarVisitasPendientes() {
+  const keys = (await ARStorage.keys('visita_pendiente_')).sort();
+  let enviados = 0;
+  for (const key of keys) {
+    const p = await ARStorage.get(key);
+    try {
+      // Una acción puede tener varios pasos (rendición = cierre + gasto); si
+      // se corta a mitad, se guarda desde el paso que falta.
+      while (p.pasos.length) {
+        const paso = p.pasos[0];
+        await api(paso.url, { method: paso.method, body: JSON.stringify(paso.body) });
+        p.pasos.shift();
+        await ARStorage.set(key, p);
+      }
+      await ARStorage.del(key);
+      enviados++;
+    } catch(e) {
+      if (esErrorDeConexion(e)) break;
+      await ARStorage.del(key);
+      toast('⚠ Una acción de visita guardada sin señal no se pudo enviar: ' + e.message, 'error', 8000);
+    }
+  }
+  await mostrarPendientesVisitas();
+  if (enviados) {
+    toast('Visitas sincronizadas ✓ (' + enviados + ')', 'success');
+    try { if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas(); } catch {}
+  }
+}
+
+// Ejecuta la acción ya; si no hay señal, la guarda en la cola y actualiza la
+// pantalla como si se hubiera hecho. Devuelve true si quedó hecha o en cola.
+async function accionVisitaConCola(visitaId, pasos, cambioLocal, msgOk) {
+  try {
+    for (let i = 0; i < pasos.length; i++) {
+      try {
+        await api(pasos[i].url, { method: pasos[i].method, body: JSON.stringify(pasos[i].body) });
+      } catch(e) {
+        if (!esErrorDeConexion(e)) throw e;
+        await encolarAccionVisita(visitaId, pasos.slice(i), cambioLocal);
+        toast('📴 Sin señal — quedó guardado en la tablet y se envía solo al reconectar', 'info', 6000);
+        await cargarMisVisitas();
+        return true;
+      }
+    }
+    toast(msgOk, 'success');
+    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
+    return true;
+  } catch(e) { toast(e.message, 'error'); return false; }
+}
+
 // ── INICIO DE VIAJE Y LLEGADA A DESTINO (GPS real) ───────────────────────────
 async function iniciarViajeVisita(id) {
   let lat=null, lng=null;
@@ -4482,15 +4580,11 @@ async function iniciarViajeVisita(id) {
   } catch(e) {
     toast('No se pudo obtener tu ubicación — el viaje inicia igual, sin punto de partida GPS','info');
   }
-  try {
-    await api('/visitas/'+id, {method:'PATCH', body:JSON.stringify({
-      estado:'en_curso',
-      lat_inicio_real: lat, lng_inicio_real: lng,
-      hora_inicio_real: new Date().toISOString(),
-    })});
-    toast('¡Viaje iniciado!'+(lat?' Punto de partida registrado 📍':''), 'success');
-    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message,'error'); }
+  const hora = new Date().toISOString();
+  await accionVisitaConCola(id,
+    [{ url:'/visitas/'+id, method:'PATCH', body:{ estado:'en_curso', lat_inicio_real: lat, lng_inicio_real: lng, hora_inicio_real: hora } }],
+    { tipo:'iniciar', hora, lat, lng },
+    '¡Viaje iniciado!'+(lat?' Punto de partida registrado 📍':''));
 }
 
 async function marcarLlegadaDestino(visitaId, destinoId) {
@@ -4501,13 +4595,11 @@ async function marcarLlegadaDestino(visitaId, destinoId) {
   } catch(e) {
     toast('No se pudo obtener tu ubicación — se registra igual la hora de llegada','info');
   }
-  try {
-    await api('/visitas/'+visitaId+'/destinos/'+destinoId, {method:'PATCH', body:JSON.stringify({
-      completado: true, lat_llegada: lat, lng_llegada: lng, hora_llegada: new Date().toISOString(),
-    })});
-    toast('📍 Llegada registrada'+(lat?'':' (sin GPS)'), 'success');
-    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message,'error'); }
+  const hora = new Date().toISOString();
+  await accionVisitaConCola(visitaId,
+    [{ url:'/visitas/'+visitaId+'/destinos/'+destinoId, method:'PATCH', body:{ completado: true, lat_llegada: lat, lng_llegada: lng, hora_llegada: hora } }],
+    { tipo:'llegada', destinoId, hora, lat, lng },
+    '📍 Llegada registrada'+(lat?'':' (sin GPS)'));
 }
 
 async function eliminarVisitaProgramada(id) {
@@ -4964,14 +5056,12 @@ async function guardarRendicion() {
   const file=document.getElementById('rendir-foto').files[0];
   let fotoBase64=null;
   if (file) { fotoBase64=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(file);}); }
-  try {
-    await api('/visitas/'+visitaId,{method:'PATCH',body:JSON.stringify({km_reales:km,viatico_real:monto,estado:'completada'})});
-    if (monto > 0 || desc) {
-      await api('/visitas/'+visitaId+'/gastos',{method:'POST',body:JSON.stringify({descripcion:desc||'Sin gastos',monto,foto_comprobante:fotoBase64})});
-    }
-    cerrarModal('modal-rendir-visita'); toast('Rendición guardada ✓','success');
-    if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
-  } catch(e) { toast(e.message,'error'); }
+  const pasos = [{ url:'/visitas/'+visitaId, method:'PATCH', body:{ km_reales:km, viatico_real:monto, estado:'completada' } }];
+  if (monto > 0 || desc) {
+    pasos.push({ url:'/visitas/'+visitaId+'/gastos', method:'POST', body:{ descripcion:desc||'Sin gastos', monto, foto_comprobante:fotoBase64 } });
+  }
+  const ok = await accionVisitaConCola(visitaId, pasos, { tipo:'rendir', km }, 'Rendición guardada ✓');
+  if (ok) cerrarModal('modal-rendir-visita');
 }
 
 async function cargarMisVisitas() {
@@ -4981,7 +5071,20 @@ async function cargarMisVisitas() {
   if (!desde) { cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center">Seleccioná un período</p>'; return; }
   cont.innerHTML='<p style="color:var(--text3);text-align:center">Cargando...</p>';
   try {
-    const visitas = await api('/visitas?desde='+desde+'&hasta='+(hasta||desde));
+    // Con señal: trae del servidor y guarda copia. Sin señal: usa la última
+    // copia guardada. En ambos casos se aplican los cambios que siguen en cola.
+    const clave = 'visitas_cache_' + desde + '_' + (hasta||desde);
+    let visitas, desdeCache = false;
+    try {
+      visitas = await api('/visitas?desde='+desde+'&hasta='+(hasta||desde));
+      await ARStorage.set(clave, { visitas, guardado: new Date().toISOString() });
+    } catch(e) {
+      const c = esErrorDeConexion(e) ? await ARStorage.get(clave) : null;
+      if (!c) throw e;
+      visitas = c.visitas; desdeCache = true;
+    }
+    visitas = await visitasConPendientesAplicados(visitas);
+    mostrarPendientesVisitas();
     const hoy = fechaLocalHoy();
     const visiblesPorTecnico = visitas.filter(v => {
       const fechaV = String(v.fecha).slice(0,10);
@@ -4996,8 +5099,9 @@ async function cargarMisVisitas() {
       cont.innerHTML='<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px">Sin visitas pendientes en el período</p>';
       return;
     }
-    cont.innerHTML = visiblesPorTecnico.map(v => renderTarjetaVisita(v,false)).join('');
-  } catch { cont.innerHTML='<p style="color:var(--red);font-size:13px;text-align:center">Error cargando</p>'; }
+    cont.innerHTML = (desdeCache ? '<p style="font-size:12px;color:var(--orange);text-align:center;margin-bottom:8px">📴 Sin señal — mostrando la última lista guardada en la tablet</p>' : '')
+      + visiblesPorTecnico.map(v => renderTarjetaVisita(v,false)).join('');
+  } catch { cont.innerHTML='<p style="color:var(--red);font-size:13px;text-align:center">Error cargando — sin señal y sin una lista guardada para este período</p>'; }
 }
 
 // ── CALENDARIO DE MIS VISITAS (empleado) ────────────────────────────────────
@@ -6361,7 +6465,8 @@ async function guardarConstanciaActual(mostrarToast=false) {
     await ARStorage.set('constancia_pendiente_sync_'+id, {
       constanciaId: id, visitaId: CONST_STATE.visitaId,
       datos:CONST_STATE.datos, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
-      equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios
+      equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios,
+      firmas:CONST_STATE.firmas, destinoId:CONST_STATE._firmaDestinoId || null
     });
     if (mostrarToast) toast('Sin conexión — guardado localmente 📴','info');
   }
@@ -6484,7 +6589,13 @@ async function confirmarFirma() {
   if(!String(_id).startsWith('offline_')) {
     const _body={tipo,nombre_apellido:nombre,cargo,matricula,firma_svg};
     if(tipo==='cliente'){_body.dni=dni||null;_body.destino_id=CONST_STATE._firmaDestinoId||null;}
-    api('/constancias/'+_id+'/firmas',{method:'POST',body:JSON.stringify(_body)}).catch(()=>{});
+    // Si no llega al servidor (sin señal), la firma queda en la tablet y se
+    // sube sola al recuperar conexión — antes se descartaba en silencio.
+    api('/constancias/'+_id+'/firmas',{method:'POST',body:JSON.stringify(_body)}).catch(()=>
+      ARStorage.set('constancia_firma_pendiente_'+_id+'_'+tipo, {
+        constanciaId:_id, tipo, destinoId:CONST_STATE._firmaDestinoId||null,
+        firma:{nombre_apellido:nombre,cargo,matricula,dni,firma_svg},
+      }));
   }
   if(tipo==='tecnico'||tipo==='responsable_exit') {
     api('/constancias/firma-guardada',{method:'POST',body:JSON.stringify({nombre_apellido:nombre,cargo,matricula,firma_svg,tipo})}).catch(()=>{});
@@ -7031,37 +7142,87 @@ function generarHTMLConstancia() {
 }
 
 
-window.addEventListener('online', async () => {
-  // Fichajes de jornada pendientes de sincronizar
+// ── Sincronización de constancias guardadas sin conexión ─────────────────────
+// Tres tipos de pendientes en ARStorage:
+//   constancia_pendiente_offline_<id>  → creada sin conexión (ID offline_xxx):
+//                                         se crea en el servidor + datos + firmas
+//   constancia_pendiente_sync_<id>     → ID real, falló el guardado: datos + firmas
+//   constancia_firma_pendiente_<id>_<tipo> → firma que no llegó al servidor
+// Antes las firmas no viajaban en ninguna de las dos colas: una firma de
+// cliente hecha sin señal se perdía (fix 27/09/2026). Un error que no sea de
+// conexión se deja en la cola y se avisa, en vez de tragarlo en silencio.
+async function enviarFirmasConstancia(constanciaId, firmas, destinoId) {
+  for (const [tipo, f] of Object.entries(firmas || {})) {
+    if (!f?.firma_svg) continue;
+    const body = { tipo, nombre_apellido: f.nombre_apellido, cargo: f.cargo, matricula: f.matricula, firma_svg: f.firma_svg };
+    if (tipo === 'cliente') { body.dni = f.dni || null; body.destino_id = destinoId || null; }
+    await api('/constancias/'+constanciaId+'/firmas', {method:'POST', body:JSON.stringify(body)});
+  }
+}
+
+let _sincronizandoConstancias = false;
+async function sincronizarConstanciasPendientes() {
+  if (_sincronizandoConstancias) return;
+  _sincronizandoConstancias = true;
+  let ok = 0, fallidas = 0;
+  const payload = st => JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios});
+  try {
+    for (const key of await ARStorage.keys('constancia_pendiente_offline_')) {
+      try {
+        const st = await ARStorage.get(key);
+        // Si ya se creó en el servidor en un intento anterior que se cortó a
+        // mitad, se reusa ese ID en vez de crear una constancia duplicada.
+        let id = st._idServidor;
+        if (!id) {
+          const data = await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:st.visitaId})});
+          id = data.constancia.id;
+          st._idServidor = id;
+          await ARStorage.set(key, st);
+        }
+        await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:payload(st)});
+        await enviarFirmasConstancia(id, st.firmas, st._firmaDestinoId);
+        await ARStorage.del(key);
+        // Si esa misma constancia sigue abierta en pantalla, pasa a usar el ID
+        // real — si no, el próximo guardado la volvería a crear duplicada.
+        if (typeof CONST_STATE !== 'undefined' && CONST_STATE.constanciaId === st.constanciaId) CONST_STATE.constanciaId = id;
+        ok++;
+      } catch(e) { if (esErrorDeConexion(e)) return; fallidas++; console.error('[sync constancia offline]', key, e); }
+    }
+    for (const key of await ARStorage.keys('constancia_pendiente_sync_')) {
+      try {
+        const st = await ARStorage.get(key);
+        await api('/constancias/'+st.constanciaId+'/guardar-completo', {method:'POST', body:payload(st)});
+        await enviarFirmasConstancia(st.constanciaId, st.firmas, st.destinoId);
+        await ARStorage.del(key);
+        ok++;
+      } catch(e) { if (esErrorDeConexion(e)) return; fallidas++; console.error('[sync constancia]', key, e); }
+    }
+    for (const key of await ARStorage.keys('constancia_firma_pendiente_')) {
+      try {
+        const p = await ARStorage.get(key);
+        await enviarFirmasConstancia(p.constanciaId, { [p.tipo]: p.firma }, p.destinoId);
+        await ARStorage.del(key);
+        ok++;
+      } catch(e) { if (esErrorDeConexion(e)) return; fallidas++; console.error('[sync firma]', key, e); }
+    }
+  } finally {
+    _sincronizandoConstancias = false;
+    if (ok) toast('Constancias sincronizadas ✓ (' + ok + ')', 'success');
+    if (fallidas) toast('⚠ ' + fallidas + ' constancia(s) no se pudieron sincronizar — siguen guardadas en la tablet. Avisá al administrador.', 'error', 9000);
+  }
+}
+
+async function sincronizarTodoPendiente() {
   await procesarMovimientosPendientes();
-  // Reservas de recursos pendientes de sincronizar
   await procesarReservasPendientes();
-  // Tipo A: constancias creadas sin conexión (ID offline_xxx) — crear en servidor
-  const keysOffline = await ARStorage.keys('constancia_pendiente_offline_');
-  for (const key of keysOffline) {
-    try {
-      const st = await ARStorage.get(key);
-      const data = await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:st.visitaId})});
-      const id = data.constancia.id;
-      await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
-      await ARStorage.del(key);
-      toast('Constancia sincronizada ✓', 'success');
-    } catch {}
-  }
-  // Tipo B: constancias con ID real que fallaron al guardar estando offline
-  const keysSync = await ARStorage.keys('constancia_pendiente_sync_');
-  for (const key of keysSync) {
-    try {
-      const st = await ARStorage.get(key);
-      await api('/constancias/'+st.constanciaId+'/guardar-completo', {method:'POST', body:JSON.stringify({datos:st.datos,selecciones:st.selecciones,personal:st.personal,equipos:st.equipos,acciones:st.acciones,desvios:st.desvios})});
-      await ARStorage.del(key);
-      toast('Constancia sincronizada ✓', 'success');
-    } catch {}
-  }
+  await sincronizarConstanciasPendientes();
+  if (typeof procesarVisitasPendientes === 'function') await procesarVisitasPendientes();
   // Avisa al servidor que esta tablet sincronizó, para que el admin vea
   // "última sincronización" del técnico en el panel de equipo.
   try { await api('/config/sync-ping', {method:'POST'}); } catch {}
-});
+}
+
+window.addEventListener('online', () => sincronizarTodoPendiente());
 
 
 // ── EGRESO MANUAL RETROACTIVO (admin) ────────────────────────────────────────
