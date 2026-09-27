@@ -15,7 +15,7 @@ router.post('/registrar', auth, async (req, res) => {
 
   // 'domicilio' = arrancó la jornada trabajando desde su casa
   // 'externo'    = arrancó la jornada viajando directo hacia un cliente (sin pasar por oficina)
-  const contextoRemotoVal = ['domicilio', 'externo'].includes(contexto_remoto) ? contexto_remoto : null;
+  let contextoRemotoVal = ['domicilio', 'externo'].includes(contexto_remoto) ? contexto_remoto : null;
 
   const TIPOS_VALIDOS = [
     'ingreso', 'salida_almuerzo', 'regreso_almuerzo', 'egreso',
@@ -81,13 +81,64 @@ router.post('/registrar', auth, async (req, res) => {
       }
     }
 
-    // ─ Verificar GPS (solo para movimientos de oficina, no remotos) ─
+    // ─ "Volver a la oficina": un fin_jornada_remota que cierra una jornada de
+    // Trabajo Externo (contexto_remoto='externo') no es un cierre real — el
+    // empleado sigue trabajando, solo que ahora está físicamente en la
+    // oficina. A diferencia del resto de fichajes remotos (que no llevan
+    // chequeo de GPS), este sí lo necesita: se comporta como un ingreso
+    // normal, validando contra el radio de la oficina — Bug 3, 16/09/2026.
+    let inicioExternoHoy = null;
+    if (tipo === 'fin_jornada_remota') {
+      const { rows: [inicioExt] } = await client.query(`
+        SELECT hora FROM public.movimientos
+        WHERE empleado_id = $1 AND fecha = CURRENT_DATE
+          AND tipo = 'inicio_jornada_remota' AND contexto_remoto = 'externo'
+        ORDER BY hora DESC LIMIT 1
+      `, [empleadoId]);
+      inicioExternoHoy = inicioExt || null;
+    }
+    const esVueltaDeExterno = !!inicioExternoHoy;
+    // El contexto no viaja en el body para el cierre (solo se manda al
+    // iniciar) — se fija acá según lo que ya está en la base, para que
+    // v_estado_empleados pueda distinguir este caso de un cierre real.
+    if (esVueltaDeExterno) contextoRemotoVal = 'externo';
+
+    // ─ Verificar GPS (movimientos de oficina, y "volver a la oficina") ─
     let gpsValido = true;
     let distanciaM = null;
     let observacionAuto = null;
     let salidaFueraRadioVal = false;
 
-    if (!es_remoto && ['ingreso','egreso','salida_almuerzo','regreso_almuerzo'].includes(tipo)) {
+    if (esVueltaDeExterno) {
+      // Acá sí hace falta confirmar la ubicación, pero a diferencia de un
+      // ingreso de oficina no se rechaza el fichaje si falla — el empleado
+      // ya está de vuelta y necesita quedar registrado. Sin GPS o fuera del
+      // radio, se acepta igual pero queda sin auto-validar (mismo circuito
+      // de "Fichajes GPS pendientes" que el resto de los remotos) — spec
+      // ajustada 16/09/2026.
+      if (!tieneGps) {
+        gpsValido = false;
+        observacionAuto = 'Volvió a la oficina sin confirmar ubicación (sin señal GPS) — pendiente de validación del admin';
+      } else {
+        const { rows: [emp] } = await client.query(
+          'SELECT oficina_lat, oficina_lng, oficina_radio_m FROM public.empleadores WHERE id = $1',
+          [req.user.empleadorId]
+        );
+        if (emp && emp.oficina_lat != null && emp.oficina_lng != null) {
+          distanciaM = Math.round(calcularDistancia(
+            latVal, lngVal,
+            parseFloat(emp.oficina_lat),
+            parseFloat(emp.oficina_lng)
+          ));
+          const radioPermitido = parseInt(emp.oficina_radio_m) || 300;
+          gpsValido = distanciaM <= radioPermitido;
+          if (!gpsValido) {
+            salidaFueraRadioVal = true;
+            observacionAuto = `Volvió a la oficina fuera del radio permitido (${distanciaM}m) — pendiente de validación del admin`;
+          }
+        }
+      }
+    } else if (!es_remoto && ['ingreso','egreso','salida_almuerzo','regreso_almuerzo'].includes(tipo)) {
       if (!tieneGps) {
         // Sin señal GPS al fichar: no bloqueamos el fichaje (el empleado podría estar realmente en la
         // oficina y solo falló el GPS del teléfono), pero tampoco lo damos por válido en silencio —
@@ -221,7 +272,7 @@ router.post('/registrar', auth, async (req, res) => {
     // criterio anterior: pendiente de validación manual. Un acompañante
     // "otro_cliente" NO alcanza por sí solo — necesita además su propia
     // visita cargada (Caso 1), tal cual pedía el spec. ─
-    let validadoVal = es_remoto ? false : gpsValido;
+    let validadoVal = (es_remoto && !esVueltaDeExterno) ? false : gpsValido;
     let acompananteRow = null;
     if (tipo === 'inicio_jornada_remota' && contextoRemotoVal === 'externo') {
       if (acompanante_id) {
@@ -251,20 +302,13 @@ router.post('/registrar', auth, async (req, res) => {
     // mismo mecanismo que el resto de "Fichajes GPS" pendientes
     // (GET /pendientes-validacion + POST /validar-remoto/:id). ─
     let excesoHorasExterno = null;
-    if (tipo === 'fin_jornada_remota') {
-      const { rows: [inicioExterno] } = await client.query(`
-        SELECT hora FROM public.movimientos
-        WHERE empleado_id = $1 AND fecha = CURRENT_DATE
-          AND tipo = 'inicio_jornada_remota' AND contexto_remoto = 'externo'
-        ORDER BY hora DESC LIMIT 1
-      `, [empleadoId]);
-      if (inicioExterno) {
-        const horasTrabajadas = (Date.now() - new Date(inicioExterno.hora).getTime()) / 3600000;
-        if (horasTrabajadas > 12) {
-          excesoHorasExterno = horasTrabajadas;
-          validadoVal = false;
-          observacionAuto = `Jornada Externo de ${horasTrabajadas.toFixed(1)}hs — supera el límite legal de 12hs, pendiente de validación del admin`;
-        }
+    if (esVueltaDeExterno) {
+      const horasTrabajadas = (Date.now() - new Date(inicioExternoHoy.hora).getTime()) / 3600000;
+      if (horasTrabajadas > 12) {
+        excesoHorasExterno = horasTrabajadas;
+        validadoVal = false;
+        const msgExceso = `Jornada Externo de ${horasTrabajadas.toFixed(1)}hs — supera el límite legal de 12hs, pendiente de validación del admin`;
+        observacionAuto = observacionAuto ? `${observacionAuto} | ${msgExceso}` : msgExceso;
       }
     }
 
@@ -324,6 +368,48 @@ router.post('/registrar', auth, async (req, res) => {
       salidaFueraRadioVal,
     ]);
 
+    // ─ "Volver a la oficina" continúa la jornada: el fin_jornada_remota de
+    // arriba solo cierra el tramo Externo. Sin un movimiento de apertura a
+    // continuación, calcularHorasJornada, el contador de la app y los pasos
+    // del cron veían la jornada como terminada y dejaban de contar horas —
+    // como si el empleado se hubiera retirado. Se abre acá, en la misma
+    // transacción, un 'ingreso' de oficina 1 segundo después (para que quede
+    // ordenado detrás del cierre), con el mismo resultado de GPS: si no se
+    // pudo confirmar la ubicación, queda pendiente de validación del admin
+    // igual que cualquier ingreso de oficina sin GPS. Fix 27/09/2026. ─
+    let ingresoOficinaAuto = null;
+    if (esVueltaDeExterno) {
+      const hashIngreso = jornada.generarHash({
+        tipo: 'ingreso', empleadoId, empleadorId: req.user.empleadorId,
+        hora: new Date(Date.now() + 1000).toISOString(), lat: latVal, lng: lngVal,
+      });
+      const { rows: [ing] } = await client.query(`
+        INSERT INTO public.movimientos (
+          empleado_id, empleador_id, tipo, fecha, hora,
+          lat, lng, gps_valido, distancia_m,
+          es_remoto, foto_url, foto_capturada,
+          es_tardanza, minutos_tardanza, es_feriado,
+          validado, hash_sha256, observacion_admin
+        ) VALUES (
+          $1,$2,'ingreso',CURRENT_DATE,NOW() + INTERVAL '1 second',
+          $3,$4,$5,$6,
+          FALSE,$7,$8,
+          FALSE,0,$9,
+          $10,$11,$12
+        ) RETURNING *
+      `, [
+        empleadoId, req.user.empleadorId,
+        latVal, lngVal, gpsValido, distanciaM,
+        foto_url || null, !!foto_url,
+        feriado,
+        gpsValido, hashIngreso,
+        gpsValido
+          ? 'Ingreso automático a oficina al volver de Trabajo Externo'
+          : 'Ingreso automático a oficina al volver de Trabajo Externo — ubicación no confirmada, pendiente de validación del admin',
+      ]);
+      ingresoOficinaAuto = ing;
+    }
+
     // ─ Marcar la fila de acompañante como confirmada (Parte C.2) — aunque no
     // haya alcanzado para auto-aprobar (caso "otro_cliente" sin visita
     // propia), queda registrado que el colaborador sí confirmó salir de
@@ -376,7 +462,7 @@ router.post('/registrar', auth, async (req, res) => {
       await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
     }
 
-    res.json({ ok: true, movimiento: mov });
+    res.json({ ok: true, movimiento: mov, ingreso_oficina: ingresoOficinaAuto });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[MOV] Error:', err.message);

@@ -371,7 +371,20 @@ async function actualizarBancoHoras(empleadoId, fecha, client) {
   const diasConvenio = await contarDiasLaborablesDelMes(
     anio, mes, jc?.dias_laborables || [1,2,3,4,5,6]
   );
-  const horasConvenio = diasConvenio * (jc?.horas_diarias_objetivo || 8);
+  // Carga horaria mensual fija de convenio (convenios.horas_mensuales, 178hs
+  // para EXIT desde 27/09/2026). Si no está cargada, se mantiene el cálculo
+  // anterior (días laborables × horas diarias). Se lee con c.* para no romper
+  // el fichaje si la columna todavía no se creó en la base.
+  const { rows: [conv] } = await client.query(`
+    SELECT c.* FROM public.convenios c
+    JOIN public.empleadores emp ON emp.convenio_id = c.id
+    JOIN public.empleados e ON e.empleador_id = emp.id
+    WHERE e.id = $1
+  `, [empleadoId]);
+  const horasMensualesConv = Number(conv?.horas_mensuales);
+  const horasConvenio = horasMensualesConv > 0
+    ? horasMensualesConv
+    : diasConvenio * (jc?.horas_diarias_objetivo || 8);
   const horasExtra    = Math.max(0, horasTrabajadas - horasConvenio);
   const horasAusencia = Number(ausRow?.horas || 0);
 

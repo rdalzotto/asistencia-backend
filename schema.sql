@@ -80,6 +80,7 @@ CREATE TABLE public.convenios (
   descripcion               TEXT,
   horas_diarias             NUMERIC(4,2) DEFAULT 8,
   horas_semanales           NUMERIC(5,2) DEFAULT 48,
+  horas_mensuales           NUMERIC(6,2),            -- carga horaria mensual fija (178 en EXIT); NULL = días laborables × horas diarias
   tolerancia_tardanza_min   INTEGER DEFAULT 10,      -- minutos LCT Art.57
   max_hs_extra_dia          NUMERIC(4,2) DEFAULT 3,  -- Decreto 484/2000
   max_hs_extra_mes          NUMERIC(5,2) DEFAULT 30,

@@ -1924,6 +1924,13 @@ async function enviarMovimientoDirecto(tipo) {
   const body = {tipo, lat:STATE.gpsCoords?.lat, lng:STATE.gpsCoords?.lng, foto_url:STATE.fotoBase64, es_remoto:esRemoto};
   if (tipo === 'salida_externa') { body.categoria_salida_id = catId||null; body.destino_id = destId||null; body.destino_descripcion = desc||null; }
   if (esRemoto) { body.domicilio_partida_lat = STATE.gpsCoords?.lat; body.domicilio_partida_lng = STATE.gpsCoords?.lng; }
+  // "Volver a la oficina" (fin_jornada_remota tras Trabajo Externo) sí exige
+  // GPS para auto-validarse — a diferencia del resto de fichajes remotos, que
+  // son libres. No bloqueamos si falta: se avisa antes de mandar el fichaje,
+  // que igual se registra pero queda pendiente de validación del admin.
+  if (tipo === 'fin_jornada_remota' && esVueltaAOficina(tipo) && !STATE.gpsCoords?.lat) {
+    toast('No pudimos confirmar tu ubicación — podés continuar, pero quedará pendiente de validación del administrador. Te recomendamos activar el GPS.', 'info', 7000);
+  }
   try {
     const resp = await api('/movimientos/registrar', {method:'POST', body:JSON.stringify(body)});
     cerrarModal('modal-registro');
@@ -1932,6 +1939,16 @@ async function enviarMovimientoDirecto(tipo) {
     if (tipo === 'egreso' || tipo === 'fin_jornada_remota') ocultarBannerAlertaJornada();
     if (resp?.movimiento && resp.movimiento.gps_valido === false && !esRemoto) {
       setTimeout(() => toast('Avisale a tu administrador para que valide tus ingresos así se contabilizan las horas con normalidad en tu planilla de registros mensuales. Si no se valida dentro de 3 horas, la jornada se cerrará automáticamente y esas horas no se contabilizarán.', 'info', 15000), 800);
+    }
+    // Cubre el caso de "fuera de radio" que el frontend no puede detectar
+    // antes de mandar el fichaje (el aviso de arriba solo cubre "sin GPS").
+    if (resp?.movimiento && resp.movimiento.gps_valido === false && tipo === 'fin_jornada_remota' && esVueltaAOficina(tipo) && STATE.gpsCoords?.lat) {
+      setTimeout(() => toast('No pudimos confirmar que volviste a la oficina (fuera del radio permitido) — quedará pendiente de validación del administrador.', 'info', 8000), 800);
+    }
+    // El backend abre solo el tramo de oficina a continuación (ingreso
+    // automático) — la jornada sigue contando, no hace falta fichar Ingreso.
+    if (resp?.ingreso_oficina && resp.ingreso_oficina.gps_valido !== false) {
+      setTimeout(() => toast('🏢 Tu jornada sigue en curso, ahora en la oficina. Las horas se siguen contando.', 'success', 6000), 800);
     }
     if (tipo === 'ingreso' || tipo === 'regreso_almuerzo') {
       setTimeout(() => verificarChecklistAlIngreso(), 6000);
@@ -1946,8 +1963,10 @@ async function enviarMovimientoDirecto(tipo) {
       toast('📴 Sin conexión — el fichaje quedó guardado y se enviará solo al reconectar', 'info', 5000);
       await mostrarPendientesMovimientos();
     } else if (e.message && e.message.includes('GPS fuera del área')) {
+      // "Volver a la oficina" ya no puede llegar acá — el backend no rechaza
+      // más ese caso por GPS (fix 16/09/2026), queda solo para egreso de oficina.
       btn.innerHTML = 'Confirmar'; btn.disabled = false;
-      if (tipo === 'egreso' || tipo === 'fin_jornada_remota') {
+      if (tipo === 'egreso') {
         cerrarModal('modal-registro');
         abrirSalidaJustificada('gps_falla');
       } else {
