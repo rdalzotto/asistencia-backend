@@ -277,6 +277,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <button class="btn btn-secondary btn-sm" id="btn-pedir-compensatorio" style="width:100%" onclick="abrirModalCompensatorio()">🗓️ Pedir compensatorio</button>
     </div>
     <div class="card">
+      <div class="card-title">📄 Mi reporte de horas</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Al cerrar cada mes, revisá tu reporte y firmalo con el dedo en la pantalla. Queda guardado como PDF.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-group"><label>Mes</label><select id="mirep-mes"><option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option><option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option><option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option><option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option></select></div>
+        <div class="form-group"><label>Año</label><select id="mirep-anio"></select></div>
+      </div>
+      <button class="btn btn-secondary btn-sm" style="width:100%" onclick="verMiReporteMensual()">Ver y firmar mi reporte</button>
+    </div>
+    <div class="card">
       <div class="card-title">Vacaciones</div>
       <div class="vac-progress">
         <div class="info-row" style="padding:0"><span style="font-size:14px;font-weight:600">Días disponibles</span><span style="font-size:20px;font-weight:700;color:var(--accent)" id="vac-disponibles">--</span></div>
@@ -674,6 +683,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="btn btn-secondary" onclick="abrirModal('modal-conformidad-reporte')" id="btn-firmar-empleado">✍️ Firmar (empleado)</button>
         <button class="btn btn-secondary" id="btn-objecion-pendiente" style="display:none;color:var(--yellow)">⚠ Objeción pendiente de revisar</button>
         <button class="btn btn-secondary" onclick="abrirFirmaReporte('admin')" id="btn-firmar-admin">✍️ Firmar (responsable)</button>
+        <button class="btn btn-secondary" onclick="verPDFFirmado()" id="btn-ver-pdf-firmado" style="display:none">📄 Ver PDF firmado</button>
+        <button class="btn btn-secondary" onclick="this.style.display='none';guardarPDFFirmadoEnServidor()" id="btn-reintentar-pdf" style="display:none">💾 Guardar PDF firmado</button>
         <button class="btn btn-secondary" onclick="cerrarModal('modal-reporte')">Cerrar</button>
       </div>
     </div>
@@ -1468,7 +1479,27 @@ async function cargarDashboardEmpleado() {
     }
     cargarEquipoEstado();
     mostrarPendientesMovimientos();
+    initMiReporteSelects();
   } catch(e) { console.error(e); }
+}
+
+// Selector de "Mi reporte de horas": por defecto el mes anterior (el último
+// cerrado, que es el que corresponde firmar).
+function initMiReporteSelects() {
+  const anioSel = document.getElementById('mirep-anio');
+  if (!anioSel || anioSel.options.length) return;
+  const hoy = new Date();
+  const anioActual = hoy.getFullYear();
+  anioSel.innerHTML = [anioActual, anioActual - 1].map(a => '<option value="'+a+'">'+a+'</option>').join('');
+  const mesAnt = hoy.getMonth() === 0 ? 12 : hoy.getMonth();
+  document.getElementById('mirep-mes').value = mesAnt;
+  anioSel.value = hoy.getMonth() === 0 ? anioActual - 1 : anioActual;
+}
+
+function verMiReporteMensual() {
+  generarReporteMensual(STATE.empleadoId,
+    document.getElementById('mirep-anio').value,
+    document.getElementById('mirep-mes').value);
 }
 
 // Formatea "hace cuánto" sincronizó por última vez la tablet de un técnico.
@@ -3004,10 +3035,12 @@ async function cargarSelectEmpleados() {
 
 let REPORTE_STATE = { empId: null, anio: null, mes: null, data: null, firmado: null };
 
-async function generarReporteMensual() {
-  const empId = document.getElementById('rep-empleado').value;
-  const anio = document.getElementById('rep-anio').value;
-  const mes = document.getElementById('rep-mes').value;
+// Sin parámetros: lo abre el admin desde la pestaña Reportes. Con parámetros:
+// lo abre el empleado desde "Mi reporte de horas" en su teléfono.
+async function generarReporteMensual(empIdArg, anioArg, mesArg) {
+  const empId = empIdArg || document.getElementById('rep-empleado').value;
+  const anio = anioArg || document.getElementById('rep-anio').value;
+  const mes = mesArg || document.getElementById('rep-mes').value;
   if (!empId) return toast('Seleccioná un empleado','error');
   try {
     const [data, firmado, objeciones] = await Promise.all([
@@ -3016,6 +3049,7 @@ async function generarReporteMensual() {
       api('/reportes/mensual/objeciones?empleado_id='+empId+'&anio='+anio+'&mes='+mes).catch(()=>[]),
     ]);
     REPORTE_STATE = { empId, anio, mes, data, firmado, objeciones };
+    document.getElementById('btn-reintentar-pdf').style.display = 'none';
     renderReporteMensual(firmado?.datos_snapshot || data, !!firmado);
     renderFirmasReporte(firmado);
     renderObjecionesReporte(objeciones);
@@ -3100,7 +3134,9 @@ function renderReporteMensual(data, esFirmado) {
 
   const avisoFirmado = esFirmado
     ? `<div style="margin-top:14px;padding:10px;border-radius:8px;background:rgba(0,230,118,0.1);border:1px solid var(--green);font-size:12px;color:var(--green)">✓ Este reporte está firmado. Los datos que ves corresponden al snapshot congelado al momento de la firma, no a la vista en vivo.</div>`
-    : '';
+    : data.archivado
+      ? `<div style="margin-top:14px;padding:10px;border-radius:8px;background:rgba(255,200,0,0.08);border:1px solid var(--yellow);font-size:12px;color:var(--yellow)">🗄 Período histórico archivado (anterior al arranque de registros oficiales del 01/10/2026). Se puede consultar, pero no se firma ni suma al banco de horas acumulado.</div>`
+      : '';
 
   document.getElementById('reporte-contenido').innerHTML = `
     <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
@@ -3168,16 +3204,56 @@ function renderFirmasReporte(firmado) {
 
   document.getElementById('reporte-firmas').innerHTML = `<div style="display:flex;gap:12px;flex-wrap:wrap">${box(fEmp)}${box(fAdmin)}</div>`;
 
-  document.getElementById('btn-firmar-admin').style.display = firmado?.firma_admin_svg ? 'none' : '';
+  // Firma del responsable: solo admin, mes cerrado y no archivado.
+  document.getElementById('btn-firmar-admin').style.display =
+    (STATE.rol === 'admin' && reporteFirmable() && !firmado?.firma_admin_svg) ? '' : 'none';
+  document.getElementById('btn-ver-pdf-firmado').style.display = firmado?.pdf_path ? '' : 'none';
+}
+
+// Un reporte se firma solo si el mes ya terminó y no es un período histórico
+// archivado (antes del arranque limpio del 01/10/2026).
+function reporteFirmable() {
+  const { anio, mes, data } = REPORTE_STATE;
+  if (data?.archivado) return false;
+  const hoy = new Date();
+  return Number(anio) * 12 + Number(mes) < hoy.getFullYear() * 12 + hoy.getMonth() + 1;
+}
+
+// Genera el PDF con las firmas actuales y lo guarda en el servidor. Si falla
+// la firma igual quedó registrada — solo se avisa, se puede reintentar.
+async function guardarPDFFirmadoEnServidor() {
+  try {
+    const { pdf } = await generarPDFReporte();
+    await api('/reportes/mensual/pdf', { method:'POST', body: JSON.stringify({
+      empleado_id: REPORTE_STATE.empId, anio: REPORTE_STATE.anio, mes: REPORTE_STATE.mes,
+      pdf_base64: pdf.output('datauristring'),
+    })});
+    await recargarEstadoReporte();
+    toast('📄 PDF firmado guardado', 'success');
+  } catch(e) {
+    console.error('[pdf firmado]', e);
+    toast('La firma quedó registrada, pero no se pudo guardar el PDF. Tocá "Guardar PDF firmado" para reintentar.', 'error', 8000);
+    document.getElementById('btn-reintentar-pdf').style.display = '';
+  }
+}
+
+async function verPDFFirmado() {
+  try {
+    const { empId, anio, mes } = REPORTE_STATE;
+    const r = await api('/reportes/mensual/pdf-url?empleado_id='+empId+'&anio='+anio+'&mes='+mes);
+    window.open(r.url, '_blank');
+  } catch(e) { toast(e.message || 'No se pudo abrir el PDF', 'error'); }
 }
 
 function renderObjecionesReporte(objeciones) {
   const esAdmin = STATE.rol === 'admin';
   const hayPendiente = (objeciones||[]).some(o => o.estado === 'pendiente');
 
-  // Bloquea/habilita el botón de firmar empleado según haya objeción pendiente
+  // La firma del empleado se pone solo desde su propia cuenta (su teléfono),
+  // con el mes cerrado, sin objeción pendiente y si todavía no firmó.
+  const esPropio = String(REPORTE_STATE.empId) === String(STATE.empleadoId);
   document.getElementById('btn-firmar-empleado').style.display =
-    (REPORTE_STATE.firmado?.firma_empleado_svg || hayPendiente) ? 'none' : '';
+    (esPropio && reporteFirmable() && !REPORTE_STATE.firmado?.firma_empleado_svg && !hayPendiente) ? '' : 'none';
   document.getElementById('btn-objecion-pendiente').style.display = hayPendiente ? '' : 'none';
 
   if (!objeciones || !objeciones.length) {
@@ -3292,8 +3368,10 @@ async function guardarFirmaReporte() {
     REPORTE_STATE.firmado = res.firmado;
     renderReporteMensual(res.firmado.datos_snapshot, true);
     renderFirmasReporte(res.firmado);
+    await recargarEstadoReporte();
     cerrarModal('modal-firma-reporte');
-    toast('Firma guardada','success');
+    toast('Firma guardada — generando PDF...','success');
+    await guardarPDFFirmadoEnServidor();
   } catch(e) { toast(e.message,'error'); }
 }
 

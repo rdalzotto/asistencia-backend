@@ -22,6 +22,24 @@ router.get('/mensual', auth, async (req, res) => {
   }
 });
 
+// ─── Arranque limpio de registros (01/10/2026) ───────────────────────────────
+// empleadores.fecha_inicio_registros marca desde cuándo cuentan los registros
+// "oficiales": los meses anteriores quedan archivados (se pueden ver, pero no
+// se firman ni suman al banco de horas acumulado). Se lee con SELECT * para
+// que el código no falle si la columna todavía no se creó en la base.
+async function fechaInicioRegistros(empleadorId) {
+  const { rows: [emp] } = await db.query('SELECT * FROM public.empleadores WHERE id = $1', [empleadorId]);
+  const f = emp?.fecha_inicio_registros;
+  if (!f) return null;
+  return f instanceof Date ? f.toISOString().split('T')[0] : String(f).split('T')[0];
+}
+
+function esPeriodoArchivado(anio, mes, inicioRegistros) {
+  if (!inicioRegistros) return false;
+  const [aIni, mIni] = inicioRegistros.split('-').map(Number);
+  return Number(anio) * 12 + Number(mes) < aIni * 12 + mIni;
+}
+
 // ─── Construye el reporte mensual completo de un empleado ────────────────────
 // Extraída como función independiente para que tanto GET /mensual (vista en
 // vivo) como POST /mensual/firmar (snapshot legal firmado) usen exactamente
@@ -76,18 +94,24 @@ async function construirReporteMensual(eId, empleadorId, anio, mes) {
   // Saldo acumulado de banco de horas HASTA este mes inclusive (no el total a
   // hoy — el reporte es de un período pasado, así que el saldo debe reflejar
   // el acumulado hasta el cierre de ese mes, no incluir meses posteriores).
+  // Desde el arranque limpio (empleadores.fecha_inicio_registros, 01/10/2026)
+  // el acumulado solo suma meses a partir de esa fecha — lo anterior queda
+  // archivado como histórico y no arrastra saldo.
   const diasEnMesCalc = new Date(anio, mes, 0).getDate();
   const finDeMes = `${anio}-${String(mes).padStart(2,'0')}-${String(diasEnMesCalc).padStart(2,'0')}`;
+  const inicioRegistros = await fechaInicioRegistros(empleadorId);
   const { rows: [saldoBrutoRow] } = await db.query(`
     SELECT COALESCE(SUM(balance), 0) as saldo_bruto
     FROM public.banco_horas
     WHERE empleado_id = $1 AND (anio < $2 OR (anio = $2 AND mes <= $3))
-  `, [eId, anio, mes]);
+      AND ($4::date IS NULL OR make_date(anio, mes, 1) >= date_trunc('month', $4::date))
+  `, [eId, anio, mes, inicioRegistros]);
   const { rows: [compensadasRow] } = await db.query(`
     SELECT COALESCE(SUM(horas_compensadas), 0) as horas_comp
     FROM public.compensaciones
     WHERE empleado_id = $1 AND fecha <= $2
-  `, [eId, finDeMes]);
+      AND ($3::date IS NULL OR fecha >= $3::date)
+  `, [eId, finDeMes, inicioRegistros]);
   const bancoHorasAcumulado =
     Number(saldoBrutoRow.saldo_bruto) - Number(compensadasRow.horas_comp);
 
@@ -126,7 +150,12 @@ async function construirReporteMensual(eId, empleadorId, anio, mes) {
     });
 
     const ingreso   = movsDia.find(m => ['ingreso','inicio_jornada_remota'].includes(m.tipo));
-    const egreso    = movsDia.find(m => ['egreso','fin_jornada_remota'].includes(m.tipo));
+    // Egreso = el ÚLTIMO cierre del día, y solo si nada lo reabrió después. Con
+    // "Volver a la oficina" (fin_jornada_remota + ingreso automático) el
+    // primer cierre del día es la vuelta, no la salida real.
+    const ultimoAbreCierra = [...movsDia].reverse().find(m =>
+      ['ingreso','regreso_almuerzo','inicio_jornada_remota','egreso','fin_jornada_remota'].includes(m.tipo));
+    const egreso    = ['egreso','fin_jornada_remota'].includes(ultimoAbreCierra?.tipo) ? ultimoAbreCierra : null;
     const ausencia  = ausencias.find(a => fecha >= a.fecha_inicio && fecha <= a.fecha_fin);
     const tardanza  = movsDia.find(m => m.es_tardanza);
     const visitasDia = visitasMes.filter(v => {
@@ -217,6 +246,7 @@ async function construirReporteMensual(eId, empleadorId, anio, mes) {
     empleado: emp,
     anio: Number(anio),
     mes: Number(mes),
+    archivado: esPeriodoArchivado(anio, mes, inicioRegistros),
     dias: diasDelMes,
     banco_horas: bh || null,
     feriados,
@@ -264,13 +294,24 @@ router.post('/mensual/firmar', auth, async (req, res) => {
   if (!['empleado', 'admin'].includes(tipo)) {
     return res.status(400).json({ error: 'Tipo de firma inválido' });
   }
-  // Solo el propio empleado puede poner la firma "empleado"; solo un admin
-  // puede poner la firma "admin".
-  if (tipo === 'empleado' && req.user.rol === 'empleado' && req.user.empleadoId != empleado_id) {
-    return res.status(403).json({ error: 'No autorizado' });
+  // La firma "empleado" la pone solo el propio empleado, desde su teléfono —
+  // ni siquiera un admin puede firmar en su nombre (spec 27/09/2026). La
+  // firma "admin" la pone solo un administrador.
+  if (tipo === 'empleado' && req.user.empleadoId != empleado_id) {
+    return res.status(403).json({ error: 'Solo el propio empleado puede firmar su reporte' });
   }
   if (tipo === 'admin' && req.user.rol !== 'admin') {
     return res.status(403).json({ error: 'Solo un administrador puede firmar como responsable' });
+  }
+
+  // Solo se firman meses cerrados y dentro del período de registros oficiales
+  // (desde fecha_inicio_registros). Lo anterior es histórico archivado.
+  const ahoraArg = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  if (Number(anio) * 12 + Number(mes) >= ahoraArg.getUTCFullYear() * 12 + ahoraArg.getUTCMonth() + 1) {
+    return res.status(400).json({ error: 'El mes todavía no terminó — el reporte se firma una vez cerrado el mes.' });
+  }
+  if (esPeriodoArchivado(anio, mes, await fechaInicioRegistros(req.user.empleadorId))) {
+    return res.status(400).json({ error: 'Este período es histórico (archivado) y no se firma.' });
   }
 
   // No se puede firmar como empleado si hay una objeción sin resolver para
@@ -355,6 +396,80 @@ router.get('/mensual/firmado', auth, async (req, res) => {
     res.json(firmado || null);
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── PDF del reporte firmado (Supabase Storage, bucket "informes") ───────────
+// El PDF lo arma el frontend (mismo generarPDFReporte que la descarga) después
+// de cada firma, así el archivo guardado incluye las firmas que haya en ese
+// momento. Se guarda una versión nueva por firma (no se pisa la anterior) y
+// reportes_mensuales_firmados.pdf_path apunta a la última. Se sirve con URL
+// firmada temporal, no pública — son datos personales del empleado.
+function supabaseStorage() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) return null;
+  const { createClient } = require('@supabase/supabase-js');
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY).storage.from('informes');
+}
+
+function puedeVerReporte(req, empleadoId) {
+  return req.user.rol === 'admin' || String(req.user.empleadoId) === String(empleadoId);
+}
+
+router.post('/mensual/pdf', auth, async (req, res) => {
+  const { empleado_id, anio, mes, pdf_base64 } = req.body;
+  if (!empleado_id || !anio || !mes || !pdf_base64) return res.status(400).json({ error: 'Datos incompletos' });
+  if (!puedeVerReporte(req, empleado_id)) return res.status(403).json({ error: 'No autorizado' });
+
+  const storage = supabaseStorage();
+  if (!storage) return res.status(500).json({ error: 'Storage no configurado' });
+
+  try {
+    const { rows: [firmado] } = await db.query(`
+      SELECT id FROM public.reportes_mensuales_firmados
+      WHERE empleado_id = $1 AND anio = $2 AND mes = $3 AND empleador_id = $4
+    `, [empleado_id, anio, mes, req.user.empleadorId]);
+    if (!firmado) return res.status(404).json({ error: 'El reporte todavía no tiene firmas' });
+
+    const buffer = Buffer.from(String(pdf_base64).replace(/^data:application\/pdf[^,]*,/, ''), 'base64');
+    if (buffer.slice(0, 4).toString() !== '%PDF') return res.status(400).json({ error: 'Archivo PDF inválido' });
+
+    const path = `reportes-horas/${empleado_id}/${anio}-${String(mes).padStart(2,'0')}_${Date.now()}.pdf`;
+    const { error } = await storage.upload(path, buffer, { contentType: 'application/pdf', upsert: false });
+    if (error) throw new Error(`Storage: ${error.message}`);
+
+    await db.query(
+      'UPDATE public.reportes_mensuales_firmados SET pdf_path = $1, pdf_generado_en = NOW() WHERE id = $2',
+      [path, firmado.id]
+    );
+    res.json({ ok: true, pdf_path: path });
+  } catch (err) {
+    console.error('[REP] Guardar PDF firmado error:', err.message);
+    res.status(500).json({ error: 'No se pudo guardar el PDF' });
+  }
+});
+
+router.get('/mensual/pdf-url', auth, async (req, res) => {
+  const { empleado_id, anio, mes } = req.query;
+  const eId = req.user.rol === 'empleado' ? req.user.empleadoId : empleado_id;
+  if (!eId || !anio || !mes) return res.status(400).json({ error: 'Datos incompletos' });
+  if (!puedeVerReporte(req, eId)) return res.status(403).json({ error: 'No autorizado' });
+
+  const storage = supabaseStorage();
+  if (!storage) return res.status(500).json({ error: 'Storage no configurado' });
+
+  try {
+    const { rows: [firmado] } = await db.query(`
+      SELECT * FROM public.reportes_mensuales_firmados
+      WHERE empleado_id = $1 AND anio = $2 AND mes = $3 AND empleador_id = $4
+    `, [eId, anio, mes, req.user.empleadorId]);
+    if (!firmado?.pdf_path) return res.status(404).json({ error: 'Todavía no hay PDF firmado guardado' });
+
+    const { data, error } = await storage.createSignedUrl(firmado.pdf_path, 60 * 60);
+    if (error) throw new Error(error.message);
+    res.json({ url: data.signedUrl });
+  } catch (err) {
+    console.error('[REP] URL PDF firmado error:', err.message);
+    res.status(500).json({ error: 'No se pudo obtener el PDF' });
   }
 });
 

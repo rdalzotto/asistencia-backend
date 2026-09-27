@@ -131,6 +131,7 @@ CREATE TABLE public.empleadores (
   razon_social      TEXT NOT NULL,
   nombre_fantasia   TEXT,
   cuit              TEXT NOT NULL UNIQUE,
+  fecha_inicio_registros DATE,  -- arranque de registros oficiales (01/10/2026); lo anterior es histórico archivado
   domicilio         TEXT,
   localidad         TEXT,
   provincia         TEXT,

@@ -91,18 +91,27 @@ SELECT
   COALESCE(bh_mes.horas_trabajadas, 0) AS horas_trabajadas,
   COALESCE(bh_mes.balance, 0) AS balance
 FROM public.empleados e
+-- Desde el 27/09/2026: los acumulados (bh_tot, comp_tot) solo cuentan desde
+-- empleadores.fecha_inicio_registros (arranque limpio 01/10/2026). Lo
+-- anterior queda archivado y no arrastra saldo. Si la fecha es NULL, suma todo.
 LEFT JOIN (
-  SELECT empleado_id,
-    SUM(balance) AS saldo_total_horas,
-    SUM(horas_extra) AS horas_extra_totales,
-    SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END) AS horas_deuda
-  FROM public.banco_horas
-  GROUP BY empleado_id
+  SELECT bh.empleado_id,
+    SUM(bh.balance) AS saldo_total_horas,
+    SUM(bh.horas_extra) AS horas_extra_totales,
+    SUM(CASE WHEN bh.balance < 0 THEN ABS(bh.balance) ELSE 0 END) AS horas_deuda
+  FROM public.banco_horas bh
+  JOIN public.empleadores emp ON emp.id = bh.empleador_id
+  WHERE emp.fecha_inicio_registros IS NULL
+     OR make_date(bh.anio, bh.mes, 1) >= date_trunc('month', emp.fecha_inicio_registros)
+  GROUP BY bh.empleado_id
 ) bh_tot ON bh_tot.empleado_id = e.id
 LEFT JOIN (
-  SELECT empleado_id, SUM(horas_compensadas) AS horas_compensadas
-  FROM public.compensaciones
-  GROUP BY empleado_id
+  SELECT c.empleado_id, SUM(c.horas_compensadas) AS horas_compensadas
+  FROM public.compensaciones c
+  JOIN public.empleados ee ON ee.id = c.empleado_id
+  JOIN public.empleadores emp ON emp.id = ee.empleador_id
+  WHERE emp.fecha_inicio_registros IS NULL OR c.fecha >= emp.fecha_inicio_registros
+  GROUP BY c.empleado_id
 ) comp_tot ON comp_tot.empleado_id = e.id
 LEFT JOIN public.banco_horas bh_mes
   ON bh_mes.empleado_id = e.id
