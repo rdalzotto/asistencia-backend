@@ -4,6 +4,15 @@ const { auth, soloAdmin }   = require('../middleware/auth');
 const jornada = require('../services/jornadaService');
 const push    = require('../services/pushService');
 
+// El dueño de la empresa (variable DUENO_EMAIL en Railway) no pasa por la
+// validación de sus propios fichajes: sus fichajes nacen validados y puede
+// validar los que le hayan quedado pendientes. Sin la variable, no hay
+// excepción para nadie. Decisión de Rogelio 28/09/2026.
+function esDueno(user) {
+  const dueno = (process.env.DUENO_EMAIL || '').trim().toLowerCase();
+  return !!dueno && String(user?.email || '').toLowerCase() === dueno;
+}
+
 // ¿El movimiento es de un empleado cuyo usuario es el mismo que está
 // validando? (admin que también ficha)
 async function esFichajePropio(client, movimientoId, usuarioId) {
@@ -372,6 +381,17 @@ router.post('/registrar', auth, async (req, res) => {
       }
     }
 
+    // ─ El dueño no queda pendiente de validación: validarse a sí mismo no
+    // tiene sentido (decisión de Rogelio 28/09/2026). Se conserva el dato
+    // real de GPS (gps_valido/distancia) y queda anotado por qué se validó. ─
+    const validadoPorDueno = esDueno(req.user) && !validadoVal;
+    if (validadoPorDueno) {
+      validadoVal = true;
+      const msgDueno = 'Validado automáticamente (dueño)';
+      const previa = (observacionAuto || '').replace(/,? ?(—|-)? ?pendiente de validaci[oó]n[^|]*/gi, '').trim();
+      observacionAuto = previa ? `${previa} | ${msgDueno}` : msgDueno;
+    }
+
     if (esFichajeOffline) {
       const sincro = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
       const msgOffline = `Fichaje sin conexión — hora tomada del dispositivo, sincronizado el ${sincro}`;
@@ -469,10 +489,12 @@ router.post('/registrar', auth, async (req, res) => {
         latVal, lngVal, gpsValido, distanciaM,
         foto_url || null, !!foto_url,
         feriado,
-        gpsValido, hashIngreso,
+        gpsValido || esDueno(req.user), hashIngreso,
         gpsValido
           ? 'Ingreso automático a oficina al volver de Trabajo Externo'
-          : 'Ingreso automático a oficina al volver de Trabajo Externo — ubicación no confirmada, pendiente de validación del admin',
+          : esDueno(req.user)
+            ? 'Ingreso automático a oficina al volver de Trabajo Externo — ubicación no confirmada | Validado automáticamente (dueño)'
+            : 'Ingreso automático a oficina al volver de Trabajo Externo — ubicación no confirmada, pendiente de validación del admin',
         horaMovISO,
       ]);
       ingresoOficinaAuto = ing;
@@ -762,7 +784,7 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
     // Un administrador que también ficha (Rogelio, Andrea) no puede validar
     // sus PROPIOS fichajes pendientes: los valida otro administrador
     // (separación de funciones, decisión de Rogelio 28/09/2026).
-    if (await esFichajePropio(client, id, req.user.id)) {
+    if (!esDueno(req.user) && await esFichajePropio(client, id, req.user.id)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'No podés validar tus propios fichajes — tiene que validarlos otro administrador.' });
     }
@@ -834,7 +856,7 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
     );
     if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
     // Mismo criterio que validar-remoto: un admin no se carga egresos a sí mismo.
-    if (emp.usuario_id === req.user.id)
+    if (emp.usuario_id === req.user.id && !esDueno(req.user))
       return res.status(403).json({ error: 'No podés registrar un egreso manual para vos mismo — tiene que hacerlo otro administrador.' });
 
     // Verificar que la jornada de esa fecha siga activa (mismo criterio que
