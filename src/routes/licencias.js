@@ -114,6 +114,47 @@ router.post('/ausencia/:id/certificado', auth, (req, res, next) => {
   }
 });
 
+// "Pedir otro certificado": el admin observa el certificado subido (ilegible,
+// sin firma, otra fecha) con un motivo. Los certificados anteriores dejan de
+// contar (quedan guardados), el plazo de 48 hs arranca de nuevo y el
+// empleado ve el pedido con el motivo, con recordatorios como la primera vez.
+router.post('/ausencia/:id/pedir-certificado', auth, soloAdmin, async (req, res) => {
+  const v = ausenciasSvc.validarObservacion(req.body?.motivo);
+  if (!v.ok) return res.status(400).json({ error: v.error });
+  try {
+    const aus = await ausenciaVisible(req, req.params.id);
+    if (!aus) return res.status(404).json({ error: 'Ausencia no encontrada' });
+    const { rows: [vigente] } = await db.query(
+      `SELECT 1 FROM public.ausencias a WHERE a.id = $1
+         AND EXISTS (SELECT 1 FROM public.ausencia_certificados c WHERE ${ausenciasSvc.SQL_CERTIFICADO_VIGENTE})`,
+      [aus.id]
+    );
+    if (!vigente) return res.status(409).json({ error: 'Todavía no subió un certificado para revisar' });
+
+    const ahora = new Date();
+    const { rows: [actualizada] } = await db.query(`
+      UPDATE public.ausencias SET
+        certificado_requerido = TRUE,
+        certificado_observacion = $2,
+        certificado_observado_en = $3,
+        certificado_vence_en = $4,
+        recordatorio_certificado_fecha = NULL,
+        aviso_certificado_vencido_en = NULL
+      WHERE id = $1 RETURNING *
+    `, [aus.id, v.motivo, ahora, ausenciasSvc.venceCertificado(ahora)]);
+
+    const { rows: [emp] } = await db.query('SELECT usuario_id FROM public.empleados WHERE id = $1', [aus.empleado_id]);
+    if (emp?.usuario_id) {
+      const n = push.notif.certificadoObservado(v.motivo);
+      await push.pushUsuario(emp.usuario_id, n.titulo, n.cuerpo, { accion: 'ver_ausencias' });
+    }
+    res.json({ ok: true, ausencia: actualizada });
+  } catch (err) {
+    console.error('[LIC] Pedir otro certificado error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 router.get('/ausencia/:id/certificados', auth, async (req, res) => {
   try {
     const aus = await ausenciaVisible(req, req.params.id);
@@ -184,7 +225,7 @@ router.get('/ausencias', auth, async (req, res) => {
   try {
     const { rows } = await db.query(`
       SELECT a.*, e.nombre, e.apellido, e.legajo,
-        (SELECT count(*)::int FROM public.ausencia_certificados c WHERE c.ausencia_id = a.id) AS certificados,
+        (SELECT count(*)::int FROM public.ausencia_certificados c WHERE ${ausenciasSvc.SQL_CERTIFICADO_VIGENTE}) AS certificados,
         uc.email AS cargada_por_email
       FROM public.ausencias a
       JOIN public.empleados e ON e.id = a.empleado_id

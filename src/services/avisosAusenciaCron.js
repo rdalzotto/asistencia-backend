@@ -94,7 +94,7 @@ async function recordatoriosCertificado({ hoyStr, minAhora }) {
     WHERE a.certificado_requerido = TRUE AND a.estado <> 'rechazada'
       AND a.certificado_vence_en > NOW()
       AND (a.recordatorio_certificado_fecha IS NULL OR a.recordatorio_certificado_fecha < $1::date)
-      AND NOT EXISTS (SELECT 1 FROM public.ausencia_certificados c WHERE c.ausencia_id = a.id)
+      AND NOT EXISTS (SELECT 1 FROM public.ausencia_certificados c WHERE ${svc.SQL_CERTIFICADO_VIGENTE})
   `, [hoyStr]);
   for (const a of pendientes) {
     try {
@@ -119,7 +119,7 @@ async function recordatoriosCertificado({ hoyStr, minAhora }) {
     FROM public.ausencias a JOIN public.empleados e ON e.id = a.empleado_id
     WHERE a.certificado_requerido = TRUE AND a.estado <> 'rechazada'
       AND a.certificado_vence_en <= NOW() AND a.aviso_certificado_vencido_en IS NULL
-      AND NOT EXISTS (SELECT 1 FROM public.ausencia_certificados c WHERE c.ausencia_id = a.id)
+      AND NOT EXISTS (SELECT 1 FROM public.ausencia_certificados c WHERE ${svc.SQL_CERTIFICADO_VIGENTE})
   `);
   for (const a of vencidos) {
     try {

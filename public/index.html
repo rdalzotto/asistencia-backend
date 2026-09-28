@@ -255,6 +255,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button onclick="abrirSalidaJustificada('manual')" style="background:none;border:none;color:var(--text3);font-size:12px;text-decoration:underline;cursor:pointer;padding:4px">¿Olvidaste registrar la salida?</button>
       </div>
     </div>
+    <!-- Certificado que falta subir (o que el admin pidió de nuevo): se va solo al subirlo. -->
+    <div id="banner-certificado" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--orange)"></div>
     <div id="banner-mov-pendiente" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:var(--orange);text-align:center;cursor:pointer" onclick="sincronizarMovimientosPendientes()"></div>
     <div class="card">
       <div class="card-title">Hoy</div>
@@ -1417,6 +1419,7 @@ function mostrarMiJornada() {
   setTimeout(() => verificarConsultaEgreso(), 2000);
   setTimeout(() => verificarExtensionOficina(), 2000);
   setTimeout(() => ejecutarAccionPush(), 1500);
+  setTimeout(() => actualizarBannerCertificado(), 1000);
 }
 
 // Acción que llega al tocar una notificación (sw.js): por mensaje con la app
@@ -1867,6 +1870,7 @@ async function cargarMisAusencias() {
         ${a.estado !== 'rechazada' ? `<button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="elegirYSubirCertificado(${a.id}, cargarMisAusencias)">📎 ${a.certificados ? 'Agregar otro archivo' : 'Subir certificado'}</button>` : ''}
       </div>
     `).join('');
+    actualizarBannerCertificado();
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -2569,7 +2573,8 @@ function elegirYSubirCertificado(ausenciaId, alTerminar) {
   input.click();
 }
 
-// Estado del certificado de una ausencia, en una línea.
+// Estado del certificado de una ausencia, en una línea. `a.certificados`
+// cuenta solo los vigentes (los anteriores a "Pedir otro certificado" no).
 function estadoCertificadoHtml(a) {
   if (a.certificados > 0) {
     return `<span style="color:var(--green)">📎 Certificado subido</span> · <a href="#" onclick="verCertificadosAusencia(${a.id});return false">Ver</a>`;
@@ -2577,8 +2582,41 @@ function estadoCertificadoHtml(a) {
   if (!a.certificado_requerido) return '';
   const vence = a.certificado_vence_en ? new Date(a.certificado_vence_en) : null;
   const venceTxt = vence ? vence.toLocaleString('es-AR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-  if (vence && vence < new Date()) return `<span style="color:var(--red)">⚠️ Certificado vencido (${venceTxt})</span>`;
-  return `<span style="color:var(--orange)">⏳ Falta el certificado · vence ${venceTxt}</span>`;
+  const observado = a.certificado_observacion
+    ? `<div style="color:var(--orange);margin-top:2px">↩ Se pidió otro certificado: ${escHtml(a.certificado_observacion)}</div>` : '';
+  if (vence && vence < new Date()) return `<span style="color:var(--red)">⚠️ Certificado vencido (${venceTxt})</span>${observado}`;
+  return `<span style="color:var(--orange)">⏳ Falta el certificado · vence ${venceTxt}</span>${observado}`;
+}
+
+// Cartel en la pantalla principal del empleado mientras le falte subir un
+// certificado: no depende de que tenga las notificaciones activadas.
+async function actualizarBannerCertificado() {
+  const banner = document.getElementById('banner-certificado');
+  if (!banner || !STATE.token) return;
+  try {
+    const faltan = (await api('/licencias/ausencias')).filter(a => a.certificado_requerido && !a.certificados && a.estado !== 'rechazada');
+    if (!faltan.length) { banner.style.display = 'none'; return; }
+    const a = faltan[0];
+    const fecha = String(a.fecha_inicio).slice(0,10).split('-').reverse().join('/');
+    const vence = a.certificado_vence_en ? new Date(a.certificado_vence_en).toLocaleString('es-AR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+    banner.innerHTML = `
+      <div style="font-weight:600;margin-bottom:4px">📎 ${a.certificado_observacion ? 'Hace falta otro certificado' : 'Te falta subir el certificado'} de tu ausencia del ${fecha}</div>
+      ${a.certificado_observacion ? `<div style="margin-bottom:4px">Motivo: ${escHtml(a.certificado_observacion)}</div>` : ''}
+      ${vence ? `<div style="font-size:12px;margin-bottom:8px">Vence el ${vence}${faltan.length > 1 ? ' · hay ' + faltan.length + ' pendientes' : ''}</div>` : ''}
+      <button class="btn btn-sm btn-primary" onclick="elegirYSubirCertificado(${a.id}, () => { actualizarBannerCertificado(); cargarMisAusencias(); })">Subir ahora</button>`;
+    banner.style.display = 'block';
+  } catch { /* sin conexión: el cartel se actualiza la próxima vez */ }
+}
+
+// Admin: el certificado subido no sirve → se pide otro con un motivo.
+async function pedirOtroCertificado(ausenciaId) {
+  const motivo = prompt('¿Por qué no sirve el certificado? (lo va a leer el empleado)\nEj.: no se lee la firma del médico');
+  if (motivo === null) return;
+  try {
+    await api('/licencias/ausencia/' + ausenciaId + '/pedir-certificado', {method:'POST', body:JSON.stringify({motivo})});
+    toast('Pedido enviado: tiene 48 hs para subir otro', 'success', 4000);
+    cargarPendientesAdmin();
+  } catch (e) { toast(e.message, 'error', 5000); }
 }
 
 async function enviarAusencia() {
@@ -3060,6 +3098,7 @@ async function cargarPendientesAdmin() {
           <button class="btn btn-sm btn-success" onclick="resolverAusencia(${a.id},'aprobada',${a.certificado_requerido && !a.certificados})">✓ Aprobar</button>
           <button class="btn btn-sm btn-danger" onclick="resolverAusencia(${a.id},'rechazada')">✗ Rechazar</button>
           <button class="btn btn-sm btn-secondary" onclick="elegirYSubirCertificado(${a.id}, cargarPendientesAdmin)">📎 Adjuntar</button>
+          ${a.certificados ? `<button class="btn btn-sm btn-secondary" onclick="pedirOtroCertificado(${a.id})">↩ Pedir otro certificado</button>` : ''}
         </div>
       </div>
     `).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin ausencias pendientes</p>';
@@ -3076,7 +3115,7 @@ async function cargarPendientesAdmin() {
     document.getElementById('lista-ausencias-certificados').innerHTML = conCert.length ? conCert.map(a => `
       <div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:13px">
         <div><b>${escHtml(a.nombre)} ${escHtml(a.apellido)}</b> · ${tiposAus[a.tipo]||a.tipo} · ${String(a.fecha_inicio).slice(0,10).split('-').reverse().join('/')} · ${a.estado}</div>
-        <div style="margin-top:4px">${estadoCertificadoHtml(a)}</div>
+        <div style="margin-top:4px">${estadoCertificadoHtml(a)}${a.certificados ? ` · <a href="#" onclick="pedirOtroCertificado(${a.id});return false">Pedir otro</a>` : ''}</div>
       </div>
     `).join('') : '<p style="color:var(--text3);font-size:13px">Sin ausencias que pidan certificado.</p>';
 

@@ -199,6 +199,11 @@ const notif = {
     cuerpo: `Subilo desde Ausencias antes del ${vence}.`,
   }),
 
+  certificadoObservado: (motivo) => ({
+    titulo: '📎 Hace falta otro certificado',
+    cuerpo: `${motivo}. Subí uno nuevo desde Ausencias (tenés 48 hs).`,
+  }),
+
   certificadoVencido: (nombre) => ({
     titulo: `⚠️ ${nombre} no subió el certificado`,
     cuerpo: 'Venció el plazo de 48 hs.',

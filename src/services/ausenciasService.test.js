@@ -82,6 +82,13 @@ test('ausencia: fechas inválidas', () => {
   );
 });
 
+test('pedir otro certificado: motivo obligatorio y corto', () => {
+  assert.equal(s.validarObservacion('  ').ok, false);
+  assert.equal(s.validarObservacion(undefined).ok, false);
+  assert.equal(s.validarObservacion('x'.repeat(501)).ok, false);
+  assert.deepEqual(s.validarObservacion(' No se lee la firma '), { ok: true, motivo: 'No se lee la firma' });
+});
+
 test('archivo: foto o PDF de hasta 8 MB', () => {
   assert.equal(s.validarArchivo({ mimetype: 'image/jpeg', size: 1000 }).ok, true);
   assert.equal(s.validarArchivo({ mimetype: 'application/pdf', size: 1000 }).ok, true);

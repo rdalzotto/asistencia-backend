@@ -32,6 +32,20 @@ const CANALES_AVISO = ['whatsapp', 'telefono', 'personal', 'email', 'otro'];
 const TIPOS_ARCHIVO = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf']);
 const MAX_ARCHIVO_BYTES = 8 * 1024 * 1024;
 
+// Condición SQL de "certificado vigente" de la ausencia `a` (alias `c` para
+// ausencia_certificados): los subidos antes de que el admin lo observara
+// ("Pedir otro certificado") no cuentan.
+const SQL_CERTIFICADO_VIGENTE =
+  "c.ausencia_id = a.id AND c.subido_en > COALESCE(a.certificado_observado_en, '-infinity'::timestamptz)";
+
+// Motivo obligatorio al pedir otro certificado (lo lee el empleado).
+function validarObservacion(motivo) {
+  const texto = typeof motivo === 'string' ? motivo.trim() : '';
+  if (!texto) return { ok: false, error: 'Escribí por qué no sirve el certificado' };
+  if (texto.length > 500) return { ok: false, error: 'El motivo admite hasta 500 caracteres' };
+  return { ok: true, motivo: texto };
+}
+
 function requiereComprobante(tipo) {
   return TIPOS_CON_COMPROBANTE.has(tipo);
 }
@@ -132,6 +146,8 @@ module.exports = {
   PLAZO_CERTIFICADO_HORAS,
   CANALES_AVISO,
   MAX_ARCHIVO_BYTES,
+  SQL_CERTIFICADO_VIGENTE,
+  validarObservacion,
   requiereComprobante,
   venceCertificado,
   minutosDe,
