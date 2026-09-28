@@ -711,6 +711,30 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
   </div>
 
+  <!-- MODAL CONTACTOS DE PLANTA (datos del CRM) -->
+  <div class="modal-overlay" id="modal-contactos-planta">
+    <div class="modal" style="max-height:90vh">
+      <div class="modal-handle"></div>
+      <div class="modal-title" id="cp-titulo">Contactos de planta</div>
+      <div id="cp-subtitulo" style="font-size:12px;color:var(--text2);margin:-8px 0 12px"></div>
+      <div id="cp-aviso" style="display:none;font-size:12px;color:var(--orange);margin-bottom:10px"></div>
+      <div id="cp-lista"></div>
+      <div class="sep"></div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px" id="cp-form-titulo">Agregar contacto</div>
+      <input type="hidden" id="cp-edit-id">
+      <div class="form-group"><label>Nombre y apellido</label><input type="text" id="cp-nombre"></div>
+      <div class="form-group"><label>Cargo</label><input type="text" id="cp-cargo" placeholder="Ej: Jefe de planta, Encargado de seguridad"></div>
+      <div class="form-group"><label>Teléfono</label><input type="tel" id="cp-telefono"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="cp-email"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="cp-btn-guardar" onclick="guardarContactoPlanta()">Guardar</button>
+        <button class="btn btn-secondary" id="cp-btn-cancelar-edit" style="display:none" onclick="limpiarFormContactoPlanta()">Cancelar edición</button>
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-contactos-planta')">Cerrar</button>
+      </div>
+      <p style="font-size:11px;color:var(--text3);margin-top:10px">Los contactos se guardan en el CRM de EXIT: los ve todo el equipo y queda registrado quién hizo cada cambio.</p>
+    </div>
+  </div>
+
   <!-- MODAL CONFORMIDAD (paso previo a que el empleado firme) -->
   <div class="modal-overlay" id="modal-conformidad-reporte">
     <div class="modal">
@@ -1144,6 +1168,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 <script>
 const API = '/api';
 
+// Los modales que quedaron escritos dentro de una pantalla (ej. dentro de
+// #screen-admin) no se ven cuando esa pantalla está oculta — el empleado
+// abría "Mi reporte de horas" o "Contactos de planta" y no aparecía nada.
+// Se mueven todos al <body>, como los demás modales (fix 28/09/2026).
+document.querySelectorAll('.screen .modal-overlay').forEach(m => document.body.appendChild(m));
+
 let STATE = {
   token:null, rol:null, empleadoId:null, empleadorId:null, nombre:null,
   gpsCoords:null, fotoBlob:null, fotoBase64:null,
@@ -1485,6 +1515,9 @@ async function cargarDashboardEmpleado() {
     cargarEquipoEstado();
     mostrarPendientesMovimientos();
     initMiReporteSelects();
+    // Copia de establecimientos y contactos de planta del CRM en la tablet,
+    // para tenerlos en campo aunque no haya señal.
+    if (navigator.onLine) cargarCrmEstablecimientos().catch(() => {});
   } catch(e) { console.error(e); }
 }
 
@@ -4459,6 +4492,7 @@ function renderTarjetaVisita(v, esAdmin) {
       return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px">
         <span style="color:var(--accent);font-weight:700">${i+1}.</span>
         <span style="flex:1">${d.cliente_nombre}${d.domicilio?' — '+d.domicilio:''}${d.motivo?' · '+d.motivo:''}${marca}</span>
+        <button class="btn btn-sm btn-secondary" style="padding:3px 8px;font-size:11px" title="Contactos de planta" onclick="abrirContactosPlanta(${escHtml(JSON.stringify(d.cliente_nombre||''))})">👤</button>
         ${mostrarBoton?'<button class="btn btn-sm btn-success" style="padding:3px 8px;font-size:11px" onclick="marcarLlegadaDestino('+v.id+','+d.id+')">📍 Llegué</button>':''}
       </div>`;
     }).join('')}
@@ -4481,6 +4515,142 @@ function renderTarjetaVisita(v, esAdmin) {
       ${puedeConstancia?'<button class="btn btn-sm" style="background:rgba(0,212,255,0.15);color:var(--accent);border:1px solid rgba(0,212,255,0.3)" onclick="abrirConstancia('+v.id+','+JSON.stringify({destinos:v.destinos||[],hora_estimada_salida:v.hora_estimada_salida||null,emp_nombre:v.emp_nombre||'',emp_apellido:v.emp_apellido||''}).replace(/"/g,'&quot;')+')">📋 Constancia</button>':(!esAdmin&&['en_curso','completada'].includes(v.estado)&&!dentroDeVentana?'<span style="font-size:11px;color:var(--text3);background:rgba(0,0,0,0.12);padding:3px 8px;border-radius:6px" title="Período de edición cerrado — contactar al administrador">📋 Constancia bloqueada</span>':'')}
     </div>
   </div>`;
+}
+
+// ── CONTACTOS DE PLANTA (CRM) ────────────────────────────────────────────────
+// El CRM es la fuente de clientes, establecimientos y contactos. El servidor
+// de AsistenciaAR hace de intermediario (la clave del CRM nunca llega a la
+// app). Se guarda una copia en la tablet (crm_establecimientos) para ver los
+// contactos sin señal; agregar o corregir necesita conexión.
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function cargarCrmEstablecimientos(forzar) {
+  try {
+    const r = await api('/crm/establecimientos' + (forzar ? '?forzar=1' : ''));
+    await ARStorage.set('crm_establecimientos', { ...r, guardado: new Date().toISOString() });
+    return { ...r, sinSenal: false };
+  } catch(e) {
+    const c = await ARStorage.get('crm_establecimientos');
+    if (c) return { ...c, sinSenal: true };
+    throw e;
+  }
+}
+
+// Busca el establecimiento del CRM de un destino (por id de destino o, en las
+// visitas, por el nombre del destino tal como quedó guardado).
+function buscarEstablecimientoCrm(lista, { destinoId, nombre }) {
+  return (lista || []).find(e => (destinoId && e.destino_id == destinoId) || (nombre && e.destino_nombre === nombre)) || null;
+}
+
+let CP_STATE = { est: null };
+
+async function abrirContactosPlanta(nombreDestino, destinoId) {
+  document.getElementById('cp-titulo').textContent = 'Contactos de planta';
+  document.getElementById('cp-subtitulo').textContent = nombreDestino || '';
+  document.getElementById('cp-lista').innerHTML = '<p style="color:var(--text3);font-size:13px">Cargando...</p>';
+  document.getElementById('cp-aviso').style.display = 'none';
+  limpiarFormContactoPlanta();
+  abrirModal('modal-contactos-planta');
+  try {
+    const datos = await cargarCrmEstablecimientos();
+    const est = buscarEstablecimientoCrm(datos.establecimientos, { destinoId, nombre: nombreDestino });
+    CP_STATE = { est };
+    if (!est) {
+      document.getElementById('cp-lista').innerHTML = '<p style="color:var(--text3);font-size:13px">Este destino todavía no está vinculado a un establecimiento del CRM. Avisale al administrador.</p>';
+      document.getElementById('cp-btn-guardar').disabled = true;
+      return;
+    }
+    document.getElementById('cp-btn-guardar').disabled = false;
+    document.getElementById('cp-subtitulo').textContent = est.cliente.razonSocial + ' · ' + est.nombre + (est.localidad ? ' (' + est.localidad + ')' : '');
+    if (datos.sinSenal || datos.desactualizado) {
+      const aviso = document.getElementById('cp-aviso');
+      aviso.style.display = 'block';
+      aviso.textContent = '📴 Sin conexión con el CRM — mostrando la última copia guardada. Para agregar o corregir contactos hace falta señal.';
+    }
+    renderContactosPlanta();
+  } catch(e) {
+    document.getElementById('cp-lista').innerHTML = '<p style="color:var(--red);font-size:13px">No se pudieron cargar los contactos (sin señal y sin copia guardada).</p>';
+  }
+}
+
+function renderContactosPlanta() {
+  const cs = CP_STATE.est?.contactos || [];
+  document.getElementById('cp-lista').innerHTML = cs.length
+    ? cs.map(c => `<div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="font-weight:600;font-size:14px">${escHtml(c.nombre)}</div>
+        ${c.cargo ? `<div style="font-size:12px;color:var(--text2)">${escHtml(c.cargo)}</div>` : ''}
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:13px">
+          ${c.telefono ? `<a href="tel:${escHtml(String(c.telefono).replace(/[^\d+]/g,''))}" style="color:var(--accent)">📞 ${escHtml(c.telefono)}</a>` : ''}
+          ${c.email ? `<a href="mailto:${escHtml(String(c.email).split(';')[0].trim())}" style="color:var(--accent)">✉ ${escHtml(c.email)}</a>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-sm btn-secondary" onclick="editarContactoPlanta('${escHtml(c.id)}')">✏ Corregir</button>
+          <button class="btn btn-sm btn-danger" onclick="bajaContactoPlanta('${escHtml(c.id)}')">Ya no está</button>
+        </div>
+      </div>`).join('')
+    : '<p style="color:var(--text3);font-size:13px">Todavía no hay contactos de planta cargados para este establecimiento. Agregá quién te recibe.</p>';
+}
+
+function limpiarFormContactoPlanta() {
+  ['cp-edit-id','cp-nombre','cp-cargo','cp-telefono','cp-email'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('cp-form-titulo').textContent = 'Agregar contacto';
+  document.getElementById('cp-btn-cancelar-edit').style.display = 'none';
+}
+
+function editarContactoPlanta(id) {
+  const c = (CP_STATE.est?.contactos || []).find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cp-edit-id').value = c.id;
+  document.getElementById('cp-nombre').value = c.nombre || '';
+  document.getElementById('cp-cargo').value = c.cargo || '';
+  document.getElementById('cp-telefono').value = c.telefono || '';
+  document.getElementById('cp-email').value = c.email || '';
+  document.getElementById('cp-form-titulo').textContent = 'Corregir contacto';
+  document.getElementById('cp-btn-cancelar-edit').style.display = '';
+  document.getElementById('cp-nombre').focus();
+}
+
+async function guardarContactoPlanta() {
+  if (!CP_STATE.est) return;
+  const id = document.getElementById('cp-edit-id').value;
+  const datos = {
+    nombre: document.getElementById('cp-nombre').value.trim(),
+    cargo: document.getElementById('cp-cargo').value.trim() || null,
+    telefono: document.getElementById('cp-telefono').value.trim() || null,
+    email: document.getElementById('cp-email').value.trim() || null,
+  };
+  if (!datos.nombre) return toast('Ingresá el nombre del contacto', 'error');
+  const btn = document.getElementById('cp-btn-guardar');
+  btn.disabled = true;
+  try {
+    if (id) await api('/crm/contactos/' + encodeURIComponent(id), { method:'PATCH', body: JSON.stringify(datos) });
+    else await api('/crm/establecimientos/' + encodeURIComponent(CP_STATE.est.id) + '/contactos', { method:'POST', body: JSON.stringify(datos) });
+    await refrescarContactosPlanta();
+    limpiarFormContactoPlanta();
+    toast(id ? 'Contacto corregido ✓' : 'Contacto agregado ✓', 'success');
+  } catch(e) {
+    toast(esErrorDeConexion(e) ? '📴 Sin señal — para guardar contactos hace falta conexión' : e.message, 'error');
+  } finally { btn.disabled = false; }
+}
+
+async function bajaContactoPlanta(id) {
+  const c = (CP_STATE.est?.contactos || []).find(x => x.id === id);
+  if (!c || !confirm('¿' + c.nombre + ' ya no es contacto de este establecimiento?')) return;
+  try {
+    await api('/crm/contactos/' + encodeURIComponent(id), { method:'PATCH', body: JSON.stringify({ activo: false }) });
+    await refrescarContactosPlanta();
+    toast('Contacto dado de baja', 'info');
+  } catch(e) {
+    toast(esErrorDeConexion(e) ? '📴 Sin señal — hace falta conexión' : e.message, 'error');
+  }
+}
+
+async function refrescarContactosPlanta() {
+  const datos = await cargarCrmEstablecimientos(true);
+  CP_STATE.est = buscarEstablecimientoCrm(datos.establecimientos, { destinoId: CP_STATE.est.destino_id });
+  renderContactosPlanta();
 }
 
 // ── VISITAS SIN CONEXIÓN ─────────────────────────────────────────────────────
@@ -6517,12 +6687,23 @@ function abrirFirma(tipo) {
     const destinoId = destinos.length === 1 ? destinos[0].destino_id : (destinos[0]?.destino_id || null);
     CONST_STATE._firmaDestinoId = destinoId;
     if (destinoId) {
-      api('/constancias/responsables-destino?destino_id=' + destinoId).then(lista => {
+      // Responsables que ya firmaron antes + contactos de planta del CRM
+      // (estos últimos de la copia guardada en la tablet: funcionan sin señal).
+      Promise.all([
+        api('/constancias/responsables-destino?destino_id=' + destinoId).catch(() => []),
+        ARStorage.get('crm_establecimientos').catch(() => null),
+      ]).then(([previos, crmCache]) => {
+        const est = buscarEstablecimientoCrm(crmCache?.establecimientos, { destinoId });
+        const vistos = new Set();
+        const lista = [
+          ...(est?.contactos || []).map(c => ({ nombre_apellido: c.nombre, cargo: c.cargo, origen: 'CRM' })),
+          ...(previos || []),
+        ].filter(r => { const k = (r.nombre_apellido || '').toLowerCase().trim(); if (!k || vistos.has(k)) return false; vistos.add(k); return true; });
         sel.innerHTML = '<option value="">— Seleccioná o ingresá uno nuevo —</option>';
         lista.forEach(r => {
           const opt = document.createElement('option');
-          opt.value = JSON.stringify(r);
-          opt.textContent = r.nombre_apellido + (r.cargo ? ' — ' + r.cargo : '') + (r.dni ? ' (DNI: ' + r.dni + ')' : '');
+          opt.value = JSON.stringify({ nombre_apellido: r.nombre_apellido, cargo: r.cargo || '' });
+          opt.textContent = r.nombre_apellido + (r.cargo ? ' — ' + r.cargo : '');
           sel.appendChild(opt);
         });
         grpResp.style.display = lista.length ? 'block' : 'none';

@@ -279,6 +279,7 @@ CREATE TABLE public.destinos_externos (
   radio_m       INTEGER DEFAULT 300,      -- para verificación de llegada
   contacto      TEXT,
   telefono      TEXT,
+  crm_establecimiento_id TEXT,            -- id del establecimiento en el CRM (fuente de clientes y contactos de planta)
   activo        BOOLEAN DEFAULT TRUE,
   creado_en     TIMESTAMPTZ DEFAULT NOW()
 );

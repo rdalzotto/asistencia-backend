@@ -39,6 +39,7 @@ app.use('/api/visitas',        require('./routes/visitas'));
 app.use('/api/constancias',    require('./routes/constancias'));
 app.use('/api/extintores',     require('./routes/extintores'));
 app.use('/api/email',          require('./routes/email'));
+app.use('/api/crm',            require('./routes/crm'));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
