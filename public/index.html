@@ -234,6 +234,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="topbar-sub" id="emp-empresa">AsistenciaAR</div>
     </div>
     <div class="topbar-right">
+      <button class="btn btn-sm btn-secondary" id="btn-panel-admin" onclick="mostrarPanelAdmin()" style="display:none;font-size:12px;padding:6px 12px;white-space:nowrap" title="Panel de administración">⚙ Admin</button>
       <button class="btn btn-sm btn-secondary" onclick="doLogout()" style="font-size:12px;padding:6px 12px;">Salir</button>
       <div class="avatar" id="emp-avatar">?</div>
     </div>
@@ -316,6 +317,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="topbar-sub">Panel de administración</div>
     </div>
     <div class="topbar-right">
+      <button class="btn btn-sm btn-primary" id="btn-mi-jornada" onclick="mostrarMiJornada()" style="display:none">🕐 Mi jornada</button>
       <button class="btn btn-sm btn-secondary" onclick="doLogout()">Salir</button>
     </div>
   </div>
@@ -1272,6 +1274,7 @@ async function doLogin() {
     STATE.token = data.token; STATE.rol = data.rol;
     STATE.empleadoId = data.empleadoId; STATE.empleadorId = data.empleadorId;
     STATE.nombre = data.nombre; STATE.apellido = data.apellido || '';
+    STATE.empleadoActivo = !!data.empleadoId;
     localStorage.setItem('ar_token', data.token);
     localStorage.setItem('ar_rol', data.rol);
     try { await ARStorage.set('ar_token_backup', {token: data.token, rol: data.rol}); } catch {}
@@ -1334,19 +1337,51 @@ function iniciarSyncPeriodico() {
 
 async function irADashboard(rol) {
   iniciarSyncPeriodico();
-  if (rol === 'admin') {
-    mostrarScreen('admin');
-    cargarDashboardAdmin(); cargarEmpleadosAdmin();
-    cargarPendientesAdmin(); cargarBancoHorasTodos();
-    cargarSelectEmpleados();
+  // Admin que también es empleado (Rogelio, Andrea): pasa entre "Panel de
+  // administración" y "Mi jornada" con un botón, sin segunda cuenta. Se
+  // recuerda en qué panel estaba la última vez.
+  const puedeMiJornada = rol === 'admin' && STATE.empleadoActivo;
+  document.getElementById('btn-mi-jornada').style.display = puedeMiJornada ? '' : 'none';
+  document.getElementById('btn-panel-admin').style.display = rol === 'admin' ? '' : 'none';
+  let modo = null;
+  try { modo = localStorage.getItem('ar_modo'); } catch {}
+  if (rol === 'admin' && !(puedeMiJornada && modo === 'empleado')) {
+    mostrarPanelAdmin();
   } else {
-    mostrarScreen('empleado');
-    iniciarReloj();
-    cargarDashboardEmpleado();
-    registrarSW();
-    setTimeout(() => verificarConsultaEgreso(), 2000);
-    setTimeout(() => verificarExtensionOficina(), 2000);
+    mostrarMiJornada();
   }
+}
+
+let _relojIniciado = false, _swRegistrado = false;
+
+function mostrarPanelAdmin() {
+  try { localStorage.setItem('ar_modo', 'admin'); } catch {}
+  mostrarScreen('admin');
+  cargarDashboardAdmin(); cargarEmpleadosAdmin();
+  cargarPendientesAdmin(); cargarBancoHorasTodos();
+  cargarSelectEmpleados();
+}
+
+// ¿El token de esta sesión ya trae el empleadoId? (sesiones abiertas antes
+// de que el admin pudiera fichar no lo traen: hay que volver a entrar).
+function tokenTraeEmpleado() {
+  try { return !!JSON.parse(atob(STATE.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).empleadoId; }
+  catch { return false; }
+}
+
+function mostrarMiJornada() {
+  if (STATE.rol === 'admin' && !tokenTraeEmpleado()) {
+    toast('Para usar "Mi jornada" cerrá sesión y volvé a entrar una vez.', 'info', 7000);
+    mostrarPanelAdmin();
+    return;
+  }
+  try { if (STATE.rol === 'admin') localStorage.setItem('ar_modo', 'empleado'); } catch {}
+  mostrarScreen('empleado');
+  if (!_relojIniciado) { iniciarReloj(); _relojIniciado = true; }
+  cargarDashboardEmpleado();
+  if (!_swRegistrado) { registrarSW(); _swRegistrado = true; }
+  setTimeout(() => verificarConsultaEgreso(), 2000);
+  setTimeout(() => verificarExtensionOficina(), 2000);
 }
 
 (async function autoLogin() {
@@ -1416,6 +1451,7 @@ async function autoLoginInterno() {
     STATE.apellido = me.empleado ? (me.empleado.apellido || '') : '';
     STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
     STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
+    STATE.empleadoActivo = !!(me.empleado && me.empleado.activo !== false);
     irADashboard(rol);
   } catch (e) {
     if (e.status === 401 || e.status === 403) {

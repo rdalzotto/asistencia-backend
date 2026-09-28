@@ -4,6 +4,17 @@ const { auth, soloAdmin }   = require('../middleware/auth');
 const jornada = require('../services/jornadaService');
 const push    = require('../services/pushService');
 
+// ¿El movimiento es de un empleado cuyo usuario es el mismo que está
+// validando? (admin que también ficha)
+async function esFichajePropio(client, movimientoId, usuarioId) {
+  const { rows: [r] } = await client.query(`
+    SELECT 1 FROM public.movimientos m
+    JOIN public.empleados e ON e.id = m.empleado_id
+    WHERE m.id = $1 AND e.usuario_id = $2
+  `, [movimientoId, usuarioId]);
+  return !!r;
+}
+
 // ─── POST /movimientos/registrar ──────────────────────────────────────────────
 router.post('/registrar', auth, async (req, res) => {
   const {
@@ -748,6 +759,14 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // Un administrador que también ficha (Rogelio, Andrea) no puede validar
+    // sus PROPIOS fichajes pendientes: los valida otro administrador
+    // (separación de funciones, decisión de Rogelio 28/09/2026).
+    if (await esFichajePropio(client, id, req.user.id)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'No podés validar tus propios fichajes — tiene que validarlos otro administrador.' });
+    }
+
     const { rows: [mov] } = await client.query(`
       UPDATE public.movimientos SET
         validado = $1,
@@ -810,10 +829,13 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
   try {
     // Verificar que el empleado pertenece al empleador del admin
     const { rows: [emp] } = await db.query(
-      'SELECT id, nombre, apellido, empleador_id FROM public.empleados WHERE id = $1 AND empleador_id = $2',
+      'SELECT id, nombre, apellido, empleador_id, usuario_id FROM public.empleados WHERE id = $1 AND empleador_id = $2',
       [empleado_id, req.user.empleadorId]
     );
     if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
+    // Mismo criterio que validar-remoto: un admin no se carga egresos a sí mismo.
+    if (emp.usuario_id === req.user.id)
+      return res.status(403).json({ error: 'No podés registrar un egreso manual para vos mismo — tiene que hacerlo otro administrador.' });
 
     // Verificar que la jornada de esa fecha siga activa (mismo criterio que
     // el egreso-justificado): bloquear solo si el último movimiento de ese

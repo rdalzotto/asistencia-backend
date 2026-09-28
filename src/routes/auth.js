@@ -27,13 +27,18 @@ router.post('/login', async (req, res) => {
       [usr.id]
     );
 
+    // Un admin también puede ser empleado (Rogelio, Andrea): si tiene un
+    // registro de empleado ACTIVO, el token lleva su empleadoId y la app le
+    // ofrece "Mi jornada" para fichar como cualquier empleado (28/09/2026).
     let empleadoData = null;
-    if (usr.rol === 'empleado') {
+    {
       const { rows: [emp] } = await db.query(
-        'SELECT * FROM public.empleados WHERE usuario_id = $1',
+        usr.rol === 'empleado'
+          ? 'SELECT * FROM public.empleados WHERE usuario_id = $1'
+          : 'SELECT * FROM public.empleados WHERE usuario_id = $1 AND activo = TRUE',
         [usr.id]
       );
-      empleadoData = emp;
+      empleadoData = emp || null;
     }
 
     const token = jwt.sign(
