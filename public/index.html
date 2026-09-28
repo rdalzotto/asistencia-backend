@@ -362,6 +362,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 
     <!-- PENDIENTES -->
     <div class="section" id="tab-pendientes">
+      <!-- Siempre visible, aunque no haya nada pendiente ("Todo validado" oculta las sub-pestañas). -->
+      <button class="btn btn-secondary" style="margin-bottom:12px" onclick="abrirModalAusenciaAdmin()">+ Registrar ausencia de un empleado</button>
       <div id="pend-todo-al-dia" class="card" style="display:none;text-align:center;padding:32px 16px">
         <div style="font-size:32px;margin-bottom:8px">🎉</div>
         <div style="font-size:15px;font-weight:600">Todo validado</div>
@@ -377,7 +379,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section">
-        <button class="btn btn-secondary" style="margin-bottom:12px" onclick="abrirModalAusenciaAdmin()">+ Registrar ausencia de un empleado</button>
         <div id="lista-ausencias-pend"></div>
         <div style="font-size:13px;font-weight:600;color:var(--text2);margin:20px 0 8px">Certificados (últimos 30 días)</div>
         <div id="lista-ausencias-certificados"></div>
@@ -3067,6 +3068,11 @@ async function cargarPendientesAdmin() {
     const d30 = new Date(Date.now() - 30 * 86400000);
     const desde30 = d30.getFullYear() + '-' + String(d30.getMonth()+1).padStart(2,'0') + '-' + String(d30.getDate()).padStart(2,'0');
     const conCert = (await api('/licencias/ausencias?certificado=1&desde=' + desde30)).filter(a => a.estado !== 'rechazada');
+    // Una ausencia ya aprobada a la que le falta el certificado sigue siendo
+    // algo a seguir: cuenta como pendiente (si no, "Todo validado" la oculta).
+    const faltanCert = conCert.filter(a => a.estado !== 'pendiente' && !a.certificados).length;
+    PENDIENTES_COUNTS.ausencias = aus.length + faltanCert;
+    if (btnAus) btnAus.textContent = 'Ausencias' + (PENDIENTES_COUNTS.ausencias ? ' ('+PENDIENTES_COUNTS.ausencias+')' : '');
     document.getElementById('lista-ausencias-certificados').innerHTML = conCert.length ? conCert.map(a => `
       <div style="padding:10px 0;border-bottom:1px solid var(--border);font-size:13px">
         <div><b>${escHtml(a.nombre)} ${escHtml(a.apellido)}</b> · ${tiposAus[a.tipo]||a.tipo} · ${String(a.fecha_inicio).slice(0,10).split('-').reverse().join('/')} · ${a.estado}</div>
