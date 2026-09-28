@@ -488,6 +488,11 @@ async function cronJornadaInteligente() {
   } catch (err) {
     console.error('[CRON] Error en cron inteligente:', err.message);
   }
+
+  // ── 8. Avisos de ausencia (28/09/2026): "no registró ingreso ni avisó" y
+  // recordatorios del certificado. Fuera del try de arriba: si un paso de
+  // cierre falla, estos avisos igual corren (y al revés).
+  await require('./services/avisosAusenciaCron').pasosAvisosAusencia({ hoyStr, minAhora });
 }
 
 function iniciarCronCierre() {

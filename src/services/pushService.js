@@ -170,6 +170,39 @@ const notif = {
     titulo: `⏱️ Externo superó 12hs — ${nombre}`,
     cuerpo: `Lleva ${horas}h trabajadas en la jornada. Revisar y validar el cierre.`,
   }),
+
+  // Avisos de ausencia (28/09/2026): nadie fichó ni avisó, y certificados.
+  sinIngresoEmpleado: (horaIngreso) => ({
+    titulo: '👋 ¿Todo bien hoy?',
+    cuerpo: `No registraste tu ingreso (horario ${horaIngreso}). Si vas a faltar o llegar tarde, avisá desde Ausencias.`,
+  }),
+
+  sinIngresoAdmin: (nombre, horaIngreso) => ({
+    titulo: `❓ ${nombre} no registró ingreso`,
+    cuerpo: `Horario ${horaIngreso} y no cargó ningún aviso de ausencia.`,
+  }),
+
+  ausenciaCargadaPorAdmin: (tipo, requiereComprobante) => ({
+    titulo: '📋 Se registró tu ausencia',
+    cuerpo: requiereComprobante
+      ? `${tipo}. Subí el certificado desde Ausencias (tenés 48 hs).`
+      : `${tipo}. Podés verla en Ausencias.`,
+  }),
+
+  certificadoSubido: (nombre) => ({
+    titulo: `📎 ${nombre} subió un certificado`,
+    cuerpo: 'Revisalo en Pendientes → Ausencias.',
+  }),
+
+  certificadoRecordatorio: (vence) => ({
+    titulo: '📎 Falta tu certificado',
+    cuerpo: `Subilo desde Ausencias antes del ${vence}.`,
+  }),
+
+  certificadoVencido: (nombre) => ({
+    titulo: `⚠️ ${nombre} no subió el certificado`,
+    cuerpo: 'Venció el plazo de 48 hs.',
+  }),
 };
 
 module.exports = { pushUsuario, pushAdmins, notif };

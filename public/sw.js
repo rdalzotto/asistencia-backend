@@ -7,7 +7,7 @@
 // actualización subida al servidor quedaba invisible para el usuario hasta
 // que se le ocurriera borrar el caché a mano. Con Network First evitamos eso.
 
-const CACHE_NAME = 'asistencia-v6';
+const CACHE_NAME = 'asistencia-v7';
 const EXTINTORES_CACHE = 'extintores-v2';
 
 // Assets que se cachean al instalar el SW (para poder abrir la app offline)
@@ -130,14 +130,21 @@ self.addEventListener('push', event => {
 
 // Tocar la notificación enfoca una pestaña ya abierta de la app, o abre una
 // nueva si no hay ninguna — sin esto, tocarla no hacía nada.
+// Si la notificación trae una acción (ej. "aviso_sin_ingreso": abrir el aviso
+// de ausencia), se le pasa a la app: por mensaje si ya está abierta, o en la
+// URL (?accion=) si hay que abrirla.
 self.addEventListener('notificationclick', event => {
   event.notification.close();
+  const accion = event.notification.data?.accion || null;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
       for (const c of clientList) {
-        if ('focus' in c) return c.focus();
+        if ('focus' in c) {
+          if (accion) c.postMessage({ tipo: 'accion_push', accion });
+          return c.focus();
+        }
       }
-      if (self.clients.openWindow) return self.clients.openWindow('/');
+      if (self.clients.openWindow) return self.clients.openWindow(accion ? '/?accion=' + encodeURIComponent(accion) : '/');
     })
   );
 });

@@ -2,32 +2,153 @@ const router = require('express').Router();
 const db     = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 const push   = require('../services/pushService');
+const multer = require('multer');
+const ausenciasSvc = require('../services/ausenciasService');
+
+// Certificados en memoria (van a la base, no al disco del servidor).
+const subirCertificado = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: ausenciasSvc.MAX_ARCHIVO_BYTES, files: 1 },
+});
 
 // ════════════════════════════════════════════════════════════════
 // AUSENCIAS
 // ════════════════════════════════════════════════════════════════
 
+// Alta de una ausencia. La carga el propio empleado desde la app (canal
+// "app"), o un admin a nombre de un empleado que avisó por otro medio
+// (empleado_id + canal_aviso + aviso_recibido_en: "me avisó anoche por
+// WhatsApp"). Queda registrado quién la cargó, cuándo y cómo llegó el aviso.
+// Si el tipo exige comprobante, hay 48 hs para subirlo (POST /ausencia/:id/certificado).
 router.post('/ausencia', auth, async (req, res) => {
-  const { fecha_inicio, fecha_fin, tipo, descripcion, justificacion_texto, gps_lat, gps_lng, certificado_url } = req.body;
-  const empleadoId = req.user.empleadoId;
+  const { justificacion_texto, gps_lat, gps_lng } = req.body;
+  const v = ausenciasSvc.validarAusencia(req.body || {}, { esAdmin: req.user.rol === 'admin' });
+  if (!v.ok) return res.status(400).json({ error: v.error });
+  const d = v.datos;
+  const empleadoId = d.empleadoId ?? req.user.empleadoId;
   if (!empleadoId) return res.status(400).json({ error: 'Sin empleado asociado' });
-  if (!fecha_inicio || !tipo) return res.status(400).json({ error: 'Datos incompletos' });
   try {
+    const { rows: [emp] } = await db.query(
+      'SELECT id, nombre, apellido, usuario_id FROM public.empleados WHERE id = $1 AND empleador_id = $2',
+      [empleadoId, req.user.empleadorId]
+    );
+    if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
+
+    const ahora = new Date();
     const { rows: [aus] } = await db.query(`
       INSERT INTO public.ausencias (
         empleado_id, empleador_id, fecha_inicio, fecha_fin, tipo, descripcion,
-        justificacion_texto, justificacion_gps_lat, justificacion_gps_lng,
-        certificado_url, estado
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pendiente') RETURNING *
-    `, [empleadoId, req.user.empleadorId, fecha_inicio, fecha_fin || fecha_inicio, tipo,
-        descripcion || null, justificacion_texto || null, gps_lat || null, gps_lng || null, certificado_url || null]);
-    const { rows: [emp] } = await db.query('SELECT nombre, apellido FROM public.empleados WHERE id = $1', [empleadoId]);
-    const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
-    const n = push.notif.ausenciaPendiente(nombre, tipo.replace(/_/g, ' '));
-    await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
+        justificacion_texto, justificacion_gps_lat, justificacion_gps_lng, estado,
+        certificado_requerido, certificado_vence_en, canal_aviso, aviso_recibido_en, cargada_por_usuario_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pendiente',$10,$11,$12,$13,$14) RETURNING *
+    `, [empleadoId, req.user.empleadorId, d.fechaInicio, d.fechaFin, d.tipo, d.descripcion,
+        justificacion_texto || null,
+        d.empleadoId ? null : (gps_lat || null), d.empleadoId ? null : (gps_lng || null),
+        d.requiereComprobante, d.requiereComprobante ? ausenciasSvc.venceCertificado(ahora) : null,
+        d.canal, d.avisoRecibidoEn || ahora, req.user.id]);
+
+    const nombre = `${emp.nombre || ''} ${emp.apellido || ''}`.trim();
+    const tipoTexto = d.tipo.replace(/_/g, ' ');
+    if (d.empleadoId) {
+      // La cargó un admin: se le avisa al empleado (y ahí ve si falta el certificado).
+      if (emp.usuario_id && emp.usuario_id !== req.user.id) {
+        const n = push.notif.ausenciaCargadaPorAdmin(tipoTexto, d.requiereComprobante);
+        await push.pushUsuario(emp.usuario_id, n.titulo, n.cuerpo, { accion: 'ver_ausencias' });
+      }
+    } else {
+      const n = push.notif.ausenciaPendiente(nombre, tipoTexto);
+      await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
+    }
     res.json({ ok: true, ausencia: aus });
   } catch (err) {
     console.error('[LIC] Ausencia error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Ausencia que el usuario puede ver: la propia, o cualquiera de su empleador si es admin.
+async function ausenciaVisible(req, ausenciaId) {
+  const { rows: [aus] } = await db.query(
+    `SELECT a.id, a.empleado_id, a.empleador_id, e.nombre, e.apellido
+     FROM public.ausencias a JOIN public.empleados e ON e.id = a.empleado_id
+     WHERE a.id = $1 AND a.empleador_id = $2`,
+    [ausenciaId, req.user.empleadorId]
+  );
+  if (!aus) return null;
+  if (req.user.rol === 'admin' || aus.empleado_id === req.user.empleadoId) return aus;
+  return null;
+}
+
+// Subir el certificado o comprobante (foto o PDF, hasta 8 MB). Se guarda en la
+// base, no en el almacenamiento con enlace público: es un dato de salud
+// (Ley 25.326) y solo lo ven el empleado y los admins. Se pueden subir varios
+// (ej. frente y dorso).
+router.post('/ausencia/:id/certificado', auth, (req, res, next) => {
+  subirCertificado.single('archivo')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera los 8 MB' : 'No se pudo leer el archivo' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const aus = await ausenciaVisible(req, req.params.id);
+    if (!aus) return res.status(404).json({ error: 'Ausencia no encontrada' });
+    const v = ausenciasSvc.validarArchivo(req.file);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+
+    const { rows: [cert] } = await db.query(`
+      INSERT INTO public.ausencia_certificados
+        (ausencia_id, nombre_archivo, tipo_mime, tamano_bytes, contenido, subido_por_usuario_id)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      RETURNING id, nombre_archivo, tipo_mime, tamano_bytes, subido_en
+    `, [aus.id, String(req.file.originalname || 'certificado').slice(0, 200), req.file.mimetype, req.file.size, req.file.buffer, req.user.id]);
+
+    // Si lo subió el empleado, se avisa a los admins.
+    if (req.user.empleadoId === aus.empleado_id) {
+      const n = push.notif.certificadoSubido(`${aus.nombre || ''} ${aus.apellido || ''}`.trim());
+      await push.pushAdmins(aus.empleador_id, n.titulo, n.cuerpo);
+    }
+    res.json({ ok: true, certificado: cert });
+  } catch (err) {
+    console.error('[LIC] Certificado subir error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.get('/ausencia/:id/certificados', auth, async (req, res) => {
+  try {
+    const aus = await ausenciaVisible(req, req.params.id);
+    if (!aus) return res.status(404).json({ error: 'Ausencia no encontrada' });
+    const { rows } = await db.query(`
+      SELECT c.id, c.nombre_archivo, c.tipo_mime, c.tamano_bytes, c.subido_en, u.email AS subido_por
+      FROM public.ausencia_certificados c LEFT JOIN public.usuarios u ON u.id = c.subido_por_usuario_id
+      WHERE c.ausencia_id = $1 ORDER BY c.subido_en
+    `, [aus.id]);
+    res.json(rows);
+  } catch (err) {
+    console.error('[LIC] Certificados listar error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Ver un certificado: se sirve por la API con el token, nunca por un enlace público.
+router.get('/ausencia/:id/certificados/:certId', auth, async (req, res) => {
+  try {
+    const aus = await ausenciaVisible(req, req.params.id);
+    if (!aus) return res.status(404).json({ error: 'Ausencia no encontrada' });
+    const { rows: [cert] } = await db.query(
+      'SELECT nombre_archivo, tipo_mime, contenido FROM public.ausencia_certificados WHERE id = $1 AND ausencia_id = $2',
+      [req.params.certId, aus.id]
+    );
+    if (!cert) return res.status(404).json({ error: 'Certificado no encontrado' });
+    res.set({
+      'Content-Type': cert.tipo_mime,
+      'Content-Disposition': `inline; filename="${encodeURIComponent(cert.nombre_archivo)}"`,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.send(cert.contenido);
+  } catch (err) {
+    console.error('[LIC] Certificado ver error:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -56,12 +177,19 @@ router.get('/ausencias', auth, async (req, res) => {
   if (req.user.rol === 'empleado') { params.push(req.user.empleadoId); where += ` AND a.empleado_id = $${params.length}`; }
   else if (empleado_id) { params.push(empleado_id); where += ` AND a.empleado_id = $${params.length}`; }
   if (estado) { params.push(estado); where += ` AND a.estado = $${params.length}`; }
+  // ?certificado=1: solo las que exigen certificado o comprobante (seguimiento de Administración).
+  if (req.query.certificado === '1') where += ' AND a.certificado_requerido = TRUE';
   if (desde)  { params.push(desde);  where += ` AND a.fecha_inicio >= $${params.length}`; }
   if (hasta)  { params.push(hasta);  where += ` AND a.fecha_fin <= $${params.length}`; }
   try {
     const { rows } = await db.query(`
-      SELECT a.*, e.nombre, e.apellido, e.legajo FROM public.ausencias a
-      JOIN public.empleados e ON e.id = a.empleado_id ${where} ORDER BY a.fecha_inicio DESC
+      SELECT a.*, e.nombre, e.apellido, e.legajo,
+        (SELECT count(*)::int FROM public.ausencia_certificados c WHERE c.ausencia_id = a.id) AS certificados,
+        uc.email AS cargada_por_email
+      FROM public.ausencias a
+      JOIN public.empleados e ON e.id = a.empleado_id
+      LEFT JOIN public.usuarios uc ON uc.id = a.cargada_por_usuario_id
+      ${where} ORDER BY a.fecha_inicio DESC
     `, params);
     res.json(rows);
   } catch (err) {
