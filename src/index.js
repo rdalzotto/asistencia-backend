@@ -76,6 +76,13 @@ function minDesde(hhmm) {
   return h * 60 + m;
 }
 
+// Dueño de la empresa (variable DUENO_EMAIL): sus fichajes no quedan
+// pendientes de validación. Mismo criterio que routes/movimientos.js.
+function esDuenoEmail(email) {
+  const dueno = (process.env.DUENO_EMAIL || '').trim().toLowerCase();
+  return !!dueno && String(email || '').toLowerCase() === dueno;
+}
+
 async function registrarEgresoAuto(empleadoId, empleadorId, motivo, tipo = 'egreso') {
   const crypto = require('crypto');
   const hash = crypto.createHash('sha256')
@@ -447,9 +454,10 @@ async function cronJornadaInteligente() {
     // todo el día del banco de horas hasta que se valide manualmente vía el
     // mismo POST /movimientos/validar-remoto/:id que ya se usa para GPS/remoto.
     const { rows: vencidasSinResponder } = await db.query(`
-      SELECT m.id, m.empleado_id, m.empleador_id, m.fecha, e.nombre, e.apellido
+      SELECT m.id, m.empleado_id, m.empleador_id, m.fecha, e.nombre, e.apellido, u.email
       FROM public.movimientos m
       JOIN public.empleados e ON e.id = m.empleado_id
+      LEFT JOIN public.usuarios u ON u.id = e.usuario_id
       WHERE m.fecha = CURRENT_DATE
         AND m.aviso_extension_oficina_en IS NOT NULL
         AND m.aviso_extension_oficina_en <= NOW() - INTERVAL '60 minutes'
@@ -467,6 +475,17 @@ async function cronJornadaInteligente() {
       const client = await db.connect();
       try {
         await client.query('BEGIN');
+        // El dueño (DUENO_EMAIL) no queda pendiente de validación: queda
+        // constancia de que no respondió, pero sus horas siguen contando.
+        if (esDuenoEmail(row.email)) {
+          await client.query(`
+            UPDATE public.movimientos SET extension_sin_responder = TRUE,
+              observacion_admin = CONCAT_WS(' | ', NULLIF(observacion_admin, ''), 'Extensión sin respuesta — validado automáticamente (dueño)')
+            WHERE id = $1
+          `, [row.id]);
+          await client.query('COMMIT');
+          continue;
+        }
         await client.query(
           'UPDATE public.movimientos SET validado = FALSE, extension_sin_responder = TRUE WHERE id = $1',
           [row.id]

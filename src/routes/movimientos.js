@@ -669,6 +669,7 @@ router.post('/egreso-justificado', auth, async (req, res) => {
       hora_real_egreso    ? `Hora real declarada: ${hora_real_egreso}` : null,
       salida_automatica   ? 'Cerrado automáticamente por el sistema' : null,
       observacion         ? `Obs: ${observacion}` : null,
+      esDueno(req.user)   ? 'Validado automáticamente (dueño)' : null,
     ].filter(Boolean).join(' | ');
 
     const esRemotoTipo = tipo === 'fin_jornada_remota';
@@ -687,7 +688,7 @@ router.post('/egreso-justificado', auth, async (req, res) => {
         NULL,NULL,FALSE,NULL,
         $4,NULL,FALSE,
         FALSE,0,$5,
-        FALSE,$6,$7,
+        $11,$6,$7,
         $8,$9,
         TRUE,$10
       ) RETURNING *
@@ -700,6 +701,7 @@ router.post('/egreso-justificado', auth, async (req, res) => {
       motivo_salida_fuera || null,
       hora_real_egreso    || null,
       salida_automatica   || false,
+      esDueno(req.user),  // el dueño no queda pendiente de validación
     ]);
 
     await jornada.actualizarBancoHoras(empleadoId, hoy, client);
