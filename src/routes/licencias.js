@@ -29,10 +29,16 @@ router.post('/ausencia', auth, async (req, res) => {
   if (!empleadoId) return res.status(400).json({ error: 'Sin empleado asociado' });
   try {
     const { rows: [emp] } = await db.query(
-      'SELECT id, nombre, apellido, usuario_id FROM public.empleados WHERE id = $1 AND empleador_id = $2',
+      `SELECT e.id, e.nombre, e.apellido, e.usuario_id, u.email
+       FROM public.empleados e LEFT JOIN public.usuarios u ON u.id = e.usuario_id
+       WHERE e.id = $1 AND e.empleador_id = $2`,
       [empleadoId, req.user.empleadorId]
     );
     if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
+    // El dueño (DUENO_EMAIL) no presenta certificados: sin plazo, recordatorios
+    // ni aviso de vencido. Decisión de Rogelio 29/09/2026.
+    const dueno = (process.env.DUENO_EMAIL || '').trim().toLowerCase();
+    if (dueno && String(emp.email || '').toLowerCase() === dueno) d.requiereComprobante = false;
 
     const ahora = new Date();
     const { rows: [aus] } = await db.query(`
