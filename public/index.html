@@ -1854,7 +1854,8 @@ function navEmpleado(sec, el) {
 
 async function cargarMisAusencias() {
   try {
-    const data = await api('/licencias/ausencias');
+    // Solo las propias (un admin que también ficha recibiría las de todos).
+    const data = STATE.empleadoId ? await api('/licencias/ausencias?empleado_id=' + STATE.empleadoId) : [];
     const cont = document.getElementById('lista-mis-ausencias');
     if (!data.length) { cont.innerHTML = '<p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Sin ausencias</p>'; return; }
     const est = {pendiente:'badge-yellow',aprobada:'badge-green',rechazada:'badge-red'};
@@ -2594,7 +2595,10 @@ async function actualizarBannerCertificado() {
   const banner = document.getElementById('banner-certificado');
   if (!banner || !STATE.token) return;
   try {
-    const faltan = (await api('/licencias/ausencias')).filter(a => a.certificado_requerido && !a.certificados && a.estado !== 'rechazada');
+    // Solo las propias: a un admin que también ficha, /licencias/ausencias sin
+    // empleado_id le devuelve las de todos los empleados.
+    if (!STATE.empleadoId) { banner.style.display = 'none'; return; }
+    const faltan = (await api('/licencias/ausencias?empleado_id=' + STATE.empleadoId)).filter(a => a.certificado_requerido && !a.certificados && a.estado !== 'rechazada');
     if (!faltan.length) { banner.style.display = 'none'; return; }
     const a = faltan[0];
     const fecha = String(a.fecha_inicio).slice(0,10).split('-').reverse().join('/');
