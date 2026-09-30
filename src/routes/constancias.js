@@ -44,10 +44,18 @@ router.post('/items', auth, async (req, res) => {
   }
 });
 
+const RUBROS = ['agro', 'servicios', 'construccion'];
+
 router.patch('/items/:id', auth, async (req, res) => {
-  const { texto, activo, orden } = req.body;
+  const { texto, activo, orden, rubro } = req.body;
   try {
     const sets = [], params = [];
+    // Actividad del ítem (qué normativa o tipo de visita se ofrece en cada rubro): solo Dirección.
+    if (rubro !== undefined) {
+      if (req.user.rol !== 'admin') return res.status(403).json({ error: 'Solo Dirección cambia la actividad de un ítem' });
+      if (rubro !== null && !RUBROS.includes(rubro)) return res.status(400).json({ error: 'Actividad inválida' });
+      params.push(rubro); sets.push(`rubro = $${params.length}`);
+    }
     if (texto !== undefined) { params.push(texto); sets.push(`texto = $${params.length}`); }
     if (activo !== undefined) { params.push(activo); sets.push(`activo = $${params.length}`); }
     if (orden !== undefined) { params.push(orden); sets.push(`orden = $${params.length}`); }
@@ -161,11 +169,11 @@ router.put('/firma-aval', auth, soloAdmin, async (req, res) => {
 router.get('/destino-logo/:destino_id', auth, async (req, res) => {
   try {
     const { rows: [d] } = await db.query(
-      `SELECT id, nombre, logo_url FROM public.destinos_externos WHERE id = $1 AND empleador_id = $2`,
+      `SELECT * FROM public.destinos_externos WHERE id = $1 AND empleador_id = $2`,
       [req.params.destino_id, req.user.empleadorId]
     );
     if (!d) return res.status(404).json({ error: 'Destino no encontrado' });
-    res.json({ id: d.id, nombre: d.nombre, logo_url: d.logo_url || null });
+    res.json({ id: d.id, nombre: d.nombre, logo_url: d.logo_url || null, rubro: d.rubro || null });
   } catch (err) {
     console.error('[CONST] destino-logo GET error:', err.message);
     res.status(500).json({ error: 'Error interno' });
@@ -497,6 +505,14 @@ router.post('/:id/guardar-completo', auth, async (req, res) => {
       const gpsLng  = datos.gps_lng  != null && datos.gps_lng  !== '' ? parseFloat(datos.gps_lng)  : null;
       await db.query(`UPDATE public.constancias SET establecimiento_sector=COALESCE($1,establecimiento_sector), hora_inicio=COALESCE($2,hora_inicio), hora_fin=COALESCE($3,hora_fin), gps_lat=COALESCE($4,gps_lat), gps_lng=COALESCE($5,gps_lng), observaciones_generales=COALESCE($6,observaciones_generales), estado=COALESCE($7,estado), actualizado_en=NOW() WHERE id=$8 AND empleador_id=$9`,
         [datos.establecimiento_sector||null, horaIni, horaFin, gpsLat, gpsLng, datos.observaciones_generales||null, datos.estado||null, req.params.id, req.user.empleadorId]);
+      // Actividad del establecimiento (agro / servicios / construcción): se guarda en la
+      // constancia y se recuerda en el establecimiento para la próxima visita.
+      if (RUBROS.includes(datos.rubro)) {
+        try {
+          await db.query(`UPDATE public.constancias SET rubro=$1 WHERE id=$2 AND empleador_id=$3`, [datos.rubro, req.params.id, req.user.empleadorId]);
+          if (datos.destino_id) await db.query(`UPDATE public.destinos_externos SET rubro=$1 WHERE id=$2 AND empleador_id=$3`, [datos.rubro, datos.destino_id, req.user.empleadorId]);
+        } catch (e) { if (e.code !== '42703') throw e; } // columna todavía no creada: se ignora
+      }
     }
     if (selecciones) {
       for (const [categoria, items] of Object.entries(selecciones)) {

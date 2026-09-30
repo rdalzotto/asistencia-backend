@@ -6108,17 +6108,13 @@ let CONST_STATE = {
   desvios:[], firmas:{}, itemsMenu:{}, offline:false, pendienteSync:false,
 };
 
+// 5 pasos (01/10/2026): lo que registran las planillas no se vuelve a pedir.
 const CONST_PASOS = [
-  {id:'datos',label:'1. Datos',icono:'📋'},
-  {id:'tipo',label:'2. Tipo',icono:'🎯'},
-  {id:'planillas',label:'3. Planillas',icono:'📋'},
-  {id:'personal',label:'4. Personal',icono:'👥'},
-  {id:'actividades',label:'5. Actividades',icono:'✅'},
-  {id:'acciones',label:'6. Acciones',icono:'📝'},
-  {id:'normativa',label:'7. Normativa',icono:'⚖'},
-  {id:'observaciones',label:'8. Obs.',icono:'💬'},
-  {id:'desvios',label:'9. Desvíos',icono:'⚠'},
-  {id:'firmas',label:'10. Firmas',icono:'✍'},
+  {id:'visita',label:'1. Visita',icono:'📋'},
+  {id:'planillas',label:'2. Chequeos',icono:'✅'},
+  {id:'acciones',label:'3. Acciones',icono:'📝'},
+  {id:'hallazgos',label:'4. Hallazgos',icono:'⚠'},
+  {id:'firmas',label:'5. Cierre',icono:'✍'},
 ];
 
 function abrirConstanciaEspontanea() {
@@ -6348,15 +6344,28 @@ async function abrirConstancia(visitaId, visitaDatos) {
     const primerDestino = visitaDatos.destinos[0];
     if (primerDestino?.destino_id) {
       CONST_STATE.destinoId = primerDestino.destino_id;
-      // Intentar cargar logo guardado del destino
-      try {
-        const dInfo = await api('/constancias/destino-logo/' + primerDestino.destino_id);
-        if (dInfo.logo_url) CONST_STATE.logoCliente = dInfo.logo_url;
-      } catch {}
     }
   }
 
-  try { CONST_STATE.itemsMenu = await api('/constancias/items'); } catch { CONST_STATE.itemsMenu = {}; }
+  // Apertura rápida: todo lo que no depende de crear la constancia se pide en
+  // paralelo, y las listas (tipos, normativa…) salen de la copia de la tablet
+  // mientras se actualizan. Antes eran 4 o 5 consultas en fila.
+  const _destinoId = CONST_STATE.destinoId;
+  const _pedidoItems = api('/constancias/items').then(it => { ARStorage.set('const_items', it); return it; }).catch(() => null);
+  const _pedidoDestino = _destinoId ? api('/constancias/destino-logo/' + _destinoId).catch(() => null) : Promise.resolve(null);
+  const _itemsGuardados = await ARStorage.get('const_items');
+  CONST_STATE.itemsMenu = _itemsGuardados || (await _pedidoItems) || {};
+  if (_itemsGuardados) _pedidoItems.then(it => { if (it) CONST_STATE.itemsMenu = it; });
+  // Actividad del establecimiento recordada (tablet primero, después servidor).
+  if (_destinoId) CONST_STATE.datos.rubro = await ARStorage.get('rubro_destino_' + _destinoId) || CONST_STATE.datos.rubro || null;
+  _pedidoDestino.then(dInfo => {
+    if (!dInfo) return;
+    if (dInfo.logo_url && !CONST_STATE.logoCliente) CONST_STATE.logoCliente = dInfo.logo_url;
+    if (dInfo.rubro) { ARStorage.set('rubro_destino_' + _destinoId, dInfo.rubro); if (!CONST_STATE.datos.rubro) { CONST_STATE.datos.rubro = dInfo.rubro; if (constanciaAbierta()) renderConstanciaPaso(); } }
+  });
+  // Firmas: se piden ya, en paralelo con la creación de la constancia.
+  const _pedidoFirmaTec = api('/constancias/firma-guardada').catch(() => null);
+  const _pedidoAval = api('/constancias/firma-aval').then(av => { if (av) ARStorage.set('firma_aval', av); return av; }).catch(() => null);
   try {
     // Visita instantánea retomada: se abre la constancia ya empezada en vez de crear otra.
     const data = visitaDatos?.constanciaId
@@ -6384,17 +6393,16 @@ async function abrirConstancia(visitaId, visitaDatos) {
     toast('Sin conexión — se guardará cuando haya señal', 'info', 4000);
   }
   // Firma del técnico: la última que guardó (la vuelve a confirmar en el cierre).
-  try {
-    const ft = await api('/constancias/firma-guardada');
-    if (ft?.tecnico && !CONST_STATE.firmas.tecnico?.firma_svg) CONST_STATE.firmas.tecnico = ft.tecnico;
-  } catch {}
+  const ft = await _pedidoFirmaTec;
+  if (ft?.tecnico && !CONST_STATE.firmas.tecnico?.firma_svg) CONST_STATE.firmas.tecnico = ft.tecnico;
   const _nombreCompleto = ((STATE.nombre||'')+' '+(STATE.apellido||'')).trim();
   if (!CONST_STATE.firmas.tecnico?.nombre_apellido && _nombreCompleto) {
     CONST_STATE.firmas.tecnico = {nombre_apellido:_nombreCompleto, cargo:STATE.cargo||'Asesor técnico', matricula:STATE.matricula||'', firma_svg:null, tipo:'tecnico'};
   }
   // Firma de aval del responsable del servicio: la carga Dirección una vez y sale
   // sola en todas las constancias. Se guarda en la tablet para usarla sin señal.
-  await cargarFirmaAval();
+  await _pedidoAval;
+  await cargarFirmaAval(false);
   renderConstanciaPasos(); renderConstanciaPaso();
   const modal = document.getElementById('modal-constancia');
   modal.style.display = 'flex'; modal.classList.add('active');
@@ -6405,6 +6413,7 @@ async function abrirConstancia(visitaId, visitaDatos) {
 
 function cargarDatosConstanciaExistente(c) {
   if (c.establecimiento_sector) CONST_STATE.datos.establecimiento_sector = c.establecimiento_sector;
+  if (c.rubro) CONST_STATE.datos.rubro = c.rubro;
   if (c.hora_inicio) CONST_STATE.datos.hora_inicio = c.hora_inicio;
   if (c.hora_fin) CONST_STATE.datos.hora_fin = c.hora_fin;
   if (c.gps_lat) { CONST_STATE.datos.gps_lat = c.gps_lat; CONST_STATE.datos.gps_lng = c.gps_lng; }
@@ -6529,9 +6538,14 @@ function constanciaPasoSiguiente() { guardarDatosPasoActual(); guardarConstancia
 
 function guardarDatosPasoActual() {
   const paso = CONST_PASOS[CONST_STATE.pasoActual].id;
-  if (paso==='datos') { CONST_STATE.datos.establecimiento_sector=document.getElementById('ci-sector')?.value||''; CONST_STATE.datos.hora_inicio=document.getElementById('ci-hora-ini')?.value||''; CONST_STATE.datos.hora_fin=document.getElementById('ci-hora-fin')?.value||''; }
+  if (paso==='datos' || paso==='visita') { CONST_STATE.datos.establecimiento_sector=document.getElementById('ci-sector')?.value||''; CONST_STATE.datos.hora_inicio=document.getElementById('ci-hora-ini')?.value||''; CONST_STATE.datos.hora_fin=document.getElementById('ci-hora-fin')?.value||''; }
   else if (paso==='observaciones') { CONST_STATE.datos.observaciones_generales=document.getElementById('ci-obs')?.value||''; }
-  else if (paso==='acciones') { CONST_STATE.acciones.verificaciones=document.getElementById('ci-verificaciones')?.value||''; CONST_STATE.acciones.indicaciones=document.getElementById('ci-indicaciones')?.value||''; CONST_STATE.acciones.charla=document.getElementById('ci-charla')?.value||''; CONST_STATE.acciones.documentacion=document.getElementById('ci-documentacion')?.value||''; }
+  else if (paso==='acciones') {
+    // Solo se toma lo que está en pantalla (las verificaciones viejas no se borran si no se muestran).
+    const v = id => document.getElementById(id);
+    for (const [id, campo] of [['ci-verificaciones','verificaciones'],['ci-indicaciones','indicaciones'],['ci-charla','charla'],['ci-documentacion','documentacion']]) if (v(id)) CONST_STATE.acciones[campo] = v(id).value;
+    if (v('ci-obs')) CONST_STATE.datos.observaciones_generales = v('ci-obs').value;
+  }
 }
 
 function renderConstanciaPaso() {
@@ -6541,14 +6555,14 @@ function renderConstanciaPaso() {
   const btnSig = document.getElementById('const-btn-siguiente');
   if (btnAnt) { btnAnt.style.display = CONST_STATE.pasoActual===0?'none':'flex'; btnAnt.style.visibility='visible'; }
   if (btnSig) { btnSig.textContent = CONST_STATE.pasoActual===CONST_PASOS.length-1?'✓ Finalizar':'Siguiente →'; btnSig.style.display='flex'; btnSig.style.visibility='visible'; }
-  const renders = {datos:renderPasoDatos,tipo:renderPasoTipo,planillas:renderPasoPlanillas,personal:renderPasoPersonal,actividades:renderPasoActividades,acciones:renderPasoAcciones,normativa:renderPasoNormativa,observaciones:renderPasoObservaciones,desvios:renderPasoDesvios,firmas:renderPasoFirmas};
+  const renders = {visita:renderPasoVisita,hallazgos:renderPasoHallazgos,datos:renderPasoDatos,tipo:renderPasoTipo,planillas:renderPasoPlanillas,personal:renderPasoPersonal,actividades:renderPasoActividades,acciones:renderPasoAccionesYObs,normativa:renderPasoNormativa,observaciones:renderPasoObservaciones,desvios:renderPasoDesvios,firmas:renderPasoFirmas};
   try {
     document.getElementById('const-paso-contenido').innerHTML = renders[paso]?renders[paso]():'';
   } catch(e) {
     console.error('[renderConstanciaPaso] error en paso '+paso+':', e);
     document.getElementById('const-paso-contenido').innerHTML = '<div style="padding:20px;color:var(--text2);text-align:center">Error al renderizar este paso. <button class="btn btn-primary" style="margin-top:12px" onclick="renderConstanciaPaso()">Reintentar</button></div>';
   }
-  if (paso==='datos' && !CONST_STATE.datos.gps_lat) obtenerGPSConstancia();
+  if ((paso==='datos' || paso==='visita') && !CONST_STATE.datos.gps_lat) obtenerGPSConstancia();
 }
 
 function renderPasoDatos() {
@@ -6619,12 +6633,14 @@ function _planillasOpts() {
     constanciaId: CONST_STATE.constanciaId,
     destinoId: CONST_STATE.destinoId || null,
     establecimiento: CONST_STATE.datos.establecimiento_sector || '',
+    rubro: CONST_STATE.datos.rubro || null,
   };
 }
 
 function renderPasoPlanillas() {
   setTimeout(pintarResumenPlanillas, 0);
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">3. Planillas de chequeo</div>
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">2. Chequeos</div>
+  ${CONST_STATE.datos.rubro ? '' : '<div style="font-size:12px;color:var(--orange);margin-bottom:10px">Elegí la actividad del establecimiento en el paso 1 para ver solo sus temas.</div>'}
   <div style="font-size:13px;color:var(--text2);margin-bottom:14px">Elegí el tema de esta visita (viviendas, tractores, extintores, agua…) y, si en el lugar surge otro chequeo, lo sumás. Funciona sin señal: se envía solo cuando vuelve.</div>
   <div id="ci-planillas-resumen" style="margin-bottom:14px;color:var(--text2);font-size:13px">Buscando relevamiento…</div>
   <button class="btn btn-primary" onclick="abrirPlanillasDesdeConstancia()">📋 Abrir planillas</button>
@@ -6643,11 +6659,9 @@ async function pintarResumenPlanillas() {
     <div style="font-size:13px;color:var(--text)">${r.C} cumple · <b style="color:var(--red)">${r.NC} no cumple</b> · ${r.NA} no aplica · ${r.NV} no verificado<br>
     <span style="color:var(--text2)">${r.pendiente ? '📴 Guardado en la tablet, falta enviar' : r.error ? '⚠ ' + esc(r.error) : '✓ Enviado'}${r.estado === 'cerrado' ? ' · cerrado' : ''}</span></div></div>
     <div style="font-size:12px;color:var(--text2);margin-top:8px">${r.modulos.map(esc).join(' · ')}</div></div>`;
-  const yaPasados = new Set(CONST_STATE.desvios.map(d => d.chk_respuesta_id).filter(Boolean));
   const btn = document.getElementById('ci-planillas-desvios');
-  if (r.NC) btn.innerHTML = `<button class="btn btn-secondary" onclick="pasarHallazgosADesvios()">⚠ Pasar hallazgos a Desvíos (${r.NC})</button>
-    <div style="font-size:12px;color:var(--text2);margin-top:6px">${yaPasados.size ? yaPasados.size + ' ya pasados. ' : ''}Solo se agregan los que no están.</div>`;
-  else btn.innerHTML = '';
+  // Los No cumple pasan solos a Hallazgos (paso 4).
+  btn.innerHTML = r.NC ? `<div style="font-size:12px;color:var(--text2)">Los ${r.NC} no cumple pasan solos al paso 4 (Hallazgos).</div>` : '';
 }
 
 function abrirPlanillasDesdeConstancia() {
@@ -6669,6 +6683,187 @@ async function pasarHallazgosADesvios() {
   guardarConstanciaTrasAccion();
   toast(n ? n + ' hallazgo(s) pasados a Desvíos ✓' : 'Ya estaban todos en Desvíos', n ? 'success' : 'info');
   pintarResumenPlanillas();
+}
+
+// ── CONSTANCIA EN 5 PASOS (01/10/2026) ───────────────────────────────────────
+// Pedido de Rogelio: agilizar sin perder profesionalidad. Lo que ya registran las
+// planillas (actividades, verificaciones, equipos, desvíos, normativa) no se vuelve
+// a pedir: se toma de ahí. La actividad del establecimiento filtra la normativa.
+const RUBROS_CONST = { agro: 'Agro', servicios: 'Servicios', construccion: 'Construcción' };
+const RUBRO_DECRETO = { agro: 'Dec. 617/97', servicios: 'Dec. 351/79', construccion: 'Dec. 911/96' };
+const DOCS_REVISADOS = ['RAR', 'Constancias de entrega de EPP', 'Registro de capacitaciones', 'Exámenes médicos periódicos',
+  'Análisis de agua', 'Plan de emergencias', 'Medición de puesta a tierra', 'Medición de iluminación', 'Medición de ruido',
+  'Estudio de carga de fuego', 'Carnet de aplicador', 'Registro de accidentes'];
+const _escHtml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const _tituloPaso = t => `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">${t}</div>`;
+
+// Ítems de las listas (tipo de visita, normativa…) que corresponden a la actividad elegida.
+function itemsDelRubro(cat) {
+  const r = CONST_STATE.datos.rubro;
+  return (CONST_STATE.itemsMenu[cat] || []).filter(i => !i.rubro || !r || i.rubro === r);
+}
+
+function elegirRubro(r) {
+  CONST_STATE.datos.rubro = r;
+  if (CONST_STATE.destinoId) ARStorage.set('rubro_destino_' + CONST_STATE.destinoId, r);
+  guardarConstanciaTrasAccion();
+  renderConstanciaPaso();
+}
+
+function _chip(on, onclick, texto, color = 'var(--accent)') {
+  return `<button onclick="${onclick}" style="border:1px ${on ? 'solid' : 'dashed'} ${color};background:${on ? 'rgba(0,212,255,0.15)' : 'none'};color:${on ? 'var(--text)' : 'var(--text2)'};border-radius:16px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;margin:0 6px 6px 0">${on ? '✓ ' : ''}${texto}</button>`;
+}
+
+function toggleChip(cat, id) {
+  const sel = (CONST_STATE.selecciones[cat] || []).some(s => s.item_id == id);
+  toggleSeleccion(cat, id, '', !sel);
+  guardarConstanciaTrasAccion();
+  renderConstanciaPaso();
+}
+
+function renderPasoVisita() {
+  const r = CONST_STATE.datos.rubro;
+  const sT = CONST_STATE.selecciones.tipo_visita || [];
+  let h = _tituloPaso('1. Visita');
+  h += `<div class="form-group"><label>Actividad del establecimiento</label>
+    <div>${Object.entries(RUBROS_CONST).map(([k, t]) => _chip(r === k, `elegirRubro('${k}')`, `${t} <span style="font-weight:400;color:var(--text3)">${RUBRO_DECRETO[k]}</span>`)).join('')}</div>
+    ${r ? '' : '<div style="font-size:12px;color:var(--orange)">Elegila: define la normativa y los temas de chequeo que se ofrecen. Queda recordada para este establecimiento.</div>'}</div>`;
+  // Datos, horas, GPS y logo (el logo se carga una vez por establecimiento).
+  h += renderPasoDatos().replace(/^[\s\S]*?1\. Datos de la visita<\/div>/, '');
+  if (r === 'construccion') {
+    // En obra se mantienen los frentes de trabajo con su nivel de riesgo.
+    h += renderPasoTipo().replace(/^[\s\S]*?Tipo de visita y frentes de trabajo<\/div>/, '');
+  } else {
+    h += `<div class="form-group"><label>Tipo de visita</label><div>${itemsDelRubro('tipo_visita').map(t => _chip(sT.some(s => s.item_id == t.id), `toggleChip('tipo_visita',${t.id})`, _escHtml(t.texto))).join('')}
+      ${_chip(false, "agregarItemNuevo('tipo_visita')", '+ Otro')}</div></div>`;
+  }
+  return h;
+}
+
+function agregarDocRevisada(txt) {
+  const el = document.getElementById('ci-documentacion');
+  const actual = (el?.value ?? CONST_STATE.acciones.documentacion ?? '').trim();
+  if (actual.split(/[;\n]/).map(s => s.trim().toLowerCase()).includes(txt.toLowerCase())) return;
+  const nuevo = actual ? actual.replace(/[.;\s]+$/, '') + '; ' + txt : txt;
+  CONST_STATE.acciones.documentacion = nuevo;
+  if (el) el.value = nuevo;
+  guardarConstanciaTrasAccion();
+}
+
+function renderPasoAccionesYObs() {
+  const a = CONST_STATE.acciones;
+  const area = (id, label, val, ph, min = 70) => `<div class="form-group"><label>${label} <span style="font-weight:400;text-transform:none;color:var(--text3)">🎤 podés dictar</span></label><textarea id="${id}" placeholder="${ph}" style="min-height:${min}px">${_escHtml(val || '')}</textarea></div>`;
+  let h = _tituloPaso('3. Acciones y observaciones');
+  h += `<div style="font-size:12px;color:var(--text2);margin-bottom:14px">Lo verificado ya queda registrado en los chequeos: acá va lo que hiciste o indicaste en la visita.</div>`;
+  h += area('ci-indicaciones', 'Indicaciones y correcciones impartidas', a.indicaciones, 'Qué se indicó corregir en el momento…');
+  h += area('ci-charla', 'Charla o capacitación en el lugar', a.charla, 'Tema, duración, norma de referencia…', 60);
+  h += `<div class="form-group"><label>Personal presente / asistentes</label>
+    <div id="ci-personal-lista">${CONST_STATE.personal.map((p, i) => renderFilaPersonal(p, i)).join('')}</div>
+    <button onclick="agregarPersonal()" class="btn btn-secondary btn-sm">+ Agregar persona</button></div>`;
+  h += `<div class="form-group"><label>Documentación revisada</label>
+    <div style="margin-bottom:6px">${DOCS_REVISADOS.map(d => _chip(false, `agregarDocRevisada('${d}')`, '+ ' + d)).join('')}</div>
+    <textarea id="ci-documentacion" placeholder="Tocá los de arriba o escribí…" style="min-height:60px">${_escHtml(a.documentacion || '')}</textarea></div>`;
+  h += area('ci-obs', 'Observaciones generales', CONST_STATE.datos.observaciones_generales, 'Situación general observada, acuerdos, próximos pasos…', 110);
+  // Constancias anteriores al cambio: se conservan sus verificaciones escritas a mano.
+  if (a.verificaciones) h += area('ci-verificaciones', 'Verificaciones realizadas (texto anterior)', a.verificaciones, '');
+  return h;
+}
+
+// ── Paso 4: hallazgos (desde los chequeos) y normativa (por actividad + citada) ─
+function renderPasoHallazgos() {
+  setTimeout(sincronizarHallazgos, 0);
+  return _tituloPaso('4. Hallazgos y normativa') + `
+    <div id="ci-hallazgos-aviso" style="font-size:12px;color:var(--text2);margin-bottom:10px">Los No cumple de los chequeos se agregan solos. Podés editarlos o sumar otros.</div>
+    <div id="ci-desvios-lista">${CONST_STATE.desvios.map((d, i) => renderFilaDesvio(d, i)).join('')}</div>
+    <button onclick="agregarDesvio()" class="btn btn-secondary btn-sm" style="margin-bottom:18px">+ Agregar hallazgo a mano</button>
+    <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Marco normativo aplicado</div>
+    <div id="ci-normativa">${renderNormativaChips()}</div>`;
+}
+
+function renderNormativaChips() {
+  const sel = CONST_STATE.selecciones.normativa || [];
+  const items = itemsDelRubro('normativa');
+  let h = items.map(n => _chip(sel.some(s => s.item_id == n.id), `toggleNormativa(${n.id})`, _escHtml(n.texto), 'var(--yellow)')).join('');
+  h += sel.filter(s => !s.item_id && s.texto_libre).map((s, i) => `<button onclick="quitarNormaLibre(${JSON.stringify(s.texto_libre).replace(/"/g, '&quot;')})" style="border:1px solid var(--yellow);background:rgba(255,215,64,0.12);color:var(--text);border-radius:16px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;margin:0 6px 6px 0">✓ ${_escHtml(s.texto_libre)} ✕</button>`).join('');
+  h += `<div style="display:flex;gap:8px;margin-top:6px"><input type="text" id="ci-norma-nueva" placeholder="Otra norma (ej.: Res. SRT 299/11)" style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px;font-size:13px"><button class="btn btn-secondary btn-sm" onclick="agregarNormaLibre()">Agregar</button></div>
+    <div style="font-size:11.5px;color:var(--text3);margin-top:6px">Se muestran las de ${CONST_STATE.datos.rubro ? RUBROS_CONST[CONST_STATE.datos.rubro] : 'todas las actividades'} y las generales. Las citadas en los ítems chequeados se agregan solas.</div>`;
+  return h;
+}
+function _repintarNormativa() { const c = document.getElementById('ci-normativa'); if (c) c.innerHTML = renderNormativaChips(); }
+function toggleNormativa(id) {
+  const sel = (CONST_STATE.selecciones.normativa || []).some(s => s.item_id == id);
+  toggleSeleccion('normativa', id, '', !sel); guardarConstanciaTrasAccion(); _repintarNormativa();
+}
+function agregarNormaLibre(txt) {
+  const t = (txt ?? document.getElementById('ci-norma-nueva')?.value ?? '').trim();
+  if (!t) return false;
+  const sel = CONST_STATE.selecciones.normativa = CONST_STATE.selecciones.normativa || [];
+  const norm = s => s.toLowerCase().replace(/[\s.]/g, '');
+  const yaEsta = sel.some(s => s.texto_libre && norm(s.texto_libre) === norm(t))
+    || itemsDelRubro('normativa').some(n => sel.some(s => s.item_id == n.id) && norm(n.texto).includes(norm(t)));
+  if (yaEsta) return false;
+  sel.push({ item_id: null, texto_libre: t, nivel_riesgo: null, normativa_frente: null });
+  if (txt === undefined) { guardarConstanciaTrasAccion(); _repintarNormativa(); }
+  return true;
+}
+function quitarNormaLibre(t) {
+  CONST_STATE.selecciones.normativa = (CONST_STATE.selecciones.normativa || []).filter(s => s.item_id || s.texto_libre !== t);
+  guardarConstanciaTrasAccion(); _repintarNormativa();
+}
+
+async function sincronizarHallazgos() {
+  if (!window.Planillas || CONST_PASOS[CONST_STATE.pasoActual]?.id !== 'hallazgos') return;
+  const o = _planillasOpts();
+  const [nuevos, docu] = await Promise.all([Planillas.desviosParaConstancia(o), Planillas.datosParaDocumento(o)]);
+  let cambios = 0, agregados = 0, quitados = 0;
+  // Hallazgos automáticos cuyo ítem ya no es No cumple: se quitan.
+  const nc = new Set(docu?.respuestas_nc || []);
+  const antes = CONST_STATE.desvios.length;
+  CONST_STATE.desvios = CONST_STATE.desvios.filter(d => !d.chk_respuesta_id || nc.has(d.chk_respuesta_id));
+  quitados = antes - CONST_STATE.desvios.length;
+  const clave = d => (d.titulo || '').trim().toLowerCase() + '|' + (d.descripcion || '').trim().toLowerCase();
+  const ids = new Set(CONST_STATE.desvios.map(d => d.chk_respuesta_id).filter(Boolean));
+  const textos = new Set(CONST_STATE.desvios.map(clave));
+  for (const d of nuevos) { if (ids.has(d.chk_respuesta_id) || textos.has(clave(d))) continue; CONST_STATE.desvios.push(d); agregados++; }
+  // Normativa: si todavía no se eligió ninguna, la base de la actividad + las leyes generales.
+  const r = CONST_STATE.datos.rubro;
+  if (r && !(CONST_STATE.selecciones.normativa || []).length) {
+    for (const n of itemsDelRubro('normativa')) {
+      if (n.rubro === r || /19\.?587|24\.?557/.test(n.texto)) { toggleSeleccion('normativa', n.id, '', true); cambios++; }
+    }
+  }
+  for (const n of docu?.normas || []) if (agregarNormaLibre(n)) cambios++;
+  cambios += agregados + quitados;
+  if (!cambios) return;
+  guardarConstanciaTrasAccion();
+  if (CONST_PASOS[CONST_STATE.pasoActual]?.id !== 'hallazgos') return;
+  document.getElementById('ci-desvios-lista').innerHTML = CONST_STATE.desvios.map((d, i) => renderFilaDesvio(d, i)).join('');
+  _repintarNormativa();
+  const av = document.getElementById('ci-hallazgos-aviso');
+  if (av && (agregados || quitados)) av.innerHTML = `<span style="color:var(--accent)">${agregados ? agregados + ' hallazgo(s) tomados de los chequeos. ' : ''}${quitados ? quitados + ' quitado(s) porque ya cumplen.' : ''}</span>`;
+}
+
+const _cant = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+
+// Resumen de lo relevado arriba de las firmas (se lee en la reunión de cierre).
+async function pintarResumenCierre() {
+  const c = document.getElementById('ci-cierre-resumen');
+  if (!c || !window.Planillas) return;
+  const d = await Planillas.datosParaDocumento(_planillasOpts());
+  const sev = CONST_STATE.desvios.reduce((a, x) => { a[x.severidad] = (a[x.severidad] || 0) + 1; return a; }, {});
+  if (!d && !CONST_STATE.desvios.length) { c.innerHTML = ''; return; }
+  const col = d?.total.calificacion === 'satisfactorio' ? 'var(--green)' : d?.total.calificacion === 'aceptable' ? 'var(--yellow)' : 'var(--red)';
+  c.innerHTML = `<div style="background:var(--bg3);border-radius:10px;padding:12px;margin-bottom:16px">
+    <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Resumen para la reunión de cierre</div>
+    ${d ? `<div style="display:flex;gap:12px;align-items:center"><div style="font-size:26px;font-weight:700;color:${col}">${d.total.indice ?? '—'}${d.total.indice !== null ? '%' : ''}</div>
+      <div style="font-size:13px">${d.temas.length} chequeo(s) · ${d.total.C} cumple · <b style="color:var(--red)">${d.total.NC} no cumple</b>${d.comparacion ? `<br>Visita anterior: ${d.comparacion.antes}% → hoy ${d.comparacion.ahora}% (${d.comparacion.mejoro} mejoraron, ${d.comparacion.empeoro} empeoraron)` : ''}</div></div>` : ''}
+    ${CONST_STATE.desvios.length ? `<div style="font-size:13px;margin-top:6px">Hallazgos: ${sev.ALTA ? `<b style="color:var(--red)">${_cant(sev.ALTA, 'crítico', 'críticos')}</b> · ` : ''}${_cant(sev.MEDIA || 0, 'importante', 'importantes')} · ${_cant(sev.BAJA || 0, 'menor', 'menores')}</div>` : ''}</div>`;
+}
+
+// Datos de las planillas para el documento impreso (se preparan antes de generarlo).
+async function prepararDocumento() {
+  try { CONST_STATE._docChequeos = window.Planillas ? await Planillas.datosParaDocumento(_planillasOpts()) : null; }
+  catch { CONST_STATE._docChequeos = null; }
 }
 
 function renderPasoPersonal() {
@@ -6753,8 +6948,8 @@ function renderFilaDesvio(d,i) {
 }
 
 // Firma de aval (ver cargarFirmaAval): si la constancia ya tenía una guardada, se respeta.
-async function cargarFirmaAval() {
-  try { const av = await api('/constancias/firma-aval'); if (av) await ARStorage.set('firma_aval', av); } catch {}
+async function cargarFirmaAval(consultar = true) {
+  if (consultar) { try { const av = await api('/constancias/firma-aval'); if (av) await ARStorage.set('firma_aval', av); } catch {} }
   const aval = await ARStorage.get('firma_aval');
   if (!CONST_STATE.firmas.responsable_exit?.firma_svg || CONST_STATE.firmas.responsable_exit?.aval) {
     CONST_STATE.firmas.responsable_exit = aval ? { ...aval, tipo: 'responsable_exit', aval: true } : null;
@@ -6770,6 +6965,7 @@ function marcarFirmaClienteDespues(valor) {
 }
 
 function renderPasoFirmas() {
+  setTimeout(pintarResumenCierre, 0);
   const fT=CONST_STATE.firmas.tecnico, fE=CONST_STATE.firmas.responsable_exit, fC=CONST_STATE.firmas.cliente;
   // Las imágenes base64 NUNCA van inline en template strings — se insertan por DOM
   const bloqueHTML = (tipo, titulo, sub, f, esCliente) => {
@@ -6797,7 +6993,8 @@ function renderPasoFirmas() {
       <button onclick="abrirFirma('${tipo}')" ${btnStyle}>${btnText}</button>
     </div>`;
   };
-  const html = `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">10. Firmas</div>
+  const html = `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">5. Cierre y firmas</div>
+  <div id="ci-cierre-resumen"></div>
   ${CONST_STATE.firmaClienteDespues && !fC?.firma_svg
     ? `<div style="margin-bottom:16px;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:8px;padding:14px">
         <div style="font-size:13px;font-weight:700;margin-bottom:4px">Responsable del establecimiento: firma después</div>
@@ -7098,7 +7295,7 @@ async function guardarConstanciaActual(mostrarToast=false) {
   // Tiene ID real — intentar servidor, si falla guardar localmente
   try {
     await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:JSON.stringify({
-      datos:CONST_STATE.datos, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
+      datos:{...CONST_STATE.datos, destino_id:CONST_STATE.destinoId||null}, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
       equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios
     })});
     // Limpiar respaldo local si existía
@@ -7108,7 +7305,7 @@ async function guardarConstanciaActual(mostrarToast=false) {
     // Guardar localmente como respaldo — se sincroniza al reconectarse
     await ARStorage.set('constancia_pendiente_sync_'+id, {
       constanciaId: id, visitaId: CONST_STATE.visitaId,
-      datos:CONST_STATE.datos, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
+      datos:{...CONST_STATE.datos, destino_id:CONST_STATE.destinoId||null}, selecciones:CONST_STATE.selecciones, personal:CONST_STATE.personal,
       equipos:CONST_STATE.equipos, acciones:CONST_STATE.acciones, desvios:CONST_STATE.desvios,
       firmas:CONST_STATE.firmas, destinoId:CONST_STATE._firmaDestinoId || null
     });
@@ -7307,6 +7504,13 @@ function dejarEnBorrador() {
 
 
 function mostrarVistaPreviewConstancia(soloLectura = false) {
+  // Primero se traen los chequeos de las planillas para el documento; después se muestra.
+  if (!CONST_STATE._docPreparado) {
+    CONST_STATE._docPreparado = true;
+    prepararDocumento().finally(() => mostrarVistaPreviewConstancia(soloLectura));
+    return;
+  }
+  CONST_STATE._docPreparado = false;
   const html = generarHTMLConstancia();
   const existing = document.getElementById('modal-constancia-preview');
   if (existing) existing.remove();
@@ -7385,6 +7589,7 @@ async function pedirFirmaCliente() {
   let r;
   try {
     toast('Generando enlace…', 'info', 2000);
+    await prepararDocumento();
     r = await api('/constancias/' + id + '/firma-remota', { method: 'POST', body: JSON.stringify({ html: htmlConstanciaParaFirmar() }) });
   } catch (e) { return toast(esErrorDeConexion(e) ? 'Sin señal: probá de nuevo cuando tengas conexión.' : e.message, 'error', 6000); }
   const lugar = (CONST_STATE.datos.establecimiento_sector || '').split(' — ')[0];
@@ -7458,6 +7663,7 @@ async function generarPDFConstancia() {
     try { const c = await api('/constancias/' + CONST_STATE.constanciaId); cargarDatosConstanciaExistente(c); } catch {}
   }
   const numero = document.getElementById('const-header-numero')?.textContent || 'constancia';
+  await prepararDocumento();
   const html = generarHTMLConstancia();
 
   // Crear contenedor oculto
@@ -7804,8 +8010,19 @@ function generarHTMLConstancia() {
     const item = (CONST_STATE.itemsMenu.frente_trabajo||[]).find(i=>i.id==s.item_id);
     return (item ? item.texto : s.texto_libre||'') + (s.nivel_riesgo?' ['+s.nivel_riesgo+']':'') + (s.normativa_frente?' — '+s.normativa_frente:'');
   }).filter(Boolean);
-  const actividades = getTextos('actividad');
+  // Chequeos de las planillas (los prepara prepararDocumento antes de generar).
+  const chq = CONST_STATE._docChequeos || null;
+  // Actividades: las marcadas antes (constancias viejas) + las vistas en los chequeos.
+  const actividades = [...new Set([...getTextos('actividad'), ...(chq?.actividades || [])])];
   const normativas = getTextos('normativa');
+  let _nSec = 0; const N = () => ++_nSec; // secciones numeradas solas (las vacías no se imprimen)
+  const CALIF_DOC = { satisfactorio: 'Satisfactorio', aceptable: 'Aceptable con mejoras', deficiente: 'Deficiente', sin_datos: '—' };
+  const seccionChequeos = () => chq && chq.temas.length ? `<div class="seccion"><h2>${N()}. Chequeos realizados</h2>
+    <table><tr><th>Tema / instalación</th><th style="width:15%">Ítems</th><th style="width:15%">No cumple</th><th style="width:15%">Índice</th></tr>
+    ${chq.temas.map(t => `<tr><td>${t.nombre}</td><td>${t.respondidos}</td><td>${t.nc}</td><td>${t.indice === null ? '—' : t.indice + '%'}</td></tr>`).join('')}
+    <tr><th>Total</th><td>${chq.total.total}</td><td>${chq.total.NC}</td><td><b>${chq.total.indice === null ? '—' : chq.total.indice + '%'}</b> ${CALIF_DOC[chq.total.calificacion] || ''}</td></tr></table>
+    ${chq.comparacion ? `<p style="margin:6px 0 0;font-size:11.5px">Respecto de la visita anterior (sobre ${chq.comparacion.comparables} ítems chequeados en ambas): ${chq.comparacion.antes}% → ${chq.comparacion.ahora}%. Mejoraron ${chq.comparacion.mejoro}, empeoraron ${chq.comparacion.empeoro}, siguen sin cumplir ${chq.comparacion.sigue_nc}.</p>` : ''}
+    <p style="margin:4px 0 0;font-size:10.5px;color:#666">Índice ponderado por criticidad (crítico 3, importante 2, menor 1). Con un hallazgo crítico abierto la calificación no puede superar "Deficiente". Los plazos indicados son sugerencias de EXIT S.A. a acordar con el establecimiento.</p></div>` : '';
   const firmaBloque = (f,titulo) => f ? `<div style="border:1px solid #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center"><div style="font-size:11px;color:#666;margin-bottom:8px;text-transform:uppercase;font-weight:700">${titulo}</div>${f.firma_svg?`<img src="${f.firma_svg}" style="width:100%;height:80px;object-fit:contain;border:1px solid #eee;border-radius:4px;margin-bottom:8px">`:'<div style="height:80px;border:1px dashed #ccc;border-radius:4px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">Sin firma</div>'}<div style="font-size:13px;font-weight:700;margin-top:4px">${f.nombre_apellido||''}</div>${f.cargo?`<div style="font-size:11px;color:#666;margin-top:2px">${f.cargo}</div>`:``}${f.matricula?`<div style="font-size:11px;color:#333;font-weight:600;margin-top:2px">${f.matricula}</div>`:``}</div>` : `<div style="border:1px dashed #ccc;border-radius:6px;padding:12px;flex:1;min-width:200px;text-align:center;color:#999"><div style="font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:8px">${titulo}</div><div style="font-size:12px">Sin firmar</div></div>`;
   // Construir tabla de destinos para datos generales
   const destinosVisita = CONST_STATE.destinosVisita || [];
@@ -7851,10 +8068,11 @@ function generarHTMLConstancia() {
       <div style="font-size:10.5px;color:#555;margin-top:3px">${numero} &nbsp;·&nbsp; ${fecha}</div>
     </div>
 
-    <h2>1. Datos generales</h2>
+    <h2>${N()}. Datos generales</h2>
     <div class="seccion">
       <table>
         <tr><th>Establecimiento / Sector</th><td>${d.establecimiento_sector||'—'}</td></tr>
+        ${d.rubro ? `<tr><th>Actividad</th><td colspan="3">${RUBROS_CONST[d.rubro] || d.rubro} — ${RUBRO_DECRETO[d.rubro] || ''}</td></tr>` : ''}
         <tr><th>Hora inicio</th><td style="width:22%">${d.hora_inicio||'—'}</td><th style="width:15%">Hora fin</th><td>${d.hora_fin||'—'}</td></tr>
         ${d.gps_lat?`<tr><th>Coordenadas GPS</th><td colspan="3" style="font-size:11px">Lat: ${d.gps_lat} / Lng: ${d.gps_lng}${d.gps_precision_m?' (±'+d.gps_precision_m+' m)':''}</td></tr>`:''}
       </table>
@@ -7866,15 +8084,16 @@ function generarHTMLConstancia() {
       </table>` : ''}
     </div>
 
-    ${tipos.length?`<div class="seccion"><h2>2. Tipo de visita</h2><div>${tipos.map(t=>`<span class="tag">✓ ${t}</span>`).join('')}</div></div>`:''}
+    ${tipos.length?`<div class="seccion"><h2>${N()}. Tipo de visita</h2><div>${tipos.map(t=>`<span class="tag">✓ ${t}</span>`).join('')}</div></div>`:''}
     ${frentes.length?`<div class="seccion"><h2>Frentes de trabajo</h2><div>${frentes.map(f=>`<span class="tag">📍 ${f}</span>`).join('')}</div></div>`:''}
-    ${CONST_STATE.personal.length?`<div class="seccion"><h2>3. Personal presente</h2><table><tr><th>Nombre y apellido</th><th>Función / cargo</th><th>Habilitación</th><th>Estado</th></tr>${CONST_STATE.personal.map(p=>`<tr><td>${p.nombre_apellido||'—'}</td><td>${p.funcion_cargo||'—'}</td><td>${p.habilitacion||'—'}</td><td>${p.estado_habilitacion||'—'}</td></tr>`).join('')}</table></div>`:''}
-    ${actividades.length?`<div class="seccion"><h2>4. Actividades realizadas</h2><div>${actividades.map(a=>`<span class="tag">✓ ${a}</span>`).join('')}</div></div>`:''}
-    ${(CONST_STATE.acciones.verificaciones||CONST_STATE.acciones.indicaciones||CONST_STATE.acciones.charla||CONST_STATE.acciones.documentacion)?`<div class="seccion"><h2>5. Acciones del asesor</h2><table>${CONST_STATE.acciones.verificaciones?`<tr><th>Verificaciones</th><td>${CONST_STATE.acciones.verificaciones}</td></tr>`:''} ${CONST_STATE.acciones.indicaciones?`<tr><th>Indicaciones</th><td>${CONST_STATE.acciones.indicaciones}</td></tr>`:''} ${CONST_STATE.acciones.charla?`<tr><th>Charla / capacitación</th><td>${CONST_STATE.acciones.charla}</td></tr>`:''} ${CONST_STATE.acciones.documentacion?`<tr><th>Documentación revisada</th><td>${CONST_STATE.acciones.documentacion}</td></tr>`:''}</table></div>`:''}
-    ${normativas.length?`<div class="seccion"><h2>6. Marco normativo</h2><div>${normativas.map(n=>`<span class="tag">⚖ ${n}</span>`).join('')}</div></div>`:''}
-    ${d.observaciones_generales?`<div class="seccion"><h2>7. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:7px 10px;background:#fafafa;margin:0">${d.observaciones_generales}</p></div>`:''}
-    ${CONST_STATE.desvios.length?`<h2>8. Desvíos detectados</h2>${CONST_STATE.desvios.map((dev,i)=>`<div class="seccion" style="border:1px solid ${dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc'};border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-weight:700;font-size:12.5px">Desvío N° ${i+1}: ${dev.titulo}</div><div style="font-size:11px;color:#666;margin:3px 0">Severidad: ${dev.severidad} · Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:5px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:3px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:3px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}</div>`).join('')}`:''}
-    <div class="seccion"><h2>9. Firmas</h2>
+    ${seccionChequeos()}
+    ${CONST_STATE.personal.length?`<div class="seccion"><h2>${N()}. Personal presente</h2><table><tr><th>Nombre y apellido</th><th>Función / cargo</th><th>Habilitación</th><th>Estado</th></tr>${CONST_STATE.personal.map(p=>`<tr><td>${p.nombre_apellido||'—'}</td><td>${p.funcion_cargo||'—'}</td><td>${p.habilitacion||'—'}</td><td>${p.estado_habilitacion||'—'}</td></tr>`).join('')}</table></div>`:''}
+    ${actividades.length?`<div class="seccion"><h2>${N()}. Actividades realizadas</h2><div>${actividades.map(a=>`<span class="tag">✓ ${a}</span>`).join('')}</div></div>`:''}
+    ${(CONST_STATE.acciones.verificaciones||CONST_STATE.acciones.indicaciones||CONST_STATE.acciones.charla||CONST_STATE.acciones.documentacion)?`<div class="seccion"><h2>${N()}. Acciones del asesor</h2><table>${CONST_STATE.acciones.verificaciones?`<tr><th>Verificaciones</th><td>${CONST_STATE.acciones.verificaciones}</td></tr>`:''} ${CONST_STATE.acciones.indicaciones?`<tr><th>Indicaciones</th><td>${CONST_STATE.acciones.indicaciones}</td></tr>`:''} ${CONST_STATE.acciones.charla?`<tr><th>Charla / capacitación</th><td>${CONST_STATE.acciones.charla}</td></tr>`:''} ${CONST_STATE.acciones.documentacion?`<tr><th>Documentación revisada</th><td>${CONST_STATE.acciones.documentacion}</td></tr>`:''}</table></div>`:''}
+    ${normativas.length?`<div class="seccion"><h2>${N()}. Marco normativo</h2><div>${normativas.map(n=>`<span class="tag">⚖ ${n}</span>`).join('')}</div></div>`:''}
+    ${d.observaciones_generales?`<div class="seccion"><h2>${N()}. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:7px 10px;background:#fafafa;margin:0">${d.observaciones_generales}</p></div>`:''}
+    ${CONST_STATE.desvios.length?`<h2>${N()}. Hallazgos y desvíos</h2>${CONST_STATE.desvios.map((dev,i)=>`<div class="seccion" style="border:1px solid ${dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc'};border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-weight:700;font-size:12.5px">Desvío N° ${i+1}: ${dev.titulo}</div><div style="font-size:11px;color:#666;margin:3px 0">Severidad: ${dev.severidad} · Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:5px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:3px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:3px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}</div>`).join('')}`:''}
+    <div class="seccion"><h2>${N()}. Firmas</h2>
     <div class="firma-row">${firmaBloque(fC,'Responsable del cliente')}${firmaBloque(fT,'Asesor EXIT S.A.')}${firmaBloque(fE,'Responsable del servicio EXIT S.A.')}</div></div>
     <div style="text-align:center;font-size:10px;color:#aaa;margin-top:12px;border-top:1px solid #eee;padding-top:6px">Documento generado por AsistenciaAR — EXIT S.A. — ${fecha}</div>
   </body></html>`;

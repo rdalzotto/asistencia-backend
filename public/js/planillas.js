@@ -512,8 +512,16 @@ textarea.pl-in{min-height:64px;resize:vertical}
       return h + '</div>';
     }
 
+    // Solo los temas de la actividad del establecimiento (en Agro no aparece nada del Dec. 351/79).
+    const rubro = P.o.rubro;
+    const RUBRO_TXT = { agro: 'Agro (Dec. 617/97)', servicios: 'Servicios (Dec. 351/79)', construccion: 'Construcción (Dec. 911/96)' };
+    const temas = P.cat.modulos.filter(m => !rubro || m.rubro === rubro || m.codigo === 'M99');
+    if (rubro) h += `<div style="font-size:12px;color:var(--text2);margin-bottom:8px">Temas de ${RUBRO_TXT[rubro] || rubro}.</div>`;
+    if (rubro && rubro !== 'agro' && temas.length <= 1) {
+      h += `<div class="pl-card" style="border-color:var(--orange)">El catálogo de ${esc(RUBRO_TXT[rubro] || rubro)} está en preparación. Mientras tanto usá "Otro: hallazgo no previsto" para registrar lo que veas; cada ítem lleva su propia referencia.</div>`;
+    }
     h += `<div class="pl-grid2">`;
-    for (const m of P.cat.modulos) {
+    for (const m of temas) {
       const n = P.doc.instancias.filter(i => i.modulo_codigo === m.codigo).length;
       if (!m.repetible && n) continue;
       const k = conocidasDe(m.codigo).length;
@@ -1101,6 +1109,13 @@ textarea.pl-in{min-height:64px;resize:vertical}
     return empezado;
   }
 
+  // El relevamiento de esta constancia: el de la tablet o, si se retoma en otro equipo, el del servidor.
+  async function docParaConstancia(o) {
+    let doc = await docDe(o);
+    if (!doc && online() && o.visitaId) doc = await buscarEnServidor(o.visitaId, o.destinoId);
+    return doc;
+  }
+
   // ── "atrás" del teléfono ────────────────────────────────────────────────
   const estaAbierta = () => !!document.getElementById('modal-planillas')?.classList.contains('abierto');
   function atras() {
@@ -1117,8 +1132,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
 
   // Para el paso "Planillas" de la constancia.
   async function resumenParaConstancia(o) {
-    let doc = await docDe(o);
-    if (!doc && online() && o.visitaId) doc = await buscarEnServidor(o.visitaId, o.destinoId);
+    const doc = await docParaConstancia(o);
     if (!doc) return null;
     const cat = await ARStorage.get('chk_catalogo');
     const nombres = Object.fromEntries((cat?.modulos || []).map(m => [m.codigo, m.nombre]));
@@ -1127,9 +1141,56 @@ textarea.pl-in{min-height:64px;resize:vertical}
       pendiente: !!doc._dirty, error: doc._error || null, estado: doc.rel.estado };
   }
 
+  // Normas citadas en los ítems chequeados, sin el artículo ("Dec. 617/97 art. 7" → "Dec. 617/97").
+  function normasCitadas(respuestas) {
+    const out = new Map();
+    for (const r of respuestas) {
+      if (r.resultado !== 'C' && r.resultado !== 'NC') continue;
+      for (const parte of String(r.item_ref || '').split('·')) {
+        let n = parte.trim().replace(/\s+(arts?\.|inc\.|cap\.)\s.*$/i, '').replace(/\s+y su reglamentación$/i, '').trim();
+        if (!n || /buena práctica|a definir|normativa provincial|y complementarias$/i.test(n) && !/\d/.test(n)) continue;
+        n = n.replace(/ y complementarias$/i, '');
+        if (/^\D+$/.test(n)) continue; // sin número de norma
+        const k = n.toLowerCase();
+        if (!out.has(k)) out.set(k, n);
+      }
+    }
+    return [...out.values()];
+  }
+
+  // Todo lo que la constancia impresa necesita de las planillas: temas con su
+  // índice, comparación con la visita anterior, actividades vistas y normas citadas.
+  async function datosParaDocumento(o) {
+    const doc = await docParaConstancia(o);
+    if (!doc || !doc.instancias.length) return null;
+    const cat = await ARStorage.get('chk_catalogo');
+    const nombres = Object.fromEntries((cat?.modulos || []).map(m => [m.codigo, m.nombre]));
+    const ctx = await contexto(o.destinoId || doc.rel.destino_id, doc.rel.id);
+    const prev = new Map((ctx.respuestas_anteriores || []).map(r => [claveItem(r.modulo_codigo, r.etiqueta, r.item_id), r]));
+    const resp = i => doc.respuestas.filter(r => r.instancia_id === i.id);
+    const pares = [];
+    for (const i of doc.instancias) for (const r of resp(i)) {
+      const a = r.item_id ? prev.get(claveItem(i.modulo_codigo, i.etiqueta, r.item_id)) : null;
+      if (a) pares.push({ antes: a, ahora: r, inst: i });
+    }
+    const cmp = comparar(pares);
+    return {
+      total: resumir(doc.respuestas),
+      temas: doc.instancias.map(i => {
+        const r = resumir(resp(i));
+        return { nombre: (nombres[i.modulo_codigo] || i.modulo_codigo) + (i.etiqueta ? ' · ' + i.etiqueta : ''), respondidos: r.total, nc: r.NC, indice: r.indice };
+      }),
+      comparacion: cmp.comparables ? { comparables: cmp.comparables, antes: cmp.indice_antes, ahora: cmp.indice_ahora, mejoro: cmp.mejoro, empeoro: cmp.empeoro, sigue_nc: cmp.sigue_nc } : null,
+      actividades: (doc.rel.actividades_observadas || []).map(a => a.texto).filter(Boolean),
+      normas: normasCitadas(doc.respuestas),
+      seguimientos: (doc.seguimientos || []).reduce((acc, s) => { acc[s.resultado] = (acc[s.resultado] || 0) + 1; return acc; }, {}),
+      respuestas_nc: doc.respuestas.filter(r => r.resultado === 'NC').map(r => r.id),
+    };
+  }
+
   // Hallazgos convertidos al formato de desvío de la constancia.
   async function desviosParaConstancia(o) {
-    const doc = await docDe(o);
+    const doc = await docParaConstancia(o);
     if (!doc) return [];
     const cat = await ARStorage.get('chk_catalogo');
     const nombres = Object.fromEntries((cat?.modulos || []).map(m => [m.codigo, m.nombre]));
@@ -1166,6 +1227,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     pintarAdmin();
     try { A.propuestas = await api('/planillas/catalogo/propuestas'); } catch (e) { toast(e.message, 'error'); }
     try { A.aval = await api('/constancias/firma-aval'); } catch (e) { /* sin aval */ }
+    try { A.normativa = (await api('/constancias/items')).normativa || []; } catch (e) { A.normativa = []; }
     A.cargando = false;
     pintarAdmin();
   }
@@ -1174,6 +1236,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     const m = contenedor();
     let h = `<div class="pl-top"><button class="pl-back" data-adm="salir">←</button><div class="t"><b>Planillas y constancias · Dirección</b><span>Firma de aval, catálogo y actividades de los establecimientos</span></div></div><div class="pl-body">`;
     h += bloqueAval();
+    h += bloqueNormativa();
     h += `<div class="pl-sec">Ítems propuestos por los técnicos (${A.propuestas.length})</div>`;
     if (A.cargando) h += '<div class="pl-card">Cargando…</div>';
     else if (!A.propuestas.length) h += '<div class="pl-card" style="color:var(--text2)">No hay propuestas pendientes.</div>';
@@ -1232,6 +1295,21 @@ textarea.pl-in{min-height:64px;resize:vertical}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span style="font-size:12px;color:var(--text2)">Firmá en el recuadro</span><button class="btn btn-secondary btn-sm" data-adm="aval-borrar">Borrar</button></div>
         <canvas id="aval-pad" style="width:100%;height:170px;background:#fff;border-radius:8px;touch-action:none;display:block;margin-top:6px"></canvas>
         <div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-success btn-sm" data-adm="aval-guardar">Guardar firma de aval</button><button class="btn btn-secondary btn-sm" data-adm="aval-cancelar">Cancelar</button></div>`;
+    }
+    return h + '</div>';
+  }
+
+  // Normativa de la constancia clasificada por actividad: en una visita de Agro solo se
+  // ofrece la de Agro y la general (sin actividad). Ej.: el Dec. 351/79 va en Servicios.
+  function bloqueNormativa() {
+    const lista = A.normativa || [];
+    let h = `<div class="pl-sec">Normativa de la constancia por actividad</div><div class="pl-card">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:8px">"Todas" = se ofrece en cualquier visita (Ley 19.587, Ley 24.557…). El resto solo aparece en visitas de esa actividad.</div>`;
+    if (!lista.length) h += '<div style="font-size:13px;color:var(--text2)">No hay normativa cargada.</div>';
+    for (const n of lista) {
+      h += `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--border)"><span style="flex:1;font-size:14px">${esc(n.texto)}</span>
+        <select class="pl-in" style="width:auto" data-rubro-item="${n.id}">${[['', 'Todas'], ['agro', 'Agro'], ['servicios', 'Servicios'], ['construccion', 'Construcción']]
+          .map(([v, t]) => `<option value="${v}" ${(n.rubro || '') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`;
     }
     return h + '</div>';
   }
@@ -1345,6 +1423,14 @@ textarea.pl-in{min-height:64px;resize:vertical}
   }
 
   async function onChangeAdmin(e) {
+    if (A && e.target.dataset?.rubroItem) {
+      try {
+        await api('/constancias/items/' + e.target.dataset.rubroItem, { method: 'PATCH', body: JSON.stringify({ rubro: e.target.value || null }) });
+        const n = A.normativa.find(x => String(x.id) === e.target.dataset.rubroItem); if (n) n.rubro = e.target.value || null;
+        toast('Actividad actualizada ✓', 'success', 1500);
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
     if (!A || !e.target.dataset?.admFile) return;
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1353,5 +1439,5 @@ textarea.pl-in{min-height:64px;resize:vertical}
     pintarAdmin();
   }
 
-  global.Planillas = { abrir, cerrar, precargar, sincronizarPendientes, resumenParaConstancia, desviosParaConstancia, abrirAdmin, estaAbierta, atras, _resumir: resumir };
+  global.Planillas = { abrir, cerrar, precargar, sincronizarPendientes, resumenParaConstancia, desviosParaConstancia, datosParaDocumento, abrirAdmin, estaAbierta, atras, _resumir: resumir, _normasCitadas: normasCitadas };
 })(window);

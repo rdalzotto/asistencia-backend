@@ -46,5 +46,19 @@ CREATE TABLE IF NOT EXISTS public.constancia_firma_papel (
   creado_en     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Verificación (debe devolver 3):
+-- ── Constancia en 5 pasos: actividad del establecimiento ─────────────────────
+-- agro (Dec. 617/97) | servicios (Dec. 351/79) | construccion (Dec. 911/96).
+-- Filtra la normativa, los tipos de visita y los temas de chequeo que se ofrecen.
+ALTER TABLE public.constancias       ADD COLUMN IF NOT EXISTS rubro TEXT;
+ALTER TABLE public.destinos_externos ADD COLUMN IF NOT EXISTS rubro TEXT;   -- se recuerda por establecimiento
+ALTER TABLE public.constancia_items  ADD COLUMN IF NOT EXISTS rubro TEXT;   -- NULL = sirve para todas
+
+-- Clasificación inicial de la normativa ya cargada (Dirección la ajusta en
+-- Configuración → Planillas y firmas). Solo toca las que no tienen actividad.
+UPDATE public.constancia_items SET rubro = 'agro'         WHERE rubro IS NULL AND categoria = 'normativa' AND texto ~* '617\s*/\s*97';
+UPDATE public.constancia_items SET rubro = 'servicios'    WHERE rubro IS NULL AND categoria = 'normativa' AND texto ~* '351\s*/\s*79';
+UPDATE public.constancia_items SET rubro = 'construccion' WHERE rubro IS NULL AND categoria = 'normativa' AND texto ~* '911\s*/\s*96';
+
+-- Verificación (debe devolver 3 y 3):
 -- SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('firma_aval','constancia_firma_remota','constancia_firma_papel');
+-- SELECT count(*) FROM information_schema.columns WHERE column_name = 'rubro' AND table_name IN ('constancias','destinos_externos','constancia_items');
