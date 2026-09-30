@@ -25,7 +25,7 @@ const NOMBRE = { clave: 'nombre', etiqueta: 'Nombre o sector', tipo: 'texto', re
 const MODULOS = [
   {
     codigo: 'M0', nombre: 'Condiciones básicas del establecimiento', repetible: false, orden: 0,
-    descripcion: 'Se releva en toda visita, sea cual sea la actividad prevista.',
+    descripcion: 'ART, servicio de HyS, EPP, capacitación, botiquín, agua y transporte del personal.',
     campos: [],
     items: [
       '#Organización y documentación',
@@ -505,7 +505,8 @@ const MODULOS = [
   },
 ];
 
-// Plantillas de visita: M0 se agrega siempre, esté o no en la lista.
+// Plantillas de visita: atajo opcional para una recorrida completa (varios temas juntos).
+// Lo habitual es elegir el tema de la visita (un módulo) y sumar otros en el campo.
 const PLANTILLAS = [
   { codigo: 'P-GAN', nombre: 'Recorrida ganadera completa', nivel: 'B', modulos: ['M0', 'M4', 'M5', 'M1', 'M2', 'M16', 'M11', 'M12'], descripcion: 'Manga, aperos, viviendas, tractor, vehículos, extintores y agua.' },
   { codigo: 'P-AGR', nombre: 'Recorrida agrícola', nivel: 'B', modulos: ['M0', 'M2', 'M3', 'M7', 'M10', 'M9', 'M16', 'M11'], descripcion: 'Maquinaria, fitosanitarios, taller, estibas, vehículos y extintores.' },

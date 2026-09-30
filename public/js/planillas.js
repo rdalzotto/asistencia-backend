@@ -253,7 +253,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
       return;
     }
     const doc = await cargarRelevamiento(o);
-    P = { o, cat, ctx, doc, vista: doc.instancias.length ? 'inicio' : 'plantilla', instId: null, verTodos: false, confirmar: null };
+    P = { o, cat, ctx, doc, vista: doc.instancias.length ? 'inicio' : 'agregar', instId: null, verTodos: false, confirmar: null };
     P.mod = Object.fromEntries(cat.modulos.map(x => [x.codigo, x]));
     if (doc._nuevo) delete doc._nuevo;
     pintar();
@@ -284,8 +284,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
   // Agrega los módulos de una plantilla. Los repetibles se precargan con las
   // instalaciones ya relevadas en visitas anteriores (con sus datos).
   function aplicarPlantilla(pl) {
-    const cods = ['M0', ...pl.modulos.filter(c => c !== 'M0')];
-    for (const c of cods) {
+    for (const c of pl.modulos) {
       const m = P.mod[c];
       if (!m) continue;
       if (P.doc.instancias.some(i => i.modulo_codigo === c)) continue;
@@ -343,7 +342,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     const m = contenedor();
     const scroll = m.querySelector('.pl-body')?.scrollTop || 0;
     const v = P.vista;
-    m.innerHTML = v === 'plantilla' ? vPlantilla() : v === 'instancia' ? vInstancia() : v === 'agregar' ? vAgregar() : v === 'resumen' ? vResumen() : vInicio();
+    m.innerHTML = v === 'instancia' ? vInstancia() : v === 'agregar' ? vAgregar() : v === 'resumen' ? vResumen() : vInicio();
     pintarSync();
     if (P.vista === P._vistaAnterior && P.instId === P._instAnterior) { const b = m.querySelector('.pl-body'); if (b) b.scrollTop = scroll; }
     P._vistaAnterior = P.vista; P._instAnterior = P.instId;
@@ -351,19 +350,6 @@ textarea.pl-in{min-height:64px;resize:vertical}
   }
 
   const nombreEst = () => P.o.establecimiento || P.doc.rel.establecimiento_texto || 'Establecimiento';
-
-  function vPlantilla() {
-    const pls = P.cat.plantillas || [];
-    return cabecera('¿Qué vas a relevar?', nombreEst(), P.doc.instancias.length ? 'inicio' : 'cerrar') + `<div class="pl-body">
-      <div class="pl-sec">Nivel del establecimiento</div>
-      <div>${Object.entries(NIVELES).map(([k, n]) => `<button class="pl-chip ${P.doc.rel.nivel === k ? 'on' : ''}" data-a="nivel" data-v="${k}">${n}</button>`).join('')}</div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Ampliado suma documentación y mediciones; Certificación suma requisitos de PEFC, FSC, GlobalG.A.P. o ISO 45001.</div>
-      <div class="pl-sec">Plantilla de la visita</div>
-      ${pls.map(p => `<div class="pl-card pl-row" data-a="plantilla" data-v="${p.id}"><div class="n"><b>${esc(p.nombre)}</b>
-        <small>${esc(p.descripcion || '')}</small><small>${p.modulos.map(c => esc(P.mod[c]?.nombre || c)).join(' · ')}</small></div><span style="font-size:20px">›</span></div>`).join('')}
-      <div style="font-size:12px;color:var(--text2);margin-top:10px">Después podés agregar o quitar módulos en el campo. Las condiciones básicas se relevan siempre.</div>
-    </div>`;
-  }
 
   function vInicio() {
     const d = P.doc;
@@ -373,7 +359,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     const seg = id => (d.seguimientos || []).find(s => s.accion_id === id);
     const obs = d.rel.actividades_observadas || [];
     const acts = P.ctx.actividades || [];
-    let h = cabecera(nombreEst(), (pl ? pl.nombre : 'Sin plantilla') + ' · Nivel ' + NIVELES[d.rel.nivel], 'cerrar') + '<div class="pl-body">';
+    let h = cabecera(nombreEst(), (pl ? pl.nombre : d.instancias.length + (d.instancias.length === 1 ? ' chequeo' : ' chequeos')) + ' · Nivel ' + NIVELES[d.rel.nivel], 'cerrar') + '<div class="pl-body">';
     if (d.rel.estado === 'cerrado') h += `<div class="pl-card" style="border-color:var(--green)">Relevamiento cerrado. Para cambiar algo, pedile a Dirección que lo reabra.</div>`;
     if (acc.length) {
       h += `<div class="pl-sec">Pendientes de visitas anteriores (${acc.length})</div>`;
@@ -395,7 +381,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     for (const o of obs.filter(o => !o.actividad_id)) h += `<button class="pl-chip on" data-a="act-quitar" data-v="${esc(o.texto)}">${esc(o.texto)} ✕</button>`;
     h += `</div><div style="display:flex;gap:8px"><input class="pl-in" id="pl-act-nueva" placeholder="Otra actividad no registrada (ej.: arreglo de alambrado)"><button class="btn btn-secondary btn-sm" data-a="act-nueva">Agregar</button></div>
       <div style="font-size:12px;color:var(--text2);margin-top:4px">Las que no estaban registradas se suman al establecimiento como eventuales.</div>`;
-    h += `<div class="pl-sec">Módulos (${d.instancias.length})${res.indice !== null ? ` · índice <span style="color:${colorCalif(res.calificacion)}">${res.indice}%</span>` : ''}</div>`;
+    h += `<div class="pl-sec">Chequeos de esta visita (${d.instancias.length})${res.indice !== null ? ` · índice <span style="color:${colorCalif(res.calificacion)}">${res.indice}%</span>` : ''}</div>`;
     d.instancias.forEach(i => {
       const p = progreso(i);
       const falta = P.mod[i.modulo_codigo]?.repetible && !i.etiqueta;
@@ -403,26 +389,49 @@ textarea.pl-in{min-height:64px;resize:vertical}
         <small>${falta ? '<span class="pl-warn">Falta el nombre · </span>' : ''}${p.hechas} de ${p.total}${p.nc ? ` · <span style="color:var(--red)">${p.nc} no cumple</span>` : ''}</small></div>
         <div class="pl-bar"><i style="width:${p.pct}%"></i></div></div>`;
     });
-    h += `<div style="margin-top:6px"><button class="pl-chip" data-a="vista" data-v="agregar">+ Agregar módulo</button><button class="pl-chip" data-a="vista" data-v="plantilla">Cambiar plantilla o nivel</button></div>`;
+    h += `<div style="margin-top:6px"><button class="pl-chip" data-a="vista" data-v="agregar">+ Otro chequeo</button></div>`;
     h += `</div><div class="pl-foot"><button class="btn btn-secondary" data-a="cerrar">Volver a la constancia</button><button class="btn btn-primary" data-a="vista" data-v="resumen">Resumen</button></div>`;
     return h;
   }
 
+  // Pantalla de entrada: se elige el TEMA a chequear (uno solo va directo a él).
+  // Si en el lugar aparece otro chequeo, se vuelve acá con "+ Otro chequeo".
+  // Las plantillas (varios temas juntos) quedan como atajo opcional al final.
   function vAgregar() {
+    const vacio = !P.doc.instancias.length;
     const presentes = new Set(P.doc.instancias.map(i => i.modulo_codigo + '|' + (i.etiqueta || '').toLowerCase()));
-    const conocidas = (P.ctx.instancias_conocidas || []).filter(k => !presentes.has(k.modulo_codigo + '|' + (k.etiqueta || '').toLowerCase()));
-    let h = cabecera('Agregar módulo', nombreEst(), 'inicio') + '<div class="pl-body">';
-    if (conocidas.length) {
-      h += `<div class="pl-sec">Ya relevados en visitas anteriores</div>`;
-      conocidas.forEach((k, n) => { h += `<div class="pl-card pl-row" data-a="add-conocida" data-v="${n}"><div class="n"><b>${esc(P.mod[k.modulo_codigo]?.nombre || k.modulo_nombre)} · ${esc(k.etiqueta)}</b><small>Visto el ${fmtFecha(k.visto_en)}</small></div><span style="font-size:20px">+</span></div>`; });
-      P._conocidas = conocidas;
+    const conocidasDe = c => (P.ctx.instancias_conocidas || []).filter(k => k.modulo_codigo === c && !presentes.has(c + '|' + (k.etiqueta || '').toLowerCase()));
+    let h = cabecera(vacio ? '¿Qué vas a chequear?' : 'Agregar otro chequeo', nombreEst(), vacio ? 'cerrar' : 'inicio') + '<div class="pl-body">';
+
+    // Tema repetible con instalaciones ya conocidas: elegir cuál (o una nueva).
+    if (P.eligiendo) {
+      const m = P.mod[P.eligiendo];
+      const con = conocidasDe(P.eligiendo);
+      P._conocidas = con;
+      h += `<div class="pl-sec">${esc(m.nombre)}: ¿cuál?</div>`;
+      con.forEach((k, n) => { h += `<div class="pl-card pl-row" data-a="add-conocida" data-v="${n}"><div class="n"><b>${esc(k.etiqueta)}</b><small>Chequeado el ${fmtFecha(k.visto_en)}</small></div><span style="font-size:20px">›</span></div>`; });
+      h += `<div class="pl-card pl-row" data-a="add-nueva" data-v="${m.codigo}"><div class="n"><b>+ Otro u otra nueva</b><small>No está en la lista</small></div><span style="font-size:20px">›</span></div>
+        <button class="pl-chip" data-a="elegir-volver">← Elegir otro tema</button>`;
+      return h + '</div>';
     }
-    h += `<div class="pl-sec">Catálogo</div>`;
+
+    h += `<div class="pl-grid2">`;
     for (const m of P.cat.modulos) {
       const n = P.doc.instancias.filter(i => i.modulo_codigo === m.codigo).length;
       if (!m.repetible && n) continue;
-      h += `<div class="pl-card pl-row" data-a="add-mod" data-v="${m.codigo}"><div class="n"><b>${esc(m.nombre)}</b><small>${esc(m.descripcion || '')}${n ? ` · ya hay ${n}` : ''}</small></div><span style="font-size:20px">+</span></div>`;
+      const k = conocidasDe(m.codigo).length;
+      h += `<div class="pl-card pl-row" data-a="add-mod" data-v="${m.codigo}" style="margin:0"><div class="n"><b>${esc(m.nombre)}</b>
+        <small>${m.items.length} ítems${n ? ` · ya cargados: ${n}` : ''}${k ? ` · ${k} de visitas anteriores` : ''}</small></div></div>`;
     }
+    h += `</div>`;
+    const pls = P.cat.plantillas || [];
+    h += `<details class="pl-card" style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">Recorrida completa: varios temas juntos</summary>
+      <div style="font-size:12px;color:var(--text2);margin:8px 0">Solo si en esta visita toca revisar todo. Agrega varios temas de una vez; los que no uses se quitan.</div>
+      ${pls.map(p => `<div class="pl-card pl-row" data-a="plantilla" data-v="${p.id}"><div class="n"><b>${esc(p.nombre)}</b>
+        <small>${p.modulos.map(c => esc(P.mod[c]?.nombre || c)).join(' · ')}</small></div><span style="font-size:20px">›</span></div>`).join('')}</details>
+      <details class="pl-card"><summary style="cursor:pointer;font-weight:600">Nivel del establecimiento: ${NIVELES[P.doc.rel.nivel]}</summary>
+      <div style="margin-top:8px">${Object.entries(NIVELES).map(([k, n]) => `<button class="pl-chip ${P.doc.rel.nivel === k ? 'on' : ''}" data-a="nivel" data-v="${k}">${n}</button>`).join('')}</div>
+      <div style="font-size:12px;color:var(--text2)">Ampliado suma documentación y mediciones; Certificación suma requisitos de PEFC, FSC, GlobalG.A.P. o ISO 45001.</div></details>`;
     return h + '</div>';
   }
 
@@ -522,7 +531,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
         <div style="font-size:40px;font-weight:700;color:${colorCalif(res.calificacion)}">${res.indice === null ? '—' : res.indice + '%'}</div>
         <div><b style="color:${colorCalif(res.calificacion)}">${CALIF[res.calificacion]}</b><div style="font-size:12px;color:var(--text2)">Índice ponderado por criticidad${res.nc1 ? ' · con críticos abiertos la calificación no puede ser mejor que deficiente' : ''}</div>
         <div style="font-size:13px;margin-top:4px">${res.C} cumple · ${res.NC} no cumple · ${res.NA} no aplica · ${res.NV} no verificado</div></div></div>
-      ${sinResp ? `<div class="pl-warn">Quedan ${sinResp} ítems sin responder.</div>` : ''}
+      ${sinResp ? `<div style="font-size:12px;color:var(--text2)">${sinResp} ítems de estos chequeos quedaron sin responder: no cuentan en el índice.</div>` : ''}
       ${faltanFotos ? `<div class="pl-warn">Hay ${faltanFotos} crítico(s) sin foto.</div>` : ''}
       <div class="pl-sec">Por módulo</div><div class="pl-card" style="overflow-x:auto"><table class="pl-tabla"><tr><th>Módulo</th><th>Cant.</th><th>No cumple</th><th>Índice</th></tr>
       ${Object.values(porMod).map(x => { const r = resumir(x.rs); return `<tr><td>${esc(x.nombre)}</td><td>${x.inst}</td><td>${r.NC}</td><td style="color:${colorCalif(r.calificacion)}">${r.indice === null ? '—' : r.indice + '%'}</td></tr>`; }).join('')}</table></div>
@@ -781,7 +790,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     if (!el || !P) return;
     const a = el.dataset.a, v = el.dataset.v;
     if (a === 'cerrar') return cerrar();
-    if (a === 'vista') { P.vista = v; P.confirmar = null; return pintar(); }
+    if (a === 'vista') { P.vista = v; P.confirmar = null; P.eligiendo = null; return pintar(); }
     if (['inicio'].includes(a)) { P.vista = 'inicio'; return pintar(); }
     if (a === 'inst') { P.instId = el.dataset.id; P.vista = 'instancia'; P.confirmar = null; P._vistaAnterior = null; pintar(); document.querySelector('#modal-planillas .pl-body')?.scrollTo(0, 0); return; }
     if (a === 'foto-ver') return abrirVisor(el.dataset.ft, el.dataset.fid, el.dataset.foto);
@@ -792,13 +801,18 @@ textarea.pl-in{min-height:64px;resize:vertical}
       if (pl) { aplicarPlantilla(pl); guardar(); P.vista = 'inicio'; pintar(); }
       return;
     }
-    if (a === 'add-mod') {
+    if (a === 'elegir-volver') { P.eligiendo = null; return pintar(); }
+    if (a === 'add-mod' || a === 'add-nueva') {
+      const presentes = new Set(P.doc.instancias.map(i => i.modulo_codigo + '|' + (i.etiqueta || '').toLowerCase()));
+      const hayConocidas = (P.ctx.instancias_conocidas || []).some(k => k.modulo_codigo === v && !presentes.has(v + '|' + (k.etiqueta || '').toLowerCase()));
+      if (a === 'add-mod' && P.mod[v]?.repetible && hayConocidas) { P.eligiendo = v; return pintar(); }
+      P.eligiendo = null;
       const inst = agregarInstancia(v);
       guardar(); P.instId = inst.id; P.vista = 'instancia'; return pintar();
     }
     if (a === 'add-conocida') {
       const k = P._conocidas?.[Number(v)];
-      if (k) { const inst = agregarInstancia(k.modulo_codigo, k.etiqueta, k.datos); guardar(); P.instId = inst.id; P.vista = 'instancia'; pintar(); }
+      if (k) { P.eligiendo = null; const inst = agregarInstancia(k.modulo_codigo, k.etiqueta, k.datos); guardar(); P.instId = inst.id; P.vista = 'instancia'; pintar(); }
       return;
     }
     if (a === 'seguimiento') {
