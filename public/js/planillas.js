@@ -228,10 +228,37 @@ textarea.pl-in{min-height:64px;resize:vertical}
     } catch (e) { return null; }
   }
 
+  // Relevamiento empezado en las últimas 24 hs en la tablet para el mismo
+  // establecimiento (y la misma visita, si la hay). Sirve para no empezar de cero
+  // si se salió de la constancia y se entró de nuevo (visita instantánea = constancia nueva).
+  const nombreBase = s => String(s || '').split(' — ')[0].trim().toLowerCase();
+  async function buscarLocalEmpezado(o) {
+    const limite = Date.now() - 24 * 3600 * 1000;
+    let mejor = null;
+    for (const k of await ARStorage.keys('chk_rel_')) {
+      const d = await ARStorage.get(k);
+      const r = d?.rel;
+      if (!r || r.estado === 'cerrado' || !d.instancias?.length) continue;
+      if (new Date(r.iniciado_en || 0).getTime() < limite) continue;
+      // Si ya está atado a otra constancia real, es de esa (el técnico eligió "Empezar una nueva").
+      const cid = Number(o.constanciaId);
+      if (r.constancia_id && (!Number.isInteger(cid) || r.constancia_id !== cid)) continue;
+      const mismo = o.destinoId
+        ? Number(r.destino_id) === Number(o.destinoId) && (!o.visitaId || !r.visita_id || Number(r.visita_id) === Number(o.visitaId))
+        : !r.destino_id && nombreBase(r.establecimiento_texto) === nombreBase(o.establecimiento);
+      if (mismo && (!mejor || r.iniciado_en > mejor.rel.iniciado_en)) mejor = d;
+    }
+    return mejor;
+  }
+
   async function cargarRelevamiento(o) {
     const idx = claveIdx(o.visitaId, o.constanciaId, o.destinoId);
     const id = await ARStorage.get(idx);
     let doc = id ? await ARStorage.get('chk_rel_' + id) : null;
+    if (!doc) {
+      doc = await buscarLocalEmpezado(o);
+      if (doc) toast('Seguís con las planillas que habías empezado ✓', 'info', 3500);
+    }
     if (!doc) doc = await buscarEnServidor(o.visitaId, o.destinoId);
     if (!doc) {
       doc = {
@@ -1066,8 +1093,26 @@ textarea.pl-in{min-height:64px;resize:vertical}
 
   // ── integración con la constancia ───────────────────────────────────────
   async function docDe(o) {
-    const id = await ARStorage.get(claveIdx(o.visitaId, o.constanciaId, o.destinoId));
-    return id ? ARStorage.get('chk_rel_' + id) : null;
+    const idx = claveIdx(o.visitaId, o.constanciaId, o.destinoId);
+    const id = await ARStorage.get(idx);
+    if (id) return ARStorage.get('chk_rel_' + id);
+    const empezado = await buscarLocalEmpezado(o);
+    if (empezado) await ARStorage.set(idx, empezado.rel.id);
+    return empezado;
+  }
+
+  // ── "atrás" del teléfono ────────────────────────────────────────────────
+  const estaAbierta = () => !!document.getElementById('modal-planillas')?.classList.contains('abierto');
+  function atras() {
+    const visor = document.getElementById('pl-visor');
+    if (visor && visor.style.display === 'flex') { cerrarVisor(); return; }
+    if (A) { contenedor().classList.remove('abierto'); A = null; return; }
+    if (!P?.doc) return cerrar();
+    if (P.confirmar) { P.confirmar = null; return pintar(); }
+    if (P.eligiendo) { P.eligiendo = null; return pintar(); }
+    if (P.vista === 'inicio' || (P.vista === 'agregar' && !P.doc.instancias.length)) return cerrar();
+    P.vista = 'inicio';
+    pintar();
   }
 
   // Para el paso "Planillas" de la constancia.
@@ -1245,5 +1290,5 @@ textarea.pl-in{min-height:64px;resize:vertical}
     pintarAdmin();
   }
 
-  global.Planillas = { abrir, cerrar, precargar, sincronizarPendientes, resumenParaConstancia, desviosParaConstancia, abrirAdmin, _resumir: resumir };
+  global.Planillas = { abrir, cerrar, precargar, sincronizarPendientes, resumenParaConstancia, desviosParaConstancia, abrirAdmin, estaAbierta, atras, _resumir: resumir };
 })(window);

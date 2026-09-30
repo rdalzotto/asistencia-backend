@@ -6016,7 +6016,7 @@ let EXIT_LOGO_ACTUAL = EXIT_LOGO_DEFAULT; // se sobreescribe con logo del servid
   <div style="background:var(--bg);width:100%;max-width:500px;margin:0 auto;display:flex;flex-direction:column;height:100vh;overflow:hidden">
     <!-- Header -->
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0">
-      <button onclick="cerrarConstancia()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px">←</button>
+      <button onclick="salirDeConstancia()" aria-label="Salir de la constancia" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer;padding:4px">←</button>
       <div style="flex:1">
         <div style="font-size:15px;font-weight:700" id="const-header-titulo">Constancia de visita</div>
         <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
@@ -6272,6 +6272,32 @@ async function confirmarConstanciaEspontanea() {
   const lat = gpsDiv?.dataset.lat ? parseFloat(gpsDiv.dataset.lat) : null;
   const lng = gpsDiv?.dataset.lng ? parseFloat(gpsDiv.dataset.lng) : null;
   if (!establecimiento) { toast('Ingresá el nombre del establecimiento', 'error'); return; }
+  // ¿Ya hay una constancia instantánea empezada hoy para este establecimiento?
+  // Se ofrece seguirla, para no empezar de cero si se salió sin querer.
+  let empezada = null;
+  try {
+    const hoyAR = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+    const lista = await api('/constancias?estado=borrador');
+    empezada = lista.find(c => !c.visita_id
+      && String(c.establecimiento_sector || '').toLowerCase().startsWith(establecimiento.toLowerCase())
+      && new Date(c.creado_en).toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }) === hoyAR) || null;
+  } catch {}
+  if (empezada && !window._espontaneaDecidida) {
+    if (document.getElementById('espontanea-retomar')) return;
+    const cont = document.querySelector('#modal-constancia-espontanea > div');
+    const hora = new Date(empezada.creado_en).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' });
+    cont.insertAdjacentHTML('beforeend', `<div id="espontanea-retomar" style="margin-top:14px;background:rgba(255,145,0,.1);border:1px solid var(--orange);border-radius:10px;padding:12px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px">Ya empezaste una constancia hoy a las ${hora} para este establecimiento.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" id="espontanea-seguir">Seguir con esa</button>
+      <button class="btn btn-secondary btn-sm" id="espontanea-nueva">Empezar una nueva</button></div></div>`);
+    document.getElementById('espontanea-seguir').onclick = async () => {
+      document.getElementById('modal-constancia-espontanea').remove();
+      await abrirConstancia(null, { espontanea: true, establecimiento, constanciaId: empezada.id, numeroInforme: empezada.numero_informe });
+    };
+    document.getElementById('espontanea-nueva').onclick = () => { window._espontaneaDecidida = true; confirmarConstanciaEspontanea(); };
+    return;
+  }
+  window._espontaneaDecidida = false;
   document.getElementById('modal-constancia-espontanea').remove();
   await abrirConstancia(null, {
     espontanea: true,
@@ -6332,13 +6358,17 @@ async function abrirConstancia(visitaId, visitaDatos) {
 
   try { CONST_STATE.itemsMenu = await api('/constancias/items'); } catch { CONST_STATE.itemsMenu = {}; }
   try {
-    const data = await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:visitaId})});
+    // Visita instantánea retomada: se abre la constancia ya empezada en vez de crear otra.
+    const data = visitaDatos?.constanciaId
+      ? { constancia: { id: visitaDatos.constanciaId, numero_informe: visitaDatos.numeroInforme || '' }, existente: true }
+      : await api('/constancias', {method:'POST', body:JSON.stringify({visita_id:visitaId})});
     CONST_STATE.constanciaId = data.constancia.id;
     document.getElementById('const-header-numero').textContent = data.constancia.numero_informe || '';
     if (data.existente) {
       // Si ya existe constancia, cargar sus datos (pisando el pre-completado)
       try {
         const c = await api('/constancias/'+CONST_STATE.constanciaId);
+        if (c.numero_informe) document.getElementById('const-header-numero').textContent = c.numero_informe;
         cargarDatosConstanciaExistente(c);
         // Si ya fue enviada y el usuario es técnico, mostrar solo vista previa (sin edición)
         if (c.estado === 'enviada' && STATE.rol !== 'admin') {
@@ -6374,6 +6404,8 @@ async function abrirConstancia(visitaId, visitaDatos) {
   const modal = document.getElementById('modal-constancia');
   modal.style.display = 'flex'; modal.classList.add('active');
   iniciarConstanciaAutosave();
+  // Marca en el historial para que el "atrás" del teléfono no saque de la app.
+  if (!(history.state && history.state.pantalla === 'constancia')) history.pushState({ pantalla: 'constancia' }, '');
 }
 
 function cargarDatosConstanciaExistente(c) {
@@ -6398,10 +6430,52 @@ function cerrarConstancia() {
   detenerConstanciaAutosave();
   document.getElementById('modal-constancia').classList.remove('active');
   document.getElementById('modal-constancia').style.display = '';
+  document.getElementById('confirmar-salir-constancia')?.remove();
   // Restaurar navegación inferior
   document.getElementById('nav-empleado')?.style.removeProperty('display');
   document.getElementById('nav-admin')?.style.removeProperty('display');
+  // Quitar la marca de historial que puso abrirConstancia (ver "atrás" del teléfono).
+  if (history.state && history.state.pantalla === 'constancia') history.back();
 }
+
+const constanciaAbierta = () => document.getElementById('modal-constancia')?.classList.contains('active');
+
+// Salir de la constancia pidiendo confirmación: con la flecha ← o con el "atrás"
+// del teléfono se salía de golpe y parecía que se perdía lo cargado.
+function salirDeConstancia() {
+  if (!constanciaAbierta() || document.getElementById('confirmar-salir-constancia')) return;
+  const d = document.createElement('div');
+  d.id = 'confirmar-salir-constancia';
+  d.style.cssText = 'position:fixed;inset:0;z-index:480;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px';
+  d.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;max-width:380px;width:100%">
+    <div style="font-size:16px;font-weight:700;margin-bottom:8px">¿Salir de la constancia?</div>
+    <div style="font-size:14px;color:var(--text2);margin-bottom:16px">Lo cargado queda guardado como borrador (también las planillas) y la podés retomar después.</div>
+    <div style="display:flex;gap:8px"><button class="btn btn-primary" id="salir-constancia-seguir" style="flex:1">Seguir cargando</button>
+    <button class="btn btn-secondary" id="salir-constancia-si" style="flex:1">Salir</button></div></div>`;
+  document.body.appendChild(d);
+  document.getElementById('salir-constancia-seguir').onclick = () => d.remove();
+  document.getElementById('salir-constancia-si').onclick = async () => {
+    d.remove();
+    try { guardarDatosPasoActual(); await guardarConstanciaActual(); } catch {}
+    cerrarConstancia();
+    toast('Constancia guardada como borrador ✓', 'success');
+    if (STATE.rol === 'admin') cargarVisitasAdmin(); else cargarMisVisitas();
+  };
+}
+
+// Botón o gesto "atrás" del teléfono: dentro de las planillas retrocede un nivel;
+// en la constancia pregunta antes de salir. Nunca saca de la app de golpe.
+window.addEventListener('popstate', () => {
+  if (window.Planillas && Planillas.estaAbierta()) {
+    Planillas.atras();
+    if (constanciaAbierta()) history.pushState({ pantalla: 'constancia' }, '');
+    return;
+  }
+  if (constanciaAbierta()) {
+    history.pushState({ pantalla: 'constancia' }, '');
+    salirDeConstancia();
+  }
+});
 
 // ── AUTOSAVE PERIÓDICO DE CONSTANCIA ─────────────────────────────────────────
 // Antes solo se guardaba al cambiar de paso o con el botón manual. Si el
