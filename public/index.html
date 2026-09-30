@@ -16,6 +16,7 @@
 <script src="js/vendor/jspdf.umd.min.js"></script>
 <script src="js/vendor/html2canvas.min.js"></script>
 <script src="js/ar-storage.js"></script>
+<script src="js/planillas.js"></script>
 <style>
 :root {
   --bg:#0f1923;--bg2:#162030;--bg3:#1e2d40;--border:rgba(255,255,255,0.08);
@@ -1373,6 +1374,9 @@ function iniciarSyncPeriodico() {
 
 async function irADashboard(rol) {
   iniciarSyncPeriodico();
+  // Planillas de chequeo: baja el catálogo y los datos de los establecimientos
+  // de mis próximas visitas para relevar sin señal (no bloquea la entrada).
+  if (window.Planillas) Planillas.precargar();
   // Admin que también es empleado (Rogelio, Andrea): pasa entre "Panel de
   // administración" y "Mi jornada" con un botón, sin segunda cuenta. Se
   // recuerda en qué panel estaba la última vez.
@@ -3888,7 +3892,7 @@ function tabPendientes(id, el) {
 function abrirPanelConfig() {
   const existing = document.getElementById('modal-config');
   if (existing) existing.remove();
-  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div style="display:flex;gap:6px;margin-bottom:10px" id="dest-filtro-tabs"><button type="button" class="btn btn-sm btn-primary" onclick="filtrarDestinosConfig('todos',this)" style="flex:1">Todos</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('cliente',this)" style="flex:1">Propios</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('contratista',this)" style="flex:1">Contratistas</button></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="sep"></div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Política interna de solicitud de vacaciones (no son exigencias del convenio 130/75 en sí, son configurables por la empresa):</div><div class="form-group"><label>Días de anticipación requeridos</label><input type="number" id="conv-vac-anticipacion" value="15" min="0"></div><div class="form-group"><label>Mínimo de días corridos por pedido</label><input type="number" id="conv-vac-minbloque" value="7" min="1"></div><div class="form-group" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="conv-vac-acuerdo-partes" style="width:auto"><label style="margin:0" for="conv-vac-acuerdo-partes">Permitir acuerdo de partes (el empleado puede pedir con menos anticipación si confirma que coordinó la cobertura con su empleador)</label></div><div class="sep"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
+  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button><button class="tab" onclick="cerrarModal('modal-config');Planillas.abrirAdmin()">Planillas</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div style="display:flex;gap:6px;margin-bottom:10px" id="dest-filtro-tabs"><button type="button" class="btn btn-sm btn-primary" onclick="filtrarDestinosConfig('todos',this)" style="flex:1">Todos</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('cliente',this)" style="flex:1">Propios</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('contratista',this)" style="flex:1">Contratistas</button></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="sep"></div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Política interna de solicitud de vacaciones (no son exigencias del convenio 130/75 en sí, son configurables por la empresa):</div><div class="form-group"><label>Días de anticipación requeridos</label><input type="number" id="conv-vac-anticipacion" value="15" min="0"></div><div class="form-group"><label>Mínimo de días corridos por pedido</label><input type="number" id="conv-vac-minbloque" value="7" min="1"></div><div class="form-group" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="conv-vac-acuerdo-partes" style="width:auto"><label style="margin:0" for="conv-vac-acuerdo-partes">Permitir acuerdo de partes (el empleado puede pedir con menos anticipación si confirma que coordinó la cobertura con su empleador)</label></div><div class="sep"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
   cargarConfigEmpresa(); cargarDestinosConfig(); cargarConfigConvenio();
   api('/config/empleados').then(emps => {
@@ -6107,13 +6111,14 @@ let CONST_STATE = {
 const CONST_PASOS = [
   {id:'datos',label:'1. Datos',icono:'📋'},
   {id:'tipo',label:'2. Tipo',icono:'🎯'},
-  {id:'personal',label:'3. Personal',icono:'👥'},
-  {id:'actividades',label:'4. Actividades',icono:'✅'},
-  {id:'acciones',label:'5. Acciones',icono:'📝'},
-  {id:'normativa',label:'6. Normativa',icono:'⚖'},
-  {id:'observaciones',label:'7. Obs.',icono:'💬'},
-  {id:'desvios',label:'8. Desvíos',icono:'⚠'},
-  {id:'firmas',label:'9. Firmas',icono:'✍'},
+  {id:'planillas',label:'3. Planillas',icono:'📋'},
+  {id:'personal',label:'4. Personal',icono:'👥'},
+  {id:'actividades',label:'5. Actividades',icono:'✅'},
+  {id:'acciones',label:'6. Acciones',icono:'📝'},
+  {id:'normativa',label:'7. Normativa',icono:'⚖'},
+  {id:'observaciones',label:'8. Obs.',icono:'💬'},
+  {id:'desvios',label:'9. Desvíos',icono:'⚠'},
+  {id:'firmas',label:'10. Firmas',icono:'✍'},
 ];
 
 function abrirConstanciaEspontanea() {
@@ -6467,7 +6472,7 @@ function renderConstanciaPaso() {
   const btnSig = document.getElementById('const-btn-siguiente');
   if (btnAnt) { btnAnt.style.display = CONST_STATE.pasoActual===0?'none':'flex'; btnAnt.style.visibility='visible'; }
   if (btnSig) { btnSig.textContent = CONST_STATE.pasoActual===CONST_PASOS.length-1?'✓ Finalizar':'Siguiente →'; btnSig.style.display='flex'; btnSig.style.visibility='visible'; }
-  const renders = {datos:renderPasoDatos,tipo:renderPasoTipo,personal:renderPasoPersonal,actividades:renderPasoActividades,acciones:renderPasoAcciones,normativa:renderPasoNormativa,observaciones:renderPasoObservaciones,desvios:renderPasoDesvios,firmas:renderPasoFirmas};
+  const renders = {datos:renderPasoDatos,tipo:renderPasoTipo,planillas:renderPasoPlanillas,personal:renderPasoPersonal,actividades:renderPasoActividades,acciones:renderPasoAcciones,normativa:renderPasoNormativa,observaciones:renderPasoObservaciones,desvios:renderPasoDesvios,firmas:renderPasoFirmas};
   try {
     document.getElementById('const-paso-contenido').innerHTML = renders[paso]?renders[paso]():'';
   } catch(e) {
@@ -6538,8 +6543,67 @@ function renderPasoTipo() {
   <button onclick="agregarItemNuevo('frente_trabajo')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:4px">+ Agregar frente no listado</button>`;
 }
 
+// ── Paso "Planillas": relevamiento por módulos (public/js/planillas.js) ─────
+function _planillasOpts() {
+  return {
+    visitaId: CONST_STATE.visitaId || null,
+    constanciaId: CONST_STATE.constanciaId,
+    destinoId: CONST_STATE.destinoId || null,
+    establecimiento: CONST_STATE.datos.establecimiento_sector || '',
+  };
+}
+
+function renderPasoPlanillas() {
+  setTimeout(pintarResumenPlanillas, 0);
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">3. Planillas de chequeo</div>
+  <div style="font-size:13px;color:var(--text2);margin-bottom:14px">Condiciones básicas, viviendas, maquinaria, instalaciones, extintores, agua… Funciona sin señal: se envía sola cuando vuelve.</div>
+  <div id="ci-planillas-resumen" style="margin-bottom:14px;color:var(--text2);font-size:13px">Buscando relevamiento…</div>
+  <button class="btn btn-primary" onclick="abrirPlanillasDesdeConstancia()">📋 Abrir planillas</button>
+  <div id="ci-planillas-desvios" style="margin-top:12px"></div>`;
+}
+
+async function pintarResumenPlanillas() {
+  const cont = document.getElementById('ci-planillas-resumen');
+  if (!cont || !window.Planillas) return;
+  const r = await Planillas.resumenParaConstancia(_planillasOpts());
+  if (!r) { cont.innerHTML = 'Todavía no hay planillas cargadas en esta visita.'; document.getElementById('ci-planillas-desvios').innerHTML = ''; return; }
+  const color = r.calificacion === 'satisfactorio' ? 'var(--green)' : r.calificacion === 'aceptable' ? 'var(--yellow)' : r.calificacion === 'deficiente' ? 'var(--red)' : 'var(--text2)';
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  cont.innerHTML = `<div style="background:var(--bg3);border-radius:10px;padding:12px">
+    <div style="display:flex;gap:12px;align-items:center"><div style="font-size:28px;font-weight:700;color:${color}">${r.indice === null ? '—' : r.indice + '%'}</div>
+    <div style="font-size:13px;color:var(--text)">${r.C} cumple · <b style="color:var(--red)">${r.NC} no cumple</b> · ${r.NA} no aplica · ${r.NV} no verificado<br>
+    <span style="color:var(--text2)">${r.pendiente ? '📴 Guardado en la tablet, falta enviar' : r.error ? '⚠ ' + esc(r.error) : '✓ Enviado'}${r.estado === 'cerrado' ? ' · cerrado' : ''}</span></div></div>
+    <div style="font-size:12px;color:var(--text2);margin-top:8px">${r.modulos.map(esc).join(' · ')}</div></div>`;
+  const yaPasados = new Set(CONST_STATE.desvios.map(d => d.chk_respuesta_id).filter(Boolean));
+  const btn = document.getElementById('ci-planillas-desvios');
+  if (r.NC) btn.innerHTML = `<button class="btn btn-secondary" onclick="pasarHallazgosADesvios()">⚠ Pasar hallazgos a Desvíos (${r.NC})</button>
+    <div style="font-size:12px;color:var(--text2);margin-top:6px">${yaPasados.size ? yaPasados.size + ' ya pasados. ' : ''}Solo se agregan los que no están.</div>`;
+  else btn.innerHTML = '';
+}
+
+function abrirPlanillasDesdeConstancia() {
+  if (!window.Planillas) return toast('No se pudo cargar el módulo de planillas. Actualizá la app.', 'error');
+  guardarConstanciaActual().catch(() => {});
+  Planillas.abrir({ ..._planillasOpts(), onCerrar: () => { if (CONST_PASOS[CONST_STATE.pasoActual]?.id === 'planillas') renderConstanciaPaso(); } });
+}
+
+async function pasarHallazgosADesvios() {
+  const nuevos = await Planillas.desviosParaConstancia(_planillasOpts());
+  const clave = d => (d.titulo || '').trim().toLowerCase() + '|' + (d.descripcion || '').trim().toLowerCase();
+  const ids = new Set(CONST_STATE.desvios.map(d => d.chk_respuesta_id).filter(Boolean));
+  const textos = new Set(CONST_STATE.desvios.map(clave));
+  let n = 0;
+  for (const d of nuevos) {
+    if (ids.has(d.chk_respuesta_id) || textos.has(clave(d))) continue;
+    CONST_STATE.desvios.push(d); n++;
+  }
+  guardarConstanciaTrasAccion();
+  toast(n ? n + ' hallazgo(s) pasados a Desvíos ✓' : 'Ya estaban todos en Desvíos', n ? 'success' : 'info');
+  pintarResumenPlanillas();
+}
+
 function renderPasoPersonal() {
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">3. Personal y equipos</div>
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">4. Personal y equipos</div>
   <div id="ci-personal-lista">${CONST_STATE.personal.map((p,i)=>renderFilaPersonal(p,i)).join('')}</div>
   <button onclick="agregarPersonal()" class="btn btn-secondary btn-sm" style="margin-bottom:20px">+ Agregar persona</button>
   <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Vehículos / Equipos</div>
@@ -6568,14 +6632,14 @@ function renderFilaEquipo(e,i) {
 }
 function renderPasoActividades() {
   const acts=CONST_STATE.itemsMenu.actividad||[], sA=CONST_STATE.selecciones.actividad||[];
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">4. Actividades realizadas</div>
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">5. Actividades realizadas</div>
   ${acts.map(a=>`<div style="display:flex;align-items:center;gap:2px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${a.id}" ${sA.find(s=>s.item_id==a.id)?'checked':''} onchange="toggleSeleccion('actividad',${a.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--green)"><span style="font-size:13px">${a.texto}</span></label>${_botonesItem(a.id,'actividad',a.texto)}</div>`).join('')}
   <button onclick="agregarItemNuevo('actividad')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar actividad no listada</button>`;
 }
 
 function renderPasoAcciones() {
   const a=CONST_STATE.acciones;
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">5. Acciones del asesor</div>
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">6. Acciones del asesor</div>
   <div class="form-group"><label>Verificaciones realizadas</label><textarea id="ci-verificaciones" placeholder="Describirlas brevemente..." style="min-height:80px">${a.verificaciones||''}</textarea></div>
   <div class="form-group"><label>Indicaciones y correcciones impartidas</label><textarea id="ci-indicaciones" placeholder="Qué se indicó corregir..." style="min-height:80px">${a.indicaciones||''}</textarea></div>
   <div class="form-group"><label>Charla / capacitación en el frente</label><textarea id="ci-charla" placeholder="Tema, duración, norma de referencia..." style="min-height:60px">${a.charla||''}</textarea></div>
@@ -6584,18 +6648,18 @@ function renderPasoAcciones() {
 
 function renderPasoNormativa() {
   const normas=CONST_STATE.itemsMenu.normativa||[], sN=CONST_STATE.selecciones.normativa||[];
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">6. Marco normativo aplicado</div>
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">7. Marco normativo aplicado</div>
   ${normas.map(n=>`<div style="display:flex;align-items:center;gap:2px;margin-bottom:6px"><label style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--bg3);border-radius:8px;cursor:pointer;flex:1"><input type="checkbox" value="${n.id}" ${sN.find(s=>s.item_id==n.id)?'checked':''} onchange="toggleSeleccion('normativa',${n.id},'',this.checked)" style="width:16px;height:16px;accent-color:var(--yellow)"><span style="font-size:13px">${n.texto}</span></label>${_botonesItem(n.id,'normativa',n.texto)}</div>`).join('')}
   <button onclick="agregarItemNuevo('normativa')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:8px">+ Agregar normativa no listada</button>`;
 }
 
 function renderPasoObservaciones() {
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">7. Observaciones generales</div>
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">8. Observaciones generales</div>
   <div class="form-group"><textarea id="ci-obs" placeholder="Situación general observada, acuerdos, próximos pasos..." style="min-height:220px">${CONST_STATE.datos.observaciones_generales||''}</textarea></div>`;
 }
 
 function renderPasoDesvios() {
-  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">8. Desvíos detectados</div>
+  return `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">9. Desvíos detectados</div>
   <div id="ci-desvios-lista">${CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('')}</div>
   <button onclick="agregarDesvio()" class="btn btn-secondary btn-sm" style="margin-top:4px">+ Agregar desvío</button>`;
 }
@@ -6647,7 +6711,7 @@ function renderPasoFirmas() {
       <button onclick="abrirFirma('${tipo}')" ${btnStyle}>${btnText}</button>
     </div>`;
   };
-  const html = `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">9. Firmas</div>
+  const html = `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">10. Firmas</div>
   ${bloqueHTML('cliente','Responsable del cliente','Firma del representante de la empresa visitada',fC,true)}
   ${bloqueHTML('tecnico','Asesor EXIT S.A.','Tu firma como técnico/asesor',fT,false)}
   ${bloqueHTML('responsable_exit','Responsable del servicio EXIT S.A.','Firma del responsable del servicio EXIT',fE,false)}`;
@@ -7710,6 +7774,7 @@ async function sincronizarTodoPendiente() {
   await procesarReservasPendientes();
   await sincronizarConstanciasPendientes();
   if (typeof procesarVisitasPendientes === 'function') await procesarVisitasPendientes();
+  if (window.Planillas) await Planillas.sincronizarPendientes();
   // Avisa al servidor que esta tablet sincronizó, para que el admin vea
   // "última sincronización" del técnico en el panel de equipo.
   try { await api('/config/sync-ping', {method:'POST'}); } catch {}

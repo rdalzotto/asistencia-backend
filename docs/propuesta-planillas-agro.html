@@ -1,0 +1,781 @@
+<title>Planillas de Visita Agro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: documento de trabajo de una columna (máx. 980px) con secciones numeradas; los mockups de tablet van en marcos propios. */
+:root{
+  --bg:#f5f6f1; --paper:#ffffff; --ink:#1d2a1a; --muted:#5b6656; --line:#d9ddd2;
+  --accent:#3f7d20; --accent-soft:#e6efdc; --lime:#8dc63f;
+  --crit:#b3261e; --crit-soft:#f9e3e1; --warn:#a15c00; --warn-soft:#fbeed8; --ok:#2e7d32; --ok-soft:#e3f1e3; --na:#6b7280; --na-soft:#eceef1;
+  --legal:#1f5fa8; --legal-soft:#e3edf8; --bp:#6b5a2a; --bp-soft:#f1ecdc; --cert:#6d3fa0; --cert-soft:#efe6f8;
+  --tablet:#20261e; --screen:#ffffff; --on-accent:#ffffff; --on-crit:#ffffff;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",Roboto,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121611; --paper:#1a2019; --ink:#e4e9df; --muted:#a3ad9c; --line:#2f382c;
+  --accent:#8dc63f; --accent-soft:#243320; --lime:#8dc63f;
+  --crit:#f2877f; --crit-soft:#3a1f1d; --warn:#f0b35a; --warn-soft:#3a2d18; --ok:#7fcf84; --ok-soft:#1d3320; --na:#a3a9b3; --na-soft:#262a30;
+  --legal:#8ab8ef; --legal-soft:#1c2a3b; --bp:#d8c690; --bp-soft:#2f2a1b; --cert:#c5a3ec; --cert-soft:#2b2238;
+  --tablet:#050705; --screen:#1f261d; --on-accent:#10170e; --on-crit:#1a0e0d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121611; --paper:#1a2019; --ink:#e4e9df; --muted:#a3ad9c; --line:#2f382c;
+  --accent:#8dc63f; --accent-soft:#243320; --lime:#8dc63f;
+  --crit:#f2877f; --crit-soft:#3a1f1d; --warn:#f0b35a; --warn-soft:#3a2d18; --ok:#7fcf84; --ok-soft:#1d3320; --na:#a3a9b3; --na-soft:#262a30;
+  --legal:#8ab8ef; --legal-soft:#1c2a3b; --bp:#d8c690; --bp-soft:#2f2a1b; --cert:#c5a3ec; --cert-soft:#2b2238;
+  --tablet:#050705; --screen:#1f261d; --on-accent:#10170e; --on-crit:#1a0e0d; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.55}
+.wrap{max-width:980px;margin:0 auto;padding-inline:16px;padding-block:28px 64px}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;line-height:1.1;text-wrap:balance;margin:0}
+h1{font-size:clamp(34px,6vw,50px);letter-spacing:.2px}
+h2{font-size:30px;margin-bottom:6px}
+h3{font-size:21px;font-weight:600}
+p{margin:0}
+.eyebrow{font-family:var(--f-display);text-transform:uppercase;letter-spacing:1.4px;font-size:14px;color:var(--accent);font-weight:600}
+.lead{font-size:18px;color:var(--muted);max-width:68ch}
+header.top{display:grid;gap:12px;padding-bottom:22px;border-bottom:3px solid var(--ink);margin-bottom:28px}
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:14px;color:var(--muted)}
+section{display:grid;gap:14px;padding-block:26px;border-bottom:1px solid var(--line)}
+.num{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
+.prose{display:grid;gap:10px;max-width:72ch}
+.prose ul{margin:0;padding-left:20px;display:grid;gap:6px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:16px;display:grid;gap:8px;align-content:start;min-width:0}
+.card h3{font-size:19px}
+.card ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:15px}
+.verdict{background:var(--accent-soft);border-left:4px solid var(--accent);padding:14px 16px;border-radius:0 6px 6px 0;display:grid;gap:6px}
+.tag{display:inline-block;font-family:var(--f-mono);font-size:11.5px;padding:1px 7px;border-radius:3px;white-space:nowrap;font-weight:500}
+.t-L{background:var(--legal-soft);color:var(--legal)} .t-BP{background:var(--bp-soft);color:var(--bp)} .t-C{background:var(--cert-soft);color:var(--cert)}
+.c1{background:var(--crit-soft);color:var(--crit)} .c2{background:var(--warn-soft);color:var(--warn)} .c3{background:var(--na-soft);color:var(--na)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-display);font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);font-weight:600;background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td.mono,.mono{font-family:var(--f-mono);font-size:13px}
+.bad{color:var(--crit);font-weight:600} .good{color:var(--ok);font-weight:600}
+/* Tabs de modelos */
+.tabs{display:flex;flex-wrap:wrap;gap:8px}
+.tabs button{font:600 16px var(--f-display);letter-spacing:.4px;text-transform:uppercase;padding:9px 16px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:4px;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tabs button:focus-visible,.opt input:focus-visible+span,button:focus-visible{outline:3px solid var(--lime);outline-offset:2px}
+.model{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,440px);gap:22px;align-items:start}
+@media (max-width:820px){.model{grid-template-columns:1fr}}
+.pc{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:480px){.pc{grid-template-columns:1fr}}
+.pc div{display:grid;gap:4px;align-content:start}
+.pc b{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.8px;font-size:14px}
+.pc ul{margin:0;padding-left:18px;font-size:15px;display:grid;gap:4px}
+.pro b{color:var(--ok)} .con b{color:var(--crit)}
+.effort{font-size:14px;color:var(--muted)}
+/* Marco de tablet */
+.tablet{background:var(--tablet);border-radius:22px;padding:14px;max-width:440px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.screen{background:var(--screen);border-radius:10px;overflow:hidden;font-size:13px;color:var(--ink);min-height:470px;display:flex;flex-direction:column}
+.sbar{display:flex;justify-content:space-between;padding:5px 12px;font-family:var(--f-mono);font-size:10.5px;color:var(--muted);border-bottom:1px solid var(--line)}
+.sbar .off{color:var(--warn)}
+.shead{padding:10px 12px;background:var(--accent);color:var(--on-accent);display:grid;gap:2px}
+.shead b{font-family:var(--f-display);font-size:18px;font-weight:600;letter-spacing:.3px}
+.shead span{font-size:11.5px;opacity:.9}
+.sbody{padding:10px 12px;display:grid;gap:8px;align-content:start;flex:1}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+.row small{color:var(--muted);display:block;font-size:11px}
+.bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden;width:70px;flex:none}
+.bar i{display:block;height:100%;background:var(--accent)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px dashed var(--accent);color:var(--accent);border-radius:14px;padding:3px 10px;font-size:11.5px;font-weight:600}
+.chip.solid{border-style:solid;background:var(--accent-soft)}
+.alert{background:var(--warn-soft);color:var(--warn);border-radius:6px;padding:7px 10px;font-size:12px;font-weight:600}
+.lbl{font-family:var(--f-display);text-transform:uppercase;letter-spacing:.8px;font-size:12px;color:var(--muted);margin-top:4px}
+.btns{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.btns span{text-align:center;padding:9px 2px;border-radius:6px;font-weight:700;font-size:12px;border:1px solid var(--line)}
+.btns .sel{background:var(--crit);color:var(--on-crit);border-color:var(--crit)}
+.field{border:1px solid var(--line);border-radius:6px;padding:7px 9px;background:var(--paper);display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.field em{font-style:normal;color:var(--muted);font-size:11px}
+.mic{flex:none;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:12px;font-weight:700}
+.sfoot{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+.sfoot span{flex:1;text-align:center;padding:8px;border-radius:6px;background:var(--bg);font-weight:600;font-size:12px}
+.sfoot span.go{background:var(--ink);color:var(--bg)}
+/* Flujo */
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;counter-reset:f}
+.step{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:12px;display:grid;gap:4px;align-content:start}
+.step b{font-family:var(--f-display);font-size:17px;font-weight:600}
+.step .num{color:var(--accent)}
+.step p{font-size:14px;color:var(--muted)}
+/* Catálogo */
+.filters{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:14px}
+.filters label{display:flex;gap:6px;align-items:center;cursor:pointer}
+details.mod{background:var(--paper);border:1px solid var(--line);border-radius:6px}
+details.mod>summary{cursor:pointer;padding:12px 14px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;list-style:none}
+details.mod>summary::-webkit-details-marker{display:none}
+details.mod>summary::before{content:"+";font-family:var(--f-mono);color:var(--accent);width:12px}
+details.mod[open]>summary::before{content:"–"}
+details.mod>summary h3{font-size:19px}
+details.mod>summary .cnt{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+details.mod>summary .rep{font-size:12px;color:var(--accent);font-weight:600}
+.modbody{padding:0 14px 14px;display:grid;gap:8px}
+.modbody .inst{font-size:14px;color:var(--muted);background:var(--bg);padding:8px 10px;border-radius:4px}
+ol.items{margin:0;padding:0;list-style:none;display:grid}
+ol.items li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:4px 10px;padding:8px 0;border-top:1px solid var(--line);font-size:15px}
+ol.items li .id{font-family:var(--f-mono);font-size:12px;color:var(--muted);padding-top:2px}
+ol.items li .ref{grid-column:2;font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+ol.items li .tags{grid-row:1/span 2;grid-column:3;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+ol.items li.sub{padding-top:12px}
+ol.items li.sub span{grid-column:1/-1;font-family:var(--f-display);text-transform:uppercase;letter-spacing:.8px;font-size:13px;color:var(--accent);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted);align-items:center}
+/* Decisiones */
+.q{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:14px;display:grid;gap:8px}
+.q>b{font-size:16px}
+.opt{display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:15px}
+.opt input{margin-top:4px;accent-color:var(--accent)}
+.q textarea{width:100%;min-height:54px;font:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.copybar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.copybar button{font:600 16px var(--f-display);text-transform:uppercase;letter-spacing:.5px;padding:10px 18px;border-radius:4px;border:0;background:var(--accent);color:var(--on-accent);cursor:pointer}
+#copyOut{width:100%;min-height:120px;font-family:var(--f-mono);font-size:12.5px;padding:10px;border:1px solid var(--line);border-radius:4px;background:var(--paper);color:var(--ink)}
+.small{font-size:13.5px;color:var(--muted)}
+a{color:var(--accent)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">EXIT S.A. · AsistenciaAR · Propuesta y avance</div>
+  <h1>Planillas de visita para establecimientos agropecuarios</h1>
+  <p class="lead">Revisión crítica de lo que hay hoy (app, planillas en papel y el modelo de la otra IA), tres modelos para elegir, un catálogo de ítems con la normativa verificada y cómo funcionaría sin señal y con dictado por voz.</p>
+  <div class="meta"><span>Versión 0.2 · 30/09/2026 · Etapa 1 programada y probada</span><span>Para: Rogelio Dalzotto</span><span>Alcance: Agro (Dec. 617/97). Después: Servicios (Dec. 351/79) y Construcción (Dec. 911/96)</span></div>
+</header>
+
+<section id="resumen">
+  <span class="num">1</span>
+  <h2>En pocas palabras</h2>
+  <div class="prose">
+    <ul>
+      <li><b>La app hoy no tiene planillas de chequeo.</b> La constancia de visita tiene listas de casillas (tipo de visita, actividades, normativa) y un checklist de equipos que el técnico escribe a mano cada vez. No hay escala No aplica, no hay criticidad, los desvíos se escriben sueltos y no se siguen de una visita a la otra.</li>
+      <li><b>Las planillas en papel tienen buen contenido de campo</b>, pero usan tres escalas distintas (SI/NO/NA, E-MB-B-R-M y puntaje 1 a 10), no citan normativa y varias preguntas juntan dos o tres controles en uno.</li>
+      <li><b>El modelo de la otra IA tiene buena estructura pero no se puede usar tal cual.</b> Cita artículos del Dec. 617/97 que no existen (el decreto tiene 50 artículos y cita el 52, 55, 65, 67, 70, 73 a 78, 83, 89 y 91), presenta plazos como "legales" cuando no lo son, y tiene solo 37 ítems.</li>
+    </ul>
+  </div>
+  <div class="verdict">
+    <b>Recomendación: Modelo C, "plantillas + módulos".</b>
+    <p>Una base común de condiciones básicas que se releva siempre, más módulos por instalación (vivienda, tractor, manga, depósito de fitosanitarios, silo, extintor, muestra de agua…) que se repiten tantas veces como haga falta. Al programar la visita se elige una plantilla que ya trae los módulos. En el campo el técnico agrega o saca módulos si cambian los planes, sin perder lo cargado. Todo termina en un solo informe, un plan de acción y la constancia firmada.</p>
+  </div>
+  <div class="card" style="border-color:var(--accent)">
+    <h3>Novedades después de tu respuesta</h3>
+    <ul>
+      <li><b>Etapa 1 hecha con el modelo C</b> y las opciones recomendadas de la sección 9. Probada contra una base de prueba: todavía no está publicada.</li>
+      <li><b>Siempre se puede agregar lo no previsto:</b> en cualquier módulo hay "+ Ítem no previsto" y existe el módulo "Otro: hallazgo no previsto". El técnico puede marcarlo para <b>proponerlo al catálogo</b>; Dirección lo aprueba con su referencia normativa y desde ahí aparece en todas las tablets.</li>
+      <li><b>Módulos nuevos:</b> Vehículo y traslado de personal, EPP por puesto de trabajo, Instalación eléctrica general, Trabajo en altura y molinos. Son 21 módulos y 250 ítems.</li>
+      <li><b>Actividades de cada establecimiento:</b> registro de actividades permanentes, estacionales y eventuales, con carga masiva desde Excel. En la visita el técnico marca qué se está haciendo; lo que no estaba registrado se suma solo como eventual, así no se escapa nada.</li>
+      <li><b>Instalaciones que se recuerdan:</b> viviendas, tractores o extintores relevados en una visita aparecen en la siguiente con sus datos (GPS, ocupantes, dominio), listos para volver a controlar.</li>
+      <li><b>Seguimiento:</b> los No cumple de la visita anterior aparecen arriba para marcar Corregido, En curso o Sin cambios.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="diagnostico">
+  <span class="num">2</span>
+  <h2>Qué encontré</h2>
+  <h3>La app (constancia de visita actual)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Aspecto</th><th>Hoy</th><th>Problema</th></tr></thead>
+    <tbody>
+      <tr><td>Estructura</td><td>Constancia de 9 pasos: datos, tipo, personal, actividades, acciones, normativa, observaciones, desvíos, firmas</td><td>Sirve para cerrar la visita, pero no para relevar. Se queda como cierre; las planillas se agregan antes.</td></tr>
+      <tr><td>Checklist de equipos</td><td>Ítems escritos a mano en cada visita, solo "conforme sí/no"</td><td class="bad">Cada técnico escribe distinto: no se pueden comparar visitas ni establecimientos</td></tr>
+      <tr><td>Escala</td><td>Casilla marcada o no</td><td class="bad">No distingue "no cumple" de "no aplica" ni de "no se pudo ver"</td></tr>
+      <tr><td>Normativa</td><td>Lista de casillas separada</td><td>No queda atada al hallazgo. Si cada ítem trae su referencia, la normativa aplicada sale sola</td></tr>
+      <tr><td>Desvíos</td><td>Se escriben a mano (título, severidad, acción, plazo, 2 fotos)</td><td class="bad">No nacen del ítem que falló y no se verifican en la visita siguiente</td></tr>
+      <tr><td>Extintores</td><td>App aparte (extintores.html)</td><td>Hay que integrarla como módulo para que entre en el mismo informe</td></tr>
+      <tr><td>Sin señal</td><td>Constancias y visitas se guardan en la tablet y se envían solas al volver la señal</td><td class="good">Base sólida: se reutiliza para las planillas</td></tr>
+      <tr><td>Firmas</td><td>Técnico, responsable EXIT y cliente con DNI</td><td class="good">Sirve tal cual para la constancia final</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Las 9 planillas en papel</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Planilla</th><th>Escala</th><th>Qué rescatar</th><th>Qué corregir</th></tr></thead>
+    <tbody>
+      <tr><td>Tractores (2 versiones)</td><td class="mono">SI/NO/NA</td><td>Controles clave: antivuelco, TDF, cinturón, escape, matafuego fijo</td><td>Son casi iguales: unificar en una sola. Sin identificación de la unidad (dominio, n° interno)</td></tr>
+      <tr><td>Implementos 2020</td><td class="mono">SI/NO/NA</td><td>Señalización de tanques y acoplados, cadenas de seguridad, cables</td><td>Mezcla implemento y tanque de combustible en la misma planilla</td></tr>
+      <tr><td>Manejo de hacienda</td><td class="mono">puntaje 1-10</td><td>23 ítems muy completos de manga, cepo, electricidad, jeringas</td><td>Puntaje por ítem subjetivo: dos técnicos ponen notas distintas al mismo cepo</td></tr>
+      <tr><td>Monturas y aperos</td><td class="mono">E/MB/B/R/M</td><td>Único que cubre aperos (art. 46)</td><td>Encabezado con "Agronor JC S.A." fijo</td></tr>
+      <tr><td>Estibas</td><td class="mono">E/MB/B/R/M</td><td>Distancia a techo, traba de bolsas, medios mecánicos</td><td>Mismo encabezado fijo; falta el límite de carga manual</td></tr>
+      <tr><td>Forestal</td><td class="mono">SI/NO/NC</td><td>La más práctica: EPP, herramientas, actitudes, cuadrilla por función</td><td>Varios controles por ítem (ej.: 10 EPP en el ítem 1): un solo SI/NO para todo</td></tr>
+      <tr><td>Casas del personal</td><td class="mono">SI/NO/NC</td><td>Muy buen detalle de electricidad, agua, gas y edificio</td><td>Sin ubicación GPS, sin ocupantes ni menores, sin distancia a agroquímicos o corrales</td></tr>
+      <tr><td>Depósito fitosanitarios</td><td class="mono">E/MB/B/R/M</td><td>La más completa: ubicación, construcción, derrames, emergencias</td><td>Preguntas con 2 o 3 controles juntos ("¿puertas robustas? ¿llave? ¿copia?")</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>El modelo de la otra IA</h3>
+  <div class="cols">
+    <div class="card"><h3 class="good">Lo que vale la pena tomar</h3><ul>
+      <li>Organizar por módulos</li><li>Escala Cumple / No cumple / No aplica</li><li>Criticidad del hallazgo con plazo sugerido</li><li>Índice de cumplimiento en porcentaje</li><li>Plan de acción con responsable y fecha</li><li>La idea de dictar en el campo</li></ul></div>
+    <div class="card"><h3 class="bad">Lo que no se puede usar</h3><ul>
+      <li><b>Citas falsas:</b> el Dec. 617/97 tiene 50 artículos. Cita art. 52, 55, 65, 67, 70, 73-78, 83, 89 y 91. Otros existen pero tratan otra cosa: art. 18 es electricidad, no toma de fuerza; art. 38 es EPP del motosierrista, no hojas de seguridad; art. 50 es capacitación, no mangas.</li>
+      <li>Presenta como "legales" los plazos de 48 hs, 15 y 30 días. No surgen de ninguna norma: son criterio del asesor.</li>
+      <li>El índice no pondera: un tractor sin antivuelco pesa lo mismo que un espejo faltante.</li>
+      <li>Solo 37 ítems: no cubre silos, extintores, taller ni muestras de agua.</li>
+      <li>Propone pegar los audios en ChatGPT: datos de clientes en una herramienta externa, sin control ni registro.</li></ul></div>
+  </div>
+  <p class="small">Un informe firmado por EXIT con una cita que no existe es un riesgo profesional. Por eso cada ítem del catálogo de abajo trae la referencia verificada contra el texto oficial, y lo que no es obligación legal está marcado como buena práctica.</p>
+</section>
+
+<section id="modelos">
+  <span class="num">3</span>
+  <h2>Tres modelos para elegir</h2>
+  <p class="lead">Los tres usan la misma tarjeta de ítem (abajo) y terminan en la misma constancia. Cambia cómo se arma la visita.</p>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-A" aria-selected="false" aria-controls="m-A">A · Una planilla por actividad</button>
+    <button role="tab" id="tab-B" aria-selected="false" aria-controls="m-B">B · Armada por el sistema</button>
+    <button role="tab" id="tab-C" aria-selected="true" aria-controls="m-C">C · Plantillas + módulos</button>
+  </div>
+
+  <div class="model" id="m-A" role="tabpanel" hidden>
+    <div class="prose">
+      <h3>A · Una planilla por actividad</h3>
+      <p>Se digitalizan las planillas de papel, corregidas: Tractores, Implementos, Manga, Aperos, Estibas, Forestal, Viviendas, Fitosanitarios, más Silos, Extintores y Agua. El técnico abre la que necesita; cada una genera su propio PDF.</p>
+      <div class="pc"><div class="pro"><b>A favor</b><ul><li>Igual al papel: el equipo lo entiende el primer día</li><li>La más rápida de programar</li><li>Cambiar de planes es abrir otra planilla</li></ul></div>
+      <div class="con"><b>En contra</b><ul><li>Ítems repetidos (el matafuego aparece en 6 planillas)</li><li>Sin base común: se olvida lo básico (ART, agua, botiquín)</li><li>Muchos PDF sueltos; sin un índice por establecimiento</li><li>Agregar niveles o certificación duplica planillas</li></ul></div></div>
+      <p class="effort">Esfuerzo: bajo. Crece mal cuando se agreguen Servicios y Construcción.</p>
+    </div>
+    <div class="tablet"><div class="screen">
+      <div class="sbar"><span>09:42</span><span class="off">Sin señal · guardando en la tablet</span></div>
+      <div class="shead"><b>Estancia La Aurora</b><span>Visita 14/10 · Elegí una planilla</span></div>
+      <div class="sbody">
+        <div class="row"><div>Tractores<small>2 cargados hoy · PDF por unidad</small></div><div class="bar"><i style="width:100%"></i></div></div>
+        <div class="row"><div>Implementos<small>sin empezar</small></div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="row"><div>Manga y corrales<small>12 de 16</small></div><div class="bar"><i style="width:75%"></i></div></div>
+        <div class="row"><div>Viviendas del personal<small>1 de 3 casas</small></div><div class="bar"><i style="width:33%"></i></div></div>
+        <div class="row"><div>Depósito fitosanitarios<small>sin empezar</small></div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="row"><div>Extintores</div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="row"><div>Forestal · Estibas · Aperos · Silos · Agua…</div></div>
+      </div>
+      <div class="sfoot"><span>Ver PDF de cada una</span><span class="go">Ir a constancia</span></div>
+    </div></div>
+  </div>
+
+  <div class="model" id="m-B" role="tabpanel" hidden>
+    <div class="prose">
+      <h3>B · Armada por el sistema</h3>
+      <p>Cada establecimiento tiene una ficha con lo que tiene: rubros, cantidad de viviendas, tractores, si hay depósito de fitosanitarios o silos, nivel y certificación. Al abrir la visita, el sistema arma la planilla con la base común y los módulos que corresponden.</p>
+      <div class="pc"><div class="pro"><b>A favor</b><ul><li>No se olvida nada: todo lo que existe se releva</li><li>Un solo informe con índice por módulo</li><li>Los niveles (básico, ampliado, certificación) salen de la ficha</li></ul></div>
+      <div class="con"><b>En contra</b><ul><li>Hay que cargar la ficha de los 51 establecimientos antes</li><li>Arma visitas largas: una visita corta a ver solo la manga igual trae todo</li><li>Más difícil de adaptar si en el campo cambia el plan</li></ul></div></div>
+      <p class="effort">Esfuerzo: alto. Depende de tener las fichas completas.</p>
+    </div>
+    <div class="tablet"><div class="screen">
+      <div class="sbar"><span>09:42</span><span class="off">Sin señal · guardando en la tablet</span></div>
+      <div class="shead"><b>Estancia La Aurora</b><span>Ganadero + Forestal · Nivel ampliado · 3 viviendas · 2 tractores · depósito fito</span></div>
+      <div class="sbody">
+        <div class="lbl">Planilla generada: 7 módulos · 118 ítems</div>
+        <div class="row"><div>0 · Condiciones básicas<small>14 de 16</small></div><div class="bar"><i style="width:88%"></i></div></div>
+        <div class="row"><div>Vivienda · Puesto Norte<small>sin empezar · a 18 km del casco</small></div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="row"><div>Vivienda · Casco / Vivienda · Puesto Sur</div><div class="bar"><i style="width:40%"></i></div></div>
+        <div class="row"><div>Tractor · MF 7415 / Tractor · JD 5090</div><div class="bar"><i style="width:50%"></i></div></div>
+        <div class="row"><div>Manga y corrales</div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="row"><div>Depósito fitosanitarios</div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="row"><div>Documentación (nivel ampliado)</div><div class="bar"><i style="width:0"></i></div></div>
+      </div>
+      <div class="sfoot"><span>Índice parcial: 81 %</span><span class="go">Informe</span></div>
+    </div></div>
+  </div>
+
+  <div class="model" id="m-C" role="tabpanel">
+    <div class="prose">
+      <h3>C · Plantillas + módulos (recomendado)</h3>
+      <p>Igual que B por dentro (base común + módulos), pero la visita se arma con una plantilla que elige quien programa: "Recorrida ganadera completa", "Visita corta forestal", "Viviendas y agua", "Pre-auditoría PEFC". En el campo, si la actividad prevista no se puede hacer, el técnico toca "+ Agregar" y suma cualquier módulo, o cambia de plantilla sin perder lo cargado. Arriba aparecen los desvíos abiertos de la visita anterior para verificar si se corrigieron.</p>
+      <div class="pc"><div class="pro"><b>A favor</b><ul><li>Programar de antemano y cambiar en el campo</li><li>Visitas cortas o completas según el día</li><li>Un informe, un índice y un plan de acción</li><li>La ficha del establecimiento se completa sola con cada visita (no hace falta cargarla antes)</li><li>Sirve igual para Servicios y Construcción: cambia el catálogo, no el sistema</li></ul></div>
+      <div class="con"><b>En contra</b><ul><li>Más desarrollo que A</li><li>Hay que mantener el catálogo (solo Dirección lo edita, con versiones)</li></ul></div></div>
+      <p class="effort">Esfuerzo: medio. Se puede arrancar con 4 plantillas y el catálogo de abajo.</p>
+    </div>
+    <div class="tablet"><div class="screen">
+      <div class="sbar"><span>09:42</span><span class="off">Sin señal · guardando en la tablet</span></div>
+      <div class="shead"><b>Estancia La Aurora</b><span>Plantilla: Recorrida ganadera completa · programada por Andrea</span></div>
+      <div class="sbody">
+        <div class="alert">3 desvíos abiertos de la visita del 12/08 para verificar</div>
+        <div class="row"><div>0 · Condiciones básicas<small>siempre · 14 de 16</small></div><div class="bar"><i style="width:88%"></i></div></div>
+        <div class="row"><div>Manga y corrales<small>previsto · sin empezar</small></div><div class="bar"><i style="width:0"></i></div></div>
+        <div class="row"><div>Vivienda · Puesto Norte<small>previsto · 5 de 24</small></div><div class="bar"><i style="width:20%"></i></div></div>
+        <div class="row"><div>Tractor · JD 5090<small>agregado en el campo</small></div><div class="bar"><i style="width:100%"></i></div></div>
+        <div class="lbl">+ Agregar en el campo</div>
+        <div class="chips"><span class="chip">+ Vivienda</span><span class="chip">+ Tractor</span><span class="chip">+ Extintor</span><span class="chip">+ Muestra de agua</span><span class="chip">+ Otro módulo</span><span class="chip solid">Cambiar plantilla</span></div>
+      </div>
+      <div class="sfoot"><span>Índice parcial: 84 %</span><span class="go">Plan de acción</span></div>
+    </div></div>
+  </div>
+
+  <h3>La tarjeta de ítem (igual en los tres modelos)</h3>
+  <div class="model">
+    <div class="prose">
+      <ul>
+        <li>Cuatro botones grandes, fáciles de tocar con guantes o al sol: <b>Cumple · No cumple · No aplica · No verificado</b>. "No verificado" es para lo que no se pudo ver (casa cerrada, máquina en el lote) y queda en el informe sin afectar el índice.</li>
+        <li>Al marcar <b>No cumple</b> se abre: criticidad (viene sugerida del catálogo y se puede cambiar), observación con micrófono, foto (obligatoria si es crítico) y la <b>medida sugerida</b> ya escrita, que el técnico ajusta.</li>
+        <li>Cada No cumple se convierte solo en un desvío de la constancia: no se escribe dos veces.</li>
+        <li>La referencia normativa está en el ítem: la sección "normativa aplicada" del informe se arma sola.</li>
+      </ul>
+    </div>
+    <div class="tablet"><div class="screen">
+      <div class="sbar"><span>10:15</span><span class="off">Sin señal · 23 ítems sin enviar</span></div>
+      <div class="shead"><b>Tractor · JD 5090 · n° int. 04</b><span>Tractores y máquinas autopropulsadas · ítem 4 de 16</span></div>
+      <div class="sbody">
+        <div style="font-size:15px;font-weight:600">La toma de fuerza (TDF) y los cardanes tienen su protección completa y en buen estado</div>
+        <div><span class="tag t-L">Legal</span> <span class="mono" style="color:var(--muted)">Dec. 617/97 art. 7</span></div>
+        <div class="btns"><span>Cumple</span><span class="sel">No cumple</span><span>No aplica</span><span>No verif.</span></div>
+        <div class="lbl">Criticidad</div>
+        <div class="chips"><span class="chip solid" style="border-color:var(--crit);color:var(--crit);background:var(--crit-soft)">Crítico · detener la tarea</span><span class="chip">Importante</span><span class="chip">Menor</span></div>
+        <div class="field"><div><em>Observación</em><br>Falta el protector plástico del cardán. Se usa con la rotativa.</div><span class="mic">●</span></div>
+        <div class="field"><div><em>Medida sugerida (editable)</em><br>Colocar protección homologada del cardán antes de volver a usar el equipo con TDF.</div></div>
+        <div class="chips"><span class="chip solid">Foto 1 ✓</span><span class="chip">+ Foto</span></div>
+      </div>
+      <div class="sfoot"><span>‹ Anterior</span><span class="go">Siguiente ›</span></div>
+    </div></div>
+  </div>
+</section>
+
+<section id="flujo">
+  <span class="num">4</span>
+  <h2>Cómo sería una visita de punta a punta</h2>
+  <div class="flow">
+    <div class="step"><span class="num">1</span><b>Programar</b><p>Administración o el técnico crea la visita y elige plantilla. Se ven los desvíos abiertos del establecimiento.</p></div>
+    <div class="step"><span class="num">2</span><b>Descargar</b><p>Con señal (oficina o casco), la tablet baja el paquete: catálogo, ficha, desvíos abiertos, contactos.</p></div>
+    <div class="step"><span class="num">3</span><b>Relevar</b><p>Sin señal. Base común, módulos previstos y los que se agreguen. Fotos, GPS por vivienda, muestras y dictado.</p></div>
+    <div class="step"><span class="num">4</span><b>Verificar</b><p>Cada desvío anterior se marca como corregido, en curso o sin cambios, con foto.</p></div>
+    <div class="step"><span class="num">5</span><b>Acordar</b><p>Plan de acción en la tablet con el responsable del cliente: cada medida queda acordada, ajustada o rechazada (con motivo).</p></div>
+    <div class="step"><span class="num">6</span><b>Firmar</b><p>Constancia de 1 página: asesor y persona autorizada del cliente (con DNI). Se puede firmar sin señal.</p></div>
+    <div class="step"><span class="num">7</span><b>Sincronizar</b><p>Al volver la señal se envía todo solo. El servidor arma los PDF.</p></div>
+    <div class="step"><span class="num">8</span><b>Informar</b><p>Informe del establecimiento e informe consolidado para la empresa, revisados por Dirección antes de enviar.</p></div>
+  </div>
+  <div class="cols">
+    <div class="card"><h3>Constancia de visita (se firma en el lugar)</h3><ul><li>Qué se relevó (módulos e instancias)</li><li>Cantidad de hallazgos por criticidad</li><li>Críticos con la indicación dada en el momento</li><li>Medidas acordadas con responsable y fecha</li><li>Muestras tomadas y mediciones hechas</li><li>Firmas: asesor (matrícula) y cliente (DNI)</li></ul></div>
+    <div class="card"><h3>Informe del establecimiento</h3><ul><li>Índice de cumplimiento general y por módulo</li><li>Detalle de hallazgos con fotos y normativa</li><li>Estado de los desvíos anteriores</li><li>Plan de acción</li><li>Resultados de agua y mediciones cuando llegan</li></ul></div>
+    <div class="card"><h3>Informe para la empresa</h3><ul><li>Todos sus establecimientos en una tabla</li><li>Evolución del índice visita a visita</li><li>Críticos abiertos y vencidos primero</li><li>Pensado para el dueño o gerente: 2 páginas</li></ul></div>
+  </div>
+</section>
+
+<section id="criterios">
+  <span class="num">5</span>
+  <h2>Escala, criticidad, índice y niveles</h2>
+  <div class="cols">
+    <div class="card"><h3>Escala única</h3><ul><li><b>Cumple</b></li><li><b>No cumple</b> → pide criticidad, observación y medida</li><li><b>No aplica</b> → no cuenta</li><li><b>No verificado</b> → no cuenta, pero figura en el informe</li></ul><p class="small">Reemplaza SI/NO/NA, E-MB-B-R-M y el puntaje 1-10. Es lo que se puede defender ante una ART, un auditor o un juez.</p></div>
+    <div class="card"><h3>Criticidad (plazo sugerido, se acuerda con el cliente)</h3><ul><li><span class="tag c1">Crítico</span> Puede causar un accidente grave o mortal. Se indica en el momento detener la tarea o el equipo.</li><li><span class="tag c2">Importante</span> Riesgo real sin peligro inmediato. Sugerido: 30 días.</li><li><span class="tag c3">Menor</span> Formal, documental o de orden. Sugerido: 90 días.</li></ul><p class="small">Los plazos son criterio de EXIT, no de una norma, y así se dice en el informe.</p></div>
+    <div class="card"><h3>Índice de cumplimiento</h3><ul><li>Ponderado: crítico vale 3, importante 2, menor 1</li><li>Solo cuenta Cumple y No cumple</li><li>Por módulo y total</li><li><b>Regla de corte:</b> con un crítico abierto, la calificación no puede ser mejor que "Deficiente", aunque el porcentaje sea alto</li></ul><p class="small">Satisfactorio ≥ 90 % · Aceptable con mejoras 75-89 % · Deficiente &lt; 75 %</p></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Nivel</th><th>Para quién</th><th>Qué agrega</th></tr></thead>
+    <tbody>
+      <tr><td><b>Básico</b></td><td>Campos chicos, pocas instalaciones y personal</td><td>Base común + módulos por instalación</td></tr>
+      <tr><td><b>Ampliado</b></td><td>Más personal, planta de silos, varias actividades</td><td>Documentación y gestión: mediciones anuales, carga de fuego, plan de emergencia con simulacro, ergonomía, control de contratistas</td></tr>
+      <tr><td><b>Certificación</b></td><td>En certificación o certificados: PEFC/CERFOAR, FSC, GlobalG.A.P., ISO 45001</td><td>Evidencia documental de cada requisito, matriz legal, investigación de incidentes, participación de trabajadores. La parte de HyS pasa a ser cumplimiento legal del sistema</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">Cada ítem del catálogo dice en qué nivel entra. Un ítem de nivel Ampliado no aparece en una visita de nivel Básico, salvo que el técnico lo agregue.</p>
+</section>
+
+<section id="catalogo">
+  <span class="num">6</span>
+  <h2>Catálogo Agro, versión 1 (el que usa la app)</h2>
+  <p class="lead">Armado a partir de tus 9 planillas, el Dec. 617/97 leído artículo por artículo, la Ley 26.727 (vivienda y agua) y normas complementarias. Los ítems son afirmaciones verificables, un control por ítem. Marcá lo que sobra o falta en la sección 9.</p>
+  <div class="legend">
+    <span><span class="tag t-L">Legal</span> obligación normativa</span>
+    <span><span class="tag t-BP">Buena práctica</span> recomendación técnica de EXIT</span>
+    <span><span class="tag t-C">Certificación</span> requisito de norma voluntaria</span>
+    <span><span class="tag c1">Crítico</span><span class="tag c2">Importante</span><span class="tag c3">Menor</span> criticidad sugerida</span>
+  </div>
+  <div class="filters" role="group" aria-label="Filtrar por nivel">
+    <b>Mostrar nivel:</b>
+    <label><input type="checkbox" id="fB" checked> Básico</label>
+    <label><input type="checkbox" id="fA" checked> Ampliado</label>
+    <label><input type="checkbox" id="fC" checked> Certificación</label>
+    <span id="totalItems" class="mono"></span>
+    <button type="button" id="expandAll" class="tag t-L" style="border:0;cursor:pointer;padding:5px 10px">Abrir todos</button>
+  </div>
+  <div id="catalog" style="display:grid;gap:8px"></div>
+</section>
+
+<section id="offline">
+  <span class="num">7</span>
+  <h2>Sin conexión y dictado por voz</h2>
+  <div class="cols">
+    <div class="card"><h3>Sin señal (ya existe la base)</h3><ul>
+      <li>La app ya guarda constancias y visitas en la tablet y las envía solas. Las planillas usan el mismo mecanismo.</li>
+      <li><b>Paquete de la visita:</b> se descarga antes de salir (catálogo, ficha, desvíos abiertos, contactos). Pesa poco: texto.</li>
+      <li>Fotos comprimidas en la tablet (≈ 200 KB c/u) y enviadas en segundo plano.</li>
+      <li>GPS de cada vivienda y punto de muestreo aunque no haya datos móviles (el GPS no usa señal).</li>
+      <li>Una visita la edita un solo técnico: no hay conflictos al sincronizar.</li>
+      <li>Aviso visible de cuántos ítems faltan enviar, como en el mockup.</li></ul></div>
+    <div class="card"><h3>Voz a texto: tres niveles</h3><ul>
+      <li><b>1 · Desde ya, sin programar:</b> el dictado del teclado Gboard funciona sin conexión si se descarga el español en la tablet. Sirve en cualquier campo de texto.</li>
+      <li><b>2 · Botón de micrófono en cada campo</b> (en la APK de la tablet): usa el reconocimiento de voz de Android, también sin conexión. En la PWA del navegador no funciona sin señal; por eso va en la APK.</li>
+      <li><b>3 · Nota de voz de la recorrida:</b> se graba sin señal; al sincronizar, el servidor la transcribe y propone en qué ítem va cada hallazgo. <b>El técnico confirma cada uno</b>; nada se carga solo. Tiene costo por minuto y requiere revisar datos personales antes de mandarlo a un servicio externo.</li></ul>
+      <p class="small">Recomiendo 1 ahora, 2 con la APK final y evaluar 3 después de usar 1 y 2 un mes.</p></div>
+  </div>
+</section>
+
+<section id="datos">
+  <span class="num">8</span>
+  <h2>Qué cambia en el backend</h2>
+  <p class="lead">Tablas nuevas; no se toca nada de lo que hoy funciona. La constancia actual sigue igual y recibe desvíos y normativa desde las planillas.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Tabla</th><th>Para qué</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">chk_modulos</td><td>Módulos del catálogo: rubro (agro, servicios, construcción), si se repite, versión</td></tr>
+      <tr><td class="mono">chk_items</td><td>Ítems: texto, ayuda, referencia normativa, tipo (legal, buena práctica, certificación), criticidad y medida sugeridas, nivel, foto obligatoria</td></tr>
+      <tr><td class="mono">chk_plantillas</td><td>Plantillas de visita y sus módulos</td></tr>
+      <tr><td class="mono">chk_relevamientos</td><td>Un relevamiento por visita y establecimiento: plantilla, nivel, actividades vistas, índice</td></tr>
+      <tr><td class="mono">chk_instancias</td><td>Cada módulo relevado, con sus datos (vivienda: GPS, ocupantes; tractor: dominio; muestra: frasco y laboratorio)</td></tr>
+      <tr><td class="mono">chk_respuestas</td><td>Resultado de cada ítem, con <b>copia del texto y la referencia</b>: un informe viejo no cambia si después se edita el catálogo</td></tr>
+      <tr><td class="mono">chk_acciones</td><td>Plan de acción: medida, responsable, fecha, estado (propuesta, acordada, rechazada, cumplida, verificada)</td></tr>
+      <tr><td class="mono">chk_seguimientos</td><td>Verificación de cada acción en visitas siguientes; preparada para que también comente el cliente</td></tr>
+      <tr><td class="mono">chk_actividades</td><td>Actividades de cada establecimiento (permanentes, estacionales, eventuales), con carga masiva</td></tr>
+      <tr><td class="mono">chk_fotos</td><td>Fotos comprimidas en la tablet (≈ 70-200 KB), guardadas en la base y servidas solo con usuario</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">La ficha del establecimiento (qué instalaciones tiene) se guarda en AsistenciaAR, cruzada con el establecimiento del CRM por su id, como ya se hace con los contactos. El CRM sigue siendo dueño de empresas y establecimientos.</p>
+  <h3>Preparado para el espacio del cliente</h3>
+  <div class="prose"><p>La idea de darle usuario a cada empresa para que vea su documentación de higiene y seguridad, acuerde el plan de acción y lo muestre en una inspección (hoy se hace con carpetas de Drive) ya está contemplada en el diseño, aunque no se programa todavía:</p>
+  <ul><li>Cada acción tiene <b>visible para el cliente</b> y un historial de seguimientos donde puede escribir EXIT o el cliente.</li>
+  <li>Las fotos y los informes se sirven solo con usuario, nunca con enlaces públicos.</li>
+  <li>Encaja en la Fase 4 del CRM (portal de cliente), que es dueño de empresas y establecimientos. Se diseña con vos antes de programarlo.</li></ul></div>
+  <h3>Orden propuesto de trabajo</h3>
+  <div class="flow">
+    <div class="step" style="border-color:var(--accent)"><span class="num">Etapa 1 · hecha</span><b>Motor y catálogo</b><p>Tablas, API, catálogo Agro cargado, pantalla de relevamiento sin señal, No cumple → desvío.</p></div>
+    <div class="step"><span class="num">Etapa 2</span><b>Plan de acción e informes</b><p>Acuerdo con el cliente, verificación en la visita siguiente, PDF del establecimiento y de la empresa.</p></div>
+    <div class="step"><span class="num">Etapa 3</span><b>Tablet</b><p>Extintores como módulo, muestras, micrófono en la APK, plantillas editables por Dirección.</p></div>
+    <div class="step"><span class="num">Etapa 4</span><b>Servicios y Construcción</b><p>Catálogos del Dec. 351/79 y del Dec. 911/96 sobre el mismo motor.</p></div>
+  </div>
+</section>
+
+<section id="decisiones">
+  <span class="num">9</span>
+  <h2>Decisiones (arranqué con las recomendadas)</h2>
+  <p class="lead">La Etapa 1 usa la primera opción de cada pregunta. Si querés cambiar alguna, marcala y tocá "Copiar mis respuestas" para pegármelas en el chat.</p>
+  <div id="qs" style="display:grid;gap:10px"></div>
+  <div class="copybar"><button type="button" id="copyBtn">Copiar mis respuestas</button><span id="copyMsg" class="small" role="status"></span></div>
+  <textarea id="copyOut" readonly hidden aria-label="Respuestas para copiar"></textarea>
+</section>
+
+<section id="fuentes" style="border-bottom:0">
+  <span class="num">10</span>
+  <h2>Fuentes consultadas</h2>
+  <div class="prose small"><ul>
+    <li><a href="https://servicios.infoleg.gob.ar/infolegInternet/anexos/40000-44999/44408/texact.htm" target="_blank" rel="noopener">Decreto 617/97, texto en InfoLeg</a> (50 artículos, 11 títulos)</li>
+    <li><a href="https://www.argentina.gob.ar/normativa/nacional/norma-192152/actualizacion" target="_blank" rel="noopener">Ley 26.727 Régimen de Trabajo Agrario</a>: art. 24 vivienda, art. 28 agua</li>
+    <li><a href="http://publicaciones.srt.gob.ar/Publicaciones/2017/ft_espacios_confinados_ago2021.pdf" target="_blank" rel="noopener">SRT, ficha técnica de espacios confinados</a> (Res. SRT 953/10, IRAM 3625)</li>
+    <li><a href="https://cdn.pefc.org/pefc.org/media/2023-12/b84d781d-86ca-46b9-bcd1-42df0886cafd/045a10d1-48e2-588f-a403-ccaae1edef79.pdf" target="_blank" rel="noopener">IRAM 39801:2022 Gestión forestal sostenible (CERFOAR-PEFC)</a></li>
+    <li>Tus planillas: Tractores (2), Implementos 2020, Manejo de hacienda, Monturas y aperos, Estibas, Forestal, Casas del personal, Depósito de fitosanitarios</li>
+    <li>Modelo "Planilla Unificada" de la otra IA (Google Docs)</li>
+    <li>Código actual de AsistenciaAR: constancias, visitas, extintores y almacenamiento sin conexión</li>
+  </ul>
+  <p>Pendiente de verificar con el texto vigente antes de cargar: número de la norma provincial de agroquímicos de cada provincia donde hay clientes, y los indicadores exactos del estándar que certifica cada cliente (PEFC, FSC, GlobalG.A.P.).</p></div>
+</section>
+</div>
+
+<script>
+// ── Catálogo: [texto, referencia, tipo L|BP|C, criticidad 1|2|3, nivel B|A|C] ──
+// Las líneas que empiezan con "#" son subtítulos dentro del módulo.
+const CAT = [{"id":"M0","nombre":"Condiciones básicas del establecimiento","rep":"1 por visita","inst":"Se releva en toda visita, sea cual sea la actividad prevista.","items":["#Organización y documentación",["Contrato con ART vigente; datos de la ART y del prestador médico visibles para el personal","Ley 24.557","L",2,"B"],
+  ["Servicio de Higiene y Seguridad asignado y visitas registradas","Dec. 617/97 (art. 5 del decreto) · Res. SRT 905/15","L",2,"B"],
+  ["Relevamiento de Agentes de Riesgo (RAR) presentado y al día","Res. SRT 463/09 y complementarias","L",2,"B"],
+  ["Constancias firmadas de entrega de EPP por trabajador","Res. SRT 299/11","L",2,"B"],
+  ["El personal usa los EPP que requiere su tarea","Dec. 617/97 art. 48","L",1,"B"],
+  ["Capacitaciones registradas (tema, fecha, asistentes) acordes a los riesgos de cada tarea","Dec. 617/97 arts. 49 y 50","L",2,"B"],
+  ["Accidentes e incidentes denunciados a la ART y registrados","Ley 24.557","L",2,"B"],
+  ["Actividades del establecimiento identificadas, incluidas las estacionales y eventuales","Buena práctica","BP",3,"B"],
+  ["Contratistas y trabajadores eventuales identificados, con ART o seguro vigente","Ley 19.587 · Ley 24.557","L",2,"B"],"#Servicios básicos",["Botiquín de primeros auxilios completo y accesible","Dec. 617/97 art. 6","L",2,"B"],
+  ["Agua apta para consumo en lugares de trabajo y viviendas, con análisis vigente","Dec. 617/97 art. 4 · Ley 26.727 art. 28","L",1,"B"],
+  ["Teléfonos de emergencia (ART, hospital, bomberos, policía) visibles y medio de comunicación disponible","Buena práctica · Ley 19.587","BP",2,"B"],
+  ["Alrededores de instalaciones desmalezados, limpios y sin chatarra","Dec. 617/97 art. 5","L",3,"B"],
+  ["Transporte del personal en vehículo apto: asientos, frenos, barandas de 1,50 m si es caja abierta","Dec. 617/97 art. 34 · Ley 24.449","L",1,"B"],"#Nivel ampliado",["Exámenes médicos periódicos realizados según los agentes de riesgo","Res. SRT 37/10","L",2,"A"],
+  ["Plan de emergencias escrito, difundido y con simulacro registrado","Ley 19.587 · buena práctica","BP",2,"A"],
+  ["Procedimientos de trabajo seguro escritos para las tareas críticas","Dec. 617/97 art. 49","L",3,"A"]]},
+{"id":"M1","nombre":"Vivienda del personal","rep":"Se repite · Una por vivienda","inst":"Datos: vivienda / puesto, ubicación, distancia al casco (km), ocupación, cantidad de ocupantes, viven menores, origen del agua. ","items":["#Electricidad",["Pilar o tablero de acometida con tapa, llave térmica y disyuntor diferencial","Dec. 617/97 art. 18 · AEA 90364","L",1,"B"],
+  ["El disyuntor diferencial dispara al apretar el botón de prueba","Dec. 617/97 art. 18 · AEA 90364","L",1,"B"],
+  ["Jabalina de puesta a tierra conectada al tablero","Dec. 617/97 art. 19 · Res. SRT 900/15","L",1,"B"],
+  ["Tablero interior con tapa, térmica y disyuntor","Dec. 617/97 art. 18","L",1,"B"],
+  ["Tomacorrientes de 3 espigas con tierra; sin prolongadores ni zapatillas precarias","Dec. 617/97 arts. 19 y 22","L",2,"B"],
+  ["Cableado canalizado, sin empalmes expuestos","Dec. 617/97 art. 22","L",2,"B"],
+  ["Luminarias y artefactos conectados de forma segura","Dec. 617/97 art. 22","L",3,"B"],"#Gas, calefacción e incendio",["Garrafa en el exterior, en caseta ventilada","Reglamentación ENARGAS · buena práctica","BP",1,"B"],
+  ["Calefactor, cocina o hogar con salida de gases al exterior funcionando","Ley 26.727 art. 24","L",1,"B"],
+  ["Campana o ventilación en la cocina","Ley 26.727 art. 24","L",3,"B"],
+  ["Matafuego ABC de 5 kg con carga vigente","Dec. 617/97 art. 32","L",2,"B"],"#Agua y sanitarios",["Tanque de agua con tapa hermética y limpieza registrada","Ley 26.727 art. 28 · CAA art. 982","L",2,"B"],
+  ["Agua en cantidad suficiente para toda la vivienda","Ley 26.727 art. 28","L",2,"B"],
+  ["Baño con inodoro, bidet, ducha y lavabo en funcionamiento","Ley 26.727 art. 24","L",2,"B"],
+  ["Agua caliente en cocina y baño; calefón con conexión segura","Ley 26.727 art. 24","L",2,"B"],
+  ["Desagüe a cámara séptica y pozo sin desbordes","Ley 26.727 art. 24","L",2,"B"],"#Edificio",["Techo y cielorraso sin filtraciones ni riesgo de desprendimiento","Ley 26.727 art. 24","L",2,"B"],
+  ["Paredes sin rajaduras estructurales, humedad ni hongos","Ley 26.727 art. 24","L",2,"B"],
+  ["Pisos en buen estado, sin desniveles peligrosos","Ley 26.727 art. 24","L",3,"B"],
+  ["Aberturas completas: puertas con cerradura, vidrios sanos, mosquiteros","Ley 26.727 art. 24","L",3,"B"],
+  ["Iluminación y ventilación natural suficiente en los ambientes","Ley 26.727 art. 24 inc. a","L",3,"B"],"#Entorno",["Vivienda separada de corrales y lugares con animales","Dec. 617/97 art. 44 · Ley 26.727 art. 24 inc. f","L",2,"B"],
+  ["Sin agroquímicos, combustibles ni envases guardados en la vivienda o junto a ella","Dec. 617/97 art. 28","L",1,"B"],
+  ["Si hay menores: sin acceso a pozos, tanques, agroquímicos ni maquinaria","Buena práctica","BP",1,"B"],
+  ["Entorno desmalezado, sin basura ni chatarra","Dec. 617/97 art. 5","L",3,"B"]]},
+{"id":"M2","nombre":"Tractor o máquina autopropulsada","rep":"Se repite · Una por unidad: tractores, cosechadoras, pulverizadoras autopropulsadas, cargadoras","inst":"Datos: marca y modelo, dominio o n° interno, horas de uso. ","items":[["Estructura antivuelco (ROPS) o cabina con protección antivuelco","Dec. 617/97 art. 11","L",1,"B"],
+  ["Cinturón de seguridad presente y en uso","Dec. 617/97 art. 11","L",1,"B"],
+  ["Frenos de servicio y de estacionamiento eficaces","Dec. 617/97 art. 11","L",1,"B"],
+  ["Toma de fuerza (TDF) y cardanes con protección completa","Dec. 617/97 art. 7","L",1,"B"],
+  ["Partes móviles protegidas: correas, poleas, ventilador","Dec. 617/97 art. 7","L",1,"B"],
+  ["Parada de motor o de emergencia accesible desde el puesto","Dec. 617/97 art. 8","L",2,"B"],
+  ["Acceso seguro: escalones antideslizantes y pasamanos, tres puntos de apoyo","Dec. 617/97 arts. 9 y 11","L",2,"B"],
+  ["Asiento en buen estado; nadie viaja fuera de un asiento","Dec. 617/97 art. 9","L",2,"B"],
+  ["Escape por encima del conductor, con apagachispas","Dec. 617/97 art. 12","L",2,"B"],
+  ["Matafuego ABC de 5 kg sujeto y con carga vigente","Dec. 617/97 art. 32","L",2,"B"],
+  ["Luces, balizas y señalización para circular por caminos","Ley 24.449","L",2,"B"],
+  ["Espejos retrovisores","Ley 24.449","L",3,"B"],
+  ["Neumáticos sin desgaste excesivo ni cortes","Buena práctica","BP",2,"B"],
+  ["Instrumental y mandos funcionando","Buena práctica","BP",3,"B"],
+  ["Operador capacitado y autorizado para la máquina","Dec. 617/97 art. 49","L",2,"B"],
+  ["Registro de mantenimiento preventivo","Buena práctica","BP",3,"A"]]},
+{"id":"M3","nombre":"Implemento, acoplado o tanque","rep":"Se repite · Uno por unidad","inst":"Datos: tipo, identificación. ","items":[["Enganche seguro con perno y traba (chaveta)","Dec. 617/97 art. 7","L",1,"B"],
+  ["Cadena de seguridad en el enganche","Ley 24.449","L",2,"B"],
+  ["Cardán y eje de toma de fuerza con protección","Dec. 617/97 art. 7","L",1,"B"],
+  ["Mecanismos en movimiento protegidos: correas, cadenas, sinfines","Dec. 617/97 art. 7","L",1,"B"],
+  ["Defensas contra proyección de piedras u objetos","Dec. 617/97 art. 7","L",2,"B"],
+  ["Acceso seguro a plataformas (escalones y manijas)","Dec. 617/97 art. 9","L",2,"B"],
+  ["Luces y señalización para circular: bandas reflectivas, velocidad máxima, balizas","Ley 24.449 y su reglamentación","L",2,"B"],
+  ["Tanques rotulados con su contenido (inflamable, número ONU)","Ley 24.449 · Res. SRT 801/15","L",2,"B"],
+  ["Tanque de combustible con matafuego al alcance","Dec. 617/97 art. 32","L",2,"B"],
+  ["Cables de acero sanos, con grampas y guardacabos","Buena práctica","BP",2,"B"],
+  ["Sin fisuras ni pérdidas de líquidos","Buena práctica","BP",2,"B"],
+  ["Soporte o pata de apoyo de la lanza","Buena práctica","BP",3,"B"],
+  ["Neumáticos en buen estado","Buena práctica","BP",3,"B"]]},
+{"id":"M4","nombre":"Instalaciones para manejo de hacienda","rep":"Se repite · Manga, cepo, toril, bretes y corrales","inst":"Datos: nombre o sector. ","items":[["Manga, cepo, toril y corrales sin maderas rotas, clavos ni elementos punzantes","Dec. 617/97 art. 45","L",1,"B"],
+  ["El cepo funciona y sujeta al animal con seguridad","Dec. 617/97 art. 45","L",1,"B"],
+  ["Puertas, trabas y bisagras de la manga funcionan y están lubricadas","Dec. 617/97 art. 45","L",2,"B"],
+  ["Pasarela de la manga firme, limpia y con baranda","Dec. 617/97 art. 45","L",2,"B"],
+  ["Instalación eléctrica con cables protegidos, puesta a tierra y disyuntor","Dec. 617/97 arts. 18 y 19","L",1,"B"],
+  ["Cercas eléctricas con energizador apto (tensión de seguridad)","Dec. 617/97 art. 23","L",2,"B"],
+  ["Agua para lavado del personal junto a la manga","Dec. 617/97 art. 47","L",2,"B"],
+  ["Jeringas, agujas y envases veterinarios descartados en recipiente adecuado","Dec. 617/97 art. 47 · Ley 24.051","L",2,"B"],
+  ["Personal con EPP: calzado de seguridad, guantes, protección ocular","Dec. 617/97 art. 48","L",2,"B"],
+  ["Personal capacitado en manejo de hacienda y zoonosis (brucelosis, leptospirosis, carbunclo)","Dec. 617/97 arts. 47 y 49","L",2,"B"],
+  ["Cadáveres de animales incinerados o enterrados","Dec. 617/97 art. 47","L",2,"B"],
+  ["Lugar apropiado junto a la manga para heladeras e instrumental","Buena práctica","BP",3,"B"],
+  ["Portones y alambrados de las instalaciones en buen estado","Buena práctica","BP",3,"B"],
+  ["Techos sanos","Buena práctica","BP",3,"B"],
+  ["Local de instrumental y depósito de alimento limpios y ordenados","Buena práctica","BP",3,"B"]]},
+{"id":"M5","nombre":"Caballos, monturas y aperos","rep":"1 por visita","inst":"","items":[["Caballos mansos y aptos para la tarea asignada","Dec. 617/97 art. 45","L",2,"B"],
+  ["Estribos y correones sanos","Dec. 617/97 art. 46","L",1,"B"],
+  ["Recados, cinchas y cojinillos en condiciones","Dec. 617/97 art. 46","L",2,"B"],
+  ["Bozales, riendas y lazos en buen estado","Dec. 617/97 art. 46","L",2,"B"],
+  ["Caballerizas con techo sano, limpias y ordenadas","Buena práctica","BP",3,"B"]]},
+{"id":"M6","nombre":"Frente de trabajo forestal","rep":"Se repite · Uno por frente o cuadrilla","inst":"Datos: lote / frente, operación, contratista (si corresponde), cuadrilla (ej.: 2 motosierristas, 1 maquinista, 1 capataz), ubicación. ","items":["#EPP",["Motosierristas con casco, protector facial y auditivo","Dec. 617/97 art. 38","L",1,"B"],
+  ["Motosierristas con pantalón anticorte y calzado de seguridad","Dec. 617/97 art. 38","L",1,"B"],
+  ["Guantes de trabajo","Dec. 617/97 art. 38","L",2,"B"],
+  ["Ropa o chaleco de alta visibilidad","Buena práctica","BP",2,"B"],"#Herramientas",["Motosierra con freno de cadena, captor de cadena y protección de manos","Dec. 617/97 arts. 13 y 37","L",1,"B"],
+  ["Cadena afilada, espada y mango en condiciones; funda para transportarla","Dec. 617/97 art. 37","L",2,"B"],
+  ["Hacha, machete, serrucho de poda y tijerón en condiciones, con fundas","Dec. 617/97 art. 13","L",2,"B"],
+  ["Escaleras de poda en buen estado; podador con casco y cinturón","Dec. 617/97 art. 40","L",2,"B"],"#Operación",["Zona de volteo exclusiva, con distancia de al menos el doble de la altura del árbol","Dec. 617/97 art. 36","L",1,"B"],
+  ["Área revisada antes de empezar: malezas, caminos de escape, ramas colgadas","Dec. 617/97 art. 35","L",2,"B"],
+  ["Verificada la ausencia de camoatíes o nidos de insectos","Buena práctica","BP",2,"B"],
+  ["Distancia segura en la carga de rollizos; señas manuales acordadas","Dec. 617/97 art. 43","L",1,"B"],
+  ["Troncos asegurados en pendientes","Dec. 617/97 art. 42","L",2,"B"],
+  ["Carga de combustible con motor apagado, bidón antiderrame y embudo","Dec. 617/97 art. 39","L",2,"B"],
+  ["No se fuma en el frente; matafuego ABC disponible","Dec. 617/97 arts. 29 y 32","L",2,"B"],
+  ["Operadores capacitados en uso seguro de la motosierra","Dec. 617/97 art. 39","L",2,"B"],
+  ["Cartelería: faena forestal, circulación de camiones, línea eléctrica, uso de EPP","Buena práctica","BP",3,"B"],"#Acarreo y varios",["Ganchos con pestillo; cadenas y eslingas sanas, con guardacabos y grampas","Buena práctica","BP",2,"B"],
+  ["Botiquín en el frente","Dec. 617/97 art. 6","L",2,"B"],
+  ["Agua potable en bidones para consumo e higiene","Dec. 617/97 art. 4","L",2,"B"],
+  ["Medio de comunicación con señal (handy o celular)","Buena práctica","BP",2,"B"],
+  ["Residuos en depósito destinado; bidones rotulados","Buena práctica","BP",3,"B"]]},
+{"id":"M7","nombre":"Depósito de fitosanitarios y aplicación","rep":"Se repite · Uno por depósito","inst":"Datos: nombre o sector. ","items":["#Ubicación y acceso",["Separado de viviendas, fuentes de agua y depósitos de combustible","Dec. 617/97 art. 28 · normativa provincial","L",1,"B"],
+  ["Cerramiento y acceso restringido; llave a cargo de un responsable","Buena práctica","BP",2,"B"],
+  ["Piso sobre la cota de inundación; acceso consolidado","Buena práctica","BP",2,"B"],
+  ["Cartel exterior con empresa y teléfonos de emergencia","Buena práctica","BP",3,"B"],"#Construcción e instalaciones",["Construido con materiales no combustibles e impermeables","Dec. 617/97 art. 28","L",1,"B"],
+  ["Piso impermeable con pendiente y contención de derrames (cordón de 15 cm o más)","Buena práctica","BP",1,"B"],
+  ["Ventilación suficiente","Dec. 617/97 art. 14","L",2,"B"],
+  ["Tablero fuera del depósito; luminarias aptas para el ambiente","Dec. 617/97 arts. 21 y 30","L",1,"B"],
+  ["Oficina, comedor y vestuario fuera del área de almacenamiento","Buena práctica","BP",2,"B"],"#Productos",["Solo productos autorizados (registro SENASA), con etiqueta, sin vencidos","Dec. 617/97 art. 16","L",1,"B"],
+  ["Separados de combustibles y otros inflamables","Dec. 617/97 art. 28","L",1,"B"],
+  ["Hojas de datos de seguridad de todos los productos, en español, en el lugar","Res. SRT 801/15","L",2,"B"],
+  ["Envases cerrados, sobre tarimas, ordenados por clase","Buena práctica","BP",2,"B"],
+  ["Registro de ingresos y egresos de productos","Buena práctica · GlobalG.A.P.","C",3,"C"],"#Envases y residuos",["Envases vacíos con triple lavado (o lavado a presión) y perforados","Ley 27.279","L",2,"B"],
+  ["Envases vacíos acopiados y entregados a un centro de acopio (CAT) con comprobante","Ley 27.279","L",2,"B"],
+  ["Residuos contaminados gestionados como residuos peligrosos","Ley 24.051","L",2,"B"],"#Emergencias",["Kit antiderrame: absorbente, pala antichispa, bolsas, cinta de peligro","Buena práctica","BP",1,"B"],
+  ["Ducha de emergencia y lavaojos operativos y cercanos","Buena práctica","BP",1,"A"],
+  ["Matafuego ABC fuera del depósito, junto a la puerta","Dec. 617/97 art. 32","L",1,"B"],
+  ["Señalización: prohibido fumar y comer, uso de EPP, riesgo tóxico","Dec. 351/79 cap. 12 · IRAM 10005","L",2,"B"],
+  ["Procedimiento ante derrame o intoxicación y teléfono de toxicología visibles","Buena práctica","BP",2,"B"],"#Aplicación",["Aplicador con habilitación o carnet provincial vigente","Normativa provincial","L",1,"B"],
+  ["EPP de aplicación completo (traje, máscara con filtros, antiparras, guantes de nitrilo, botas) con registro de entrega","Dec. 617/97 art. 48 · Res. SRT 299/11","L",1,"B"],
+  ["Filtros de la máscara vigentes; EPP lavado y guardado fuera del depósito","Buena práctica","BP",2,"B"],
+  ["Preparación del caldo en zona con contención y agua disponible","Buena práctica","BP",2,"B"],
+  ["Personal expuesto con exámenes médicos específicos","Res. SRT 37/10","L",2,"A"],
+  ["Se respetan los tiempos de reingreso al lote indicados en la etiqueta","Buena práctica","BP",2,"B"]]},
+{"id":"M8","nombre":"Planta de silos y acopio de granos","rep":"Se repite · Silos, secadora, norias, sinfines y playa de camiones","inst":"Datos: nombre o sector. ","items":[["Silos sobre bases resistentes; estructura sin corrosión ni deformaciones","Dec. 617/97 art. 25","L",1,"B"],
+  ["Escaleras fijas con guarda hombre y descansos","Dec. 617/97 art. 25","L",1,"B"],
+  ["Plataformas y pasarelas con barandas y rodapié","Dec. 617/97 art. 25 · Dec. 351/79","L",1,"B"],
+  ["Procedimiento escrito y permiso de trabajo para entrar a silos o espacios confinados","Dec. 617/97 art. 26 · Res. SRT 953/10 · IRAM 3625","L",1,"B"],
+  ["Ventilación previa y medición de oxígeno y gases antes de entrar","Dec. 617/97 art. 26","L",1,"B"],
+  ["Arnés con cabo de vida atado afuera y una persona vigilando desde el exterior","Dec. 617/97 art. 26","L",1,"B"],
+  ["Descarga detenida y bloqueada antes de entrar al silo","Dec. 617/97 art. 10 · buena práctica","BP",1,"B"],
+  ["Sinfines, norias y transportadores con protecciones y parada de emergencia","Dec. 617/97 arts. 7 y 8","L",1,"B"],
+  ["Control de temperatura y gases en acopios que pueden fermentar","Dec. 617/97 art. 31","L",2,"B"],
+  ["Sin acumulación de polvo (riesgo de explosión); limpieza periódica","Dec. 617/97 arts. 14 y 21","L",1,"B"],
+  ["Motores y tableros aptos para ambientes con polvo","Dec. 617/97 art. 21","L",1,"B"],
+  ["Instalación eléctrica con puesta a tierra y pararrayos","Dec. 617/97 arts. 18 y 19","L",1,"B"],
+  ["Secadora con control de temperatura, limpia y con matafuegos cercanos","Dec. 617/97 art. 32","L",1,"B"],
+  ["Fumigación de granos con procedimiento, señalización y aplicador habilitado","Dec. 617/97 art. 16","L",1,"B"],
+  ["Protección auditiva y respiratoria en zonas de ruido y polvo","Dec. 617/97 art. 48","L",2,"B"],
+  ["Circulación de camiones ordenada, señalizada y separada de peatones","Buena práctica","BP",2,"B"],
+  ["Plan de rescate y equipo disponible","Res. SRT 953/10 · buena práctica","BP",1,"A"],
+  ["Mediciones anuales de puesta a tierra vigentes","Res. SRT 900/15","L",2,"A"]]},
+{"id":"M9","nombre":"Estibas y almacenamiento","rep":"Se repite · Uno por depósito o galpón","inst":"Datos: nombre o sector. ","items":[["Estiba estable, con bolsas trabadas y sin inclinación","Dec. 617/97 art. 27","L",1,"B"],
+  ["Pallets sanos, sin tablas faltantes o rotas","Dec. 617/97 art. 27","L",2,"B"],
+  ["Piso nivelado bajo las estibas","Dec. 617/97 art. 27","L",2,"B"],
+  ["Distancia de al menos 1 m entre la estiba y el techo o las luminarias","Buena práctica","BP",2,"B"],
+  ["Medios mecánicos para elevar cargas (cinta, autoelevador)","Dec. 617/97 art. 24","L",2,"B"],
+  ["Carga manual de hasta 50 kg por persona","Dec. 617/97 art. 24","L",2,"B"],
+  ["Personal con calzado de seguridad y guantes","Dec. 617/97 art. 48","L",2,"B"],
+  ["Iluminación suficiente","Buena práctica","BP",3,"B"],
+  ["Techos sanos, sin goteras","Buena práctica","BP",3,"B"],
+  ["Local limpio y ordenado; pasillos libres","Buena práctica","BP",3,"B"],
+  ["Cartelería de riesgos y uso de EPP","Buena práctica","BP",3,"B"],
+  ["Evaluación ergonómica de puestos con levantamiento manual","Res. SRT 886/15","L",3,"A"]]},
+{"id":"M10","nombre":"Taller, combustibles y tanques","rep":"Se repite · 1 por instancia","inst":"Datos: nombre o sector. ","items":[["Tanque de combustible con contención antiderrame, señalizado y con puesta a tierra","Dec. 617/97 art. 28 · Dec. 351/79 cap. 18","L",1,"B"],
+  ["Matafuego al alcance del tanque o surtidor","Dec. 617/97 art. 32","L",1,"B"],
+  ["Tablero del taller con disyuntor y puesta a tierra","Dec. 617/97 arts. 18 y 19","L",1,"B"],
+  ["Amoladora y esmeril con protecciones; soldadura con protección ocular y ventilación","Dec. 617/97 arts. 7 y 14","L",1,"B"],
+  ["Máquinas elevadas sobre soportes seguros, nunca solo sobre el gato","Buena práctica","BP",1,"B"],
+  ["Herramientas eléctricas con cable sano y enchufe con tierra","Dec. 617/97 arts. 19 y 22","L",2,"B"],
+  ["Cilindros de gas sujetos, con válvulas protegidas","Buena práctica","BP",2,"B"],
+  ["Prohibición de fumar señalizada y respetada","Dec. 617/97 art. 28","L",2,"B"],
+  ["Aceites y residuos contaminados gestionados como residuos peligrosos","Ley 24.051","L",2,"B"],
+  ["Orden y limpieza; piso sin aceite","Buena práctica","BP",3,"B"]]},
+{"id":"M11","nombre":"Extintores","rep":"Se repite · Uno por equipo","inst":"Datos: n° de extintor, ubicación, agente, capacidad (kg), vencimiento de carga, vencimiento prueba hidráulica. ","items":[["Tipo y capacidad adecuados al riesgo del lugar","Dec. 617/97 art. 32 · Dec. 351/79 cap. 18","L",1,"B"],
+  ["Carga vigente, con tarjeta de control","IRAM 3517-2","L",1,"B"],
+  ["Manómetro en zona verde; precinto y seguro colocados","IRAM 3517-2","L",1,"B"],
+  ["Prueba hidráulica vigente","IRAM 3517-2","L",2,"B"],
+  ["Accesible, sin obstrucciones y señalizado","Dec. 351/79 cap. 18 · IRAM 10005","L",2,"B"],
+  ["Manguera, boquilla y cuerpo sin daños ni corrosión","IRAM 3517-2","L",2,"B"],
+  ["Colgado a la altura correcta; en vehículos, fijo con soporte","Buena práctica","BP",3,"B"],
+  ["El personal sabe usarlo (capacitación registrada)","Dec. 617/97 art. 49","L",2,"B"],
+  ["Cantidad de extintores según carga de fuego calculada","Dec. 351/79 cap. 18","L",2,"A"]]},
+{"id":"M12","nombre":"Agua para consumo: toma de muestra","rep":"Se repite · Uno por punto de muestreo","inst":"Datos: punto de muestreo, ubicación, fuente, análisis, n° de frasco / rótulo, hora de toma, laboratorio, resultado, fecha del resultado. ","items":[["Último análisis vigente y dentro de parámetros (bacteriológico, nitratos, arsénico)","Dec. 617/97 art. 4 · Ley 26.727 art. 28 · CAA art. 982","L",1,"B"],
+  ["Pozo protegido con tapa, alejado de pozos negros y corrales","CAA art. 982 · buena práctica","BP",1,"B"],
+  ["Tanque o cisterna tapados, con limpieza registrada","Ley 26.727 art. 28","L",2,"B"],
+  ["Muestra tomada según protocolo del laboratorio (frasco estéril, cadena de frío)","Buena práctica","BP",2,"B"]]},
+{"id":"M13","nombre":"Mediciones en campo","rep":"Se repite · Registro de campo","inst":"Datos: medición, punto, valor medido, instrumento (marca, n° de serie), fecha de calibración. ","items":[["Valor dentro del límite del protocolo correspondiente","Res. SRT 900/15 · 84/12 · 85/12","L",2,"B"]]},
+{"id":"M14","nombre":"Documentación y gestión","rep":"1 por visita","inst":"Nivel ampliado en adelante.","items":[["Mediciones anuales vigentes según RAR (puesta a tierra, iluminación, ruido)","Res. SRT 900/15, 84/12 y 85/12","L",2,"A"],
+  ["Estudio de carga de fuego","Dec. 351/79 cap. 18","L",2,"A"],
+  ["Programa anual de capacitación","Dec. 617/97 art. 49","L",2,"A"],
+  ["Control de contratistas: ART, EPP y capacitación","Ley 19.587 · buena práctica","BP",2,"A"],
+  ["Legajo con las constancias de visitas del servicio de HyS","Res. SRT 905/15","L",3,"A"]]},
+{"id":"M15","nombre":"Sistema de gestión y certificación","rep":"1 por visita","inst":"Datos: estándar. Nivel certificación. Validar cada ítem contra la versión vigente del estándar que certifica el cliente.","items":[["Matriz de requisitos legales de HyS actualizada y evaluada","ISO 45001 6.1.3 · IRAM 39801","C",2,"C"],
+  ["Peligros identificados y riesgos evaluados por puesto, por escrito","ISO 45001 6.1.2","C",2,"C"],
+  ["Incidentes investigados, con acciones y verificación de eficacia","ISO 45001 10.2","C",2,"C"],
+  ["Acciones de auditorías anteriores cerradas con evidencia","ISO 45001 10.2","C",2,"C"],
+  ["Consulta y participación de los trabajadores registradas","ISO 45001 5.4","C",3,"C"],
+  ["Contratistas controlados con evidencia documental","ISO 45001 8.1.4","C",2,"C"],
+  ["Capacitaciones con evaluación de eficacia","ISO 45001 7.2","C",3,"C"],
+  ["Viviendas y campamentos según el estándar forestal","IRAM 39801","C",2,"C"]]},
+{"id":"M16","nombre":"Vehículo y traslado de personal","rep":"Se repite · Uno por vehículo: camionetas, utilitarios, colectivos y camiones que llevan personal o cargas","inst":"Datos: tipo, dominio, uso, personas trasladadas hoy, conductor. ","items":["#Documentación",["Revisión técnica (VTV/RTO) vigente","Ley 24.449","L",2,"B"],
+  ["Seguro obligatorio vigente","Ley 24.449","L",2,"B"],
+  ["Conductor con licencia habilitante para la categoría del vehículo","Ley 24.449","L",1,"B"],"#Estado del vehículo",["Frenos, dirección y luces funcionando","Ley 24.449 · Dec. 617/97 art. 34","L",1,"B"],
+  ["Neumáticos en buen estado, incluido el auxilio","Ley 24.449","L",2,"B"],
+  ["Parabrisas de seguridad sin roturas que limiten la visión","Dec. 617/97 art. 34","L",2,"B"],
+  ["Matafuego y balizas a bordo","Ley 24.449","L",2,"B"],
+  ["Botiquín a bordo","Dec. 617/97 art. 6","L",3,"B"],"#Traslado de personal",["Cinturón de seguridad en cada asiento ocupado, y en uso","Ley 24.449","L",1,"B"],
+  ["Todos viajan sentados; nadie en la caja ni fuera de un asiento","Dec. 617/97 art. 34","L",1,"B"],
+  ["No se supera la cantidad de pasajeros habilitada","Ley 24.449","L",1,"B"],
+  ["Herramientas y cargas sujetas y separadas de los pasajeros","Dec. 617/97 art. 34","L",1,"B"],
+  ["Combustible y agroquímicos en recipientes aptos, fuera de la cabina con personas","Dec. 617/97 art. 28 · Ley 24.449","L",1,"B"],
+  ["Pautas de manejo conocidas: velocidad, no usar el celular, descanso del conductor","Buena práctica","BP",3,"B"],
+  ["Registro de mantenimiento del vehículo","Buena práctica","BP",3,"A"]]},
+{"id":"M17","nombre":"EPP por puesto de trabajo","rep":"Se repite · Uno por puesto o tarea (ej","inst":"Datos: puesto o tarea, trabajadores en el puesto, epp que requiere el puesto. ","items":[["EPP del puesto definidos según los riesgos de la tarea","Dec. 617/97 art. 48","L",2,"B"],
+  ["Entrega a cada trabajador registrada en el formulario oficial","Res. SRT 299/11","L",2,"B"],
+  ["EPP con certificación de seguridad (sello)","Res. SICyM 896/99","L",2,"B"],
+  ["EPP en buen estado y del talle adecuado","Dec. 617/97 art. 48","L",2,"B"],
+  ["Los trabajadores usan el EPP durante la tarea (observado)","Dec. 617/97 art. 48","L",1,"B"],
+  ["Capacitación en uso y cuidado del EPP registrada","Res. SRT 299/11","L",3,"B"],
+  ["Reposición por desgaste o vencimiento (filtros, cascos, guantes)","Buena práctica","BP",2,"B"],
+  ["EPP guardado limpio, separado de la ropa de calle; la ropa de aplicación no se lava en la vivienda","Buena práctica","BP",2,"B"]]},
+{"id":"M18","nombre":"Instalación eléctrica general","rep":"Se repite · Galpones, bombas, molinos eléctricos, bebederos y tableros fuera de las viviendas","inst":"Datos: nombre o sector. ","items":[["Tablero con tapa, cierre y señal de riesgo eléctrico","Dec. 617/97 art. 18 · AEA 90364","L",2,"B"],
+  ["Disyuntor diferencial que dispara con el botón de prueba","Dec. 617/97 art. 18","L",1,"B"],
+  ["Protección termomagnética en cada circuito","Dec. 617/97 art. 18","L",2,"B"],
+  ["Puesta a tierra de tableros y masas metálicas","Dec. 617/97 art. 19","L",1,"B"],
+  ["Conductores canalizados, sin empalmes ni cables expuestos a la intemperie","Dec. 617/97 art. 22","L",1,"B"],
+  ["Equipos a la intemperie protegidos de la lluvia","Dec. 617/97 art. 22","L",2,"B"],
+  ["Motores en zonas con polvo o combustibles aptos para ese ambiente","Dec. 617/97 art. 21","L",1,"B"],
+  ["Trabajos eléctricos solo por personal capacitado y con corte de energía","Dec. 617/97 art. 20","L",1,"B"],
+  ["Líneas aéreas a altura segura sobre caminos y zonas de maniobra de máquinas","Dec. 617/97 art. 18 · AEA","L",1,"B"],
+  ["Iluminación de emergencia donde se trabaja de noche","Buena práctica","BP",3,"A"],
+  ["Medición anual de puesta a tierra vigente","Res. SRT 900/15","L",2,"A"]]},
+{"id":"M19","nombre":"Trabajo en altura y molinos","rep":"Se repite · Molinos, tanques australianos, techos, torres y estructuras elevadas","inst":"Datos: estructura, identificación, altura aproximada (m). ","items":[["Escalera fija en buen estado, con guarda hombre o línea de vida","Ley 19.587 · buena práctica","BP",1,"B"],
+  ["Arnés de cuerpo entero con doble cabo, en buen estado","Dec. 617/97 art. 48","L",1,"B"],
+  ["Punto de anclaje seguro identificado","Buena práctica","BP",1,"B"],
+  ["Nadie trabaja en altura solo; hay otra persona abajo","Buena práctica","BP",1,"B"],
+  ["No se sube con viento fuerte ni tormenta eléctrica","Buena práctica","BP",1,"B"],
+  ["Techos frágiles (chapa traslúcida, fibrocemento) con tablones o pasarelas y señalizados","Buena práctica","BP",1,"B"],
+  ["Herramientas sujetas y zona de abajo señalizada","Buena práctica","BP",2,"B"],
+  ["Personal capacitado en trabajo en altura y rescate","Dec. 617/97 art. 49","L",2,"B"]]},
+{"id":"M99","nombre":"Otro: hallazgo no previsto","rep":"Se repite · Para lo que no está en ningún módulo","inst":"Datos: tema o sector, ubicación. ","items":[]}];
+
+const TIPO = {L:"Legal", BP:"Buena práctica", C:"Certificación"};
+const CRIT = {1:"Crítico", 2:"Importante", 3:"Menor"};
+const NIV = {B:"Básico", A:"Ampliado", C:"Certificación"};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function renderCatalog(){
+  const show = {B:fB.checked, A:fA.checked, C:fC.checked};
+  const open = new Set([...document.querySelectorAll("details.mod[open]")].map(d=>d.dataset.id));
+  let total = 0;
+  const html = CAT.map(m=>{
+    let n = 0, rows = [], pendingSub = null;
+    m.items.forEach(it=>{
+      if (typeof it === "string") { pendingSub = it.slice(1); return; }
+      const [t,r,k,c,lv] = it;
+      n++;
+      if (!show[lv]) return;
+      if (pendingSub) { rows.push(`<li class="sub"><span>${esc(pendingSub)}</span></li>`); pendingSub = null; }
+      rows.push(`<li><span class="id">${m.id.slice(1)}.${String(n).padStart(2,"0")}</span><span>${esc(t)}</span><span class="tags"><span class="tag t-${k}">${TIPO[k]}</span><span class="tag c${c}">${CRIT[c]}</span>${lv!=="B"?`<span class="tag t-C">${NIV[lv]}</span>`:""}</span><span class="ref">${esc(r)}</span></li>`);
+    });
+    const vis = rows.filter(r=>!r.startsWith('<li class="sub"')).length;
+    total += vis;
+    return `<details class="mod" data-id="${m.id}"${open.has(m.id)?" open":""}><summary><h3>${esc(m.nombre)}</h3><span class="rep">${esc(m.rep)}</span><span class="cnt">${vis} ítems</span></summary><div class="modbody">${m.inst?`<div class="inst">${esc(m.inst)}</div>`:""}<ol class="items">${rows.join("")||'<li><span></span><span class="small">Sin ítems en los niveles elegidos.</span></li>'}</ol></div></details>`;
+  }).join("");
+  document.getElementById("catalog").innerHTML = html;
+  document.getElementById("totalItems").textContent = `${CAT.length} módulos · ${total} ítems`;
+}
+["fB","fA","fC"].forEach(id=>document.getElementById(id).addEventListener("change",renderCatalog));
+document.getElementById("expandAll").addEventListener("click",e=>{
+  const ds=[...document.querySelectorAll("details.mod")]; const abrir=ds.some(d=>!d.open);
+  ds.forEach(d=>d.open=abrir); e.target.textContent=abrir?"Cerrar todos":"Abrir todos";
+});
+renderCatalog();
+
+// ── Tabs de modelos ──
+const tabs=[...document.querySelectorAll('[role="tab"]')];
+function selectTab(t){tabs.forEach(b=>{const on=b===t;b.setAttribute("aria-selected",on);document.getElementById(b.getAttribute("aria-controls")).hidden=!on;});}
+tabs.forEach(t=>t.addEventListener("click",()=>selectTab(t)));
+
+// ── Decisiones ──
+const QS=[
+ {id:"modelo",q:"¿Qué modelo de planillas usamos?",o:["C · Plantillas + módulos (recomendado)","B · Armada por el sistema","A · Una planilla por actividad"]},
+ {id:"escala",q:"¿Escala de evaluación?",o:["Cumple / No cumple / No aplica / No verificado (recomendado)","Mantener E-MB-B-R-M en algunos módulos (estado de conservación)"]},
+ {id:"plazos",q:"¿Plazos sugeridos por criticidad?",o:["Crítico: en el momento · Importante: 30 días · Menor: 90 días","Otros (escribilos abajo)"]},
+ {id:"indice",q:"¿Índice de cumplimiento?",o:["Ponderado por criticidad, con regla de corte si hay un crítico abierto (recomendado)","Simple: cumple / (cumple + no cumple)"]},
+ {id:"voz",q:"¿Voz a texto?",o:["Nivel 1 ya + nivel 2 en la APK; el 3 más adelante (recomendado)","Ir directo al nivel 3 (nota de voz transcrita en el servidor)"]},
+ {id:"catalogo",q:"¿Quién puede editar el catálogo y las plantillas?",o:["Solo Dirección (recomendado)","Dirección y técnicos (los técnicos proponen, Dirección aprueba)"]},
+ {id:"empresa",q:"¿Cada cuánto el informe consolidado para la empresa?",o:["Después de cada ronda de visitas a todos sus establecimientos","Mensual","Trimestral"]},
+ {id:"primero",q:"¿Qué módulos probamos primero en campo?",o:["Condiciones básicas + Viviendas + Tractores + Extintores + Agua","Todos los del catálogo Agro"],multi:false},
+];
+const KEY="exit-planillas-decisiones";
+let saved={}; try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(saved))}catch(e){}}
+document.getElementById("qs").innerHTML=QS.map((x,i)=>`<div class="q"><b>${i+1}. ${esc(x.q)}</b>${x.o.map((o,j)=>`<label class="opt"><input type="radio" name="${x.id}" id="${x.id}-${j}" value="${esc(o)}"${saved[x.id]===o?" checked":""}><span>${esc(o)}</span></label>`).join("")}<textarea id="${x.id}-nota" placeholder="Comentario (opcional)">${esc(saved[x.id+"_nota"]||"")}</textarea></div>`).join("")
+ +`<div class="q"><b>${QS.length+1}. Ítems que sobran, faltan o hay que corregir del catálogo</b><textarea id="cat-nota" style="min-height:90px" placeholder="Ej.: 1.14 sacar; agregar en M4 'balanza con…'">${esc(saved.cat_nota||"")}</textarea></div>`;
+document.getElementById("qs").addEventListener("input",e=>{
+  const t=e.target;
+  if(t.type==="radio") saved[t.name]=t.value;
+  else if(t.id==="cat-nota") saved.cat_nota=t.value;
+  else if(t.id.endsWith("-nota")) saved[t.id.replace("-nota","")+"_nota"]=t.value;
+  save();
+});
+document.getElementById("copyBtn").addEventListener("click",async()=>{
+  const lines=["Decisiones planillas Agro:"];
+  QS.forEach((x,i)=>{lines.push(`${i+1}. ${x.q} → ${saved[x.id]||"(sin responder)"}`); if(saved[x.id+"_nota"]) lines.push("   Nota: "+saved[x.id+"_nota"]);});
+  if(saved.cat_nota) lines.push(`${QS.length+1}. Catálogo: ${saved.cat_nota}`);
+  const txt=lines.join("\n"); const out=document.getElementById("copyOut"); const msg=document.getElementById("copyMsg");
+  out.value=txt;
+  try{await navigator.clipboard.writeText(txt); msg.textContent="Copiado. Pegalo en el chat."; out.hidden=true;}
+  catch(e){out.hidden=false; out.focus(); out.select(); msg.textContent="No se pudo copiar solo: el texto quedó seleccionado abajo, copialo a mano.";}
+});
+</script>
