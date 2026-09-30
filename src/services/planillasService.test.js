@@ -143,3 +143,19 @@ test('catálogo: ninguna cita al Dec. 617/97 pasa del art. 50', () => {
     for (const n of nums) assert.ok(n >= 1 && n <= 50, `${it.codigo} cita art. ${n}`);
   }
 });
+
+test('fotos: se validan en ítems, módulos y seguimientos (máximo 20)', () => {
+  const base = {
+    relevamiento: { id: U(1), destino_id: 5 },
+    instancias: [{ id: U(2), modulo_codigo: 'M1', fotos: [U(10)] }],
+    respuestas: [{ id: U(3), instancia_id: U(2), resultado: 'C', item_texto: 'x', fotos: [U(11)] }],
+    seguimientos: [{ id: U(4), accion_id: 7, resultado: 'corregido', fotos: [U(12)] }],
+  };
+  assert.deepStrictEqual(s.validarEnvio(base), []);
+  const mal = JSON.parse(JSON.stringify(base));
+  mal.instancias[0].fotos = ['no-uuid'];
+  mal.seguimientos[0].fotos = Array.from({ length: 21 }, (_, n) => U(100 + n));
+  const e = s.validarEnvio(mal);
+  assert.ok(e.some(x => x.startsWith('Módulo 1: fotos')));
+  assert.ok(e.some(x => x.startsWith('Seguimiento 1: fotos')));
+});

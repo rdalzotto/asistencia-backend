@@ -466,12 +466,12 @@ router.post('/relevamientos/sync', auth, async (req, res) => {
       const i = instancias[n];
       const mod = modPorCodigo.get(i.modulo_codigo);
       const r = await client.query(`
-        INSERT INTO public.chk_instancias (id, relevamiento_id, modulo_id, modulo_codigo, modulo_nombre, etiqueta, datos, orden)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        ON CONFLICT (id) DO UPDATE SET etiqueta = EXCLUDED.etiqueta, datos = EXCLUDED.datos, orden = EXCLUDED.orden
+        INSERT INTO public.chk_instancias (id, relevamiento_id, modulo_id, modulo_codigo, modulo_nombre, etiqueta, datos, orden, fotos)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (id) DO UPDATE SET etiqueta = EXCLUDED.etiqueta, datos = EXCLUDED.datos, orden = EXCLUDED.orden, fotos = EXCLUDED.fotos
         WHERE chk_instancias.relevamiento_id = EXCLUDED.relevamiento_id`,
         [i.id, rel.id, mod?.id || null, i.modulo_codigo, mod?.nombre || i.modulo_nombre || i.modulo_codigo,
-          i.etiqueta ? String(i.etiqueta).slice(0, 200) : null, JSON.stringify(i.datos || {}), n]);
+          i.etiqueta ? String(i.etiqueta).slice(0, 200) : null, JSON.stringify(i.datos || {}), n, JSON.stringify(i.fotos || [])]);
       if (!r.rowCount) throw Object.assign(new Error('Instancia de otro relevamiento'), { status: 409 });
     }
 
@@ -631,16 +631,17 @@ router.post('/relevamientos/:id/reabrir', auth, soloAdmin, async (req, res) => {
 // Se guardan en la base y se sirven solo con token (no en el bucket público).
 
 router.post('/fotos', auth, async (req, res) => {
-  const { id, relevamiento_id, data_url } = req.body || {};
+  const { id, relevamiento_id, data_url, original_id } = req.body || {};
   if (!svc.esUuid(id)) return res.status(400).json({ error: 'Id inválido' });
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(data_url || ''));
   if (!m) return res.status(400).json({ error: 'La foto debe ser JPG, PNG o WEBP' });
   const buf = Buffer.from(m[2], 'base64');
   if (buf.length > FOTO_MAX_BYTES) return res.status(413).json({ error: 'La foto es demasiado grande' });
   try {
-    await db.query(`INSERT INTO public.chk_fotos (id, empleador_id, relevamiento_id, mime, datos, bytes, creado_por)
-      VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
-      [id, req.user.empleadorId, svc.esUuid(relevamiento_id) ? relevamiento_id : null, m[1], buf, buf.length, req.user.id]);
+    await db.query(`INSERT INTO public.chk_fotos (id, empleador_id, relevamiento_id, original_id, mime, datos, bytes, creado_por)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING`,
+      [id, req.user.empleadorId, svc.esUuid(relevamiento_id) ? relevamiento_id : null,
+        svc.esUuid(original_id) ? original_id : null, m[1], buf, buf.length, req.user.id]);
     res.json({ ok: true, id });
   } catch (err) { console.error('[CHK] foto:', err.message); res.status(500).json({ error: 'Error interno' }); }
 });

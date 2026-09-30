@@ -80,6 +80,8 @@ function plazoSugerido(criticidad, fechaVisitaISO) {
 }
 
 function esUuid(v) { return typeof v === 'string' && UUID_RE.test(v); }
+const FOTOS_MAX = 20; // por ítem, módulo o seguimiento
+function fotosValidas(f) { return Array.isArray(f) && f.length <= FOTOS_MAX && f.every(esUuid); }
 
 // Valida el paquete que envía la tablet. Devuelve la lista de errores (vacía = OK).
 function validarEnvio(p) {
@@ -94,6 +96,7 @@ function validarEnvio(p) {
   instancias.forEach((i, n) => {
     if (!esUuid(i.id)) errores.push(`Módulo ${n + 1}: id inválido`);
     if (!i.modulo_codigo) errores.push(`Módulo ${n + 1}: falta el código`);
+    if (i.fotos && !fotosValidas(i.fotos)) errores.push(`Módulo ${n + 1}: fotos inválidas`);
     idsInst.add(i.id);
   });
   const respuestas = Array.isArray(p.respuestas) ? p.respuestas : [];
@@ -104,13 +107,14 @@ function validarEnvio(p) {
     if (!RESULTADOS.includes(r.resultado)) errores.push(`${q}: resultado inválido`);
     if (!r.item_texto || !String(r.item_texto).trim()) errores.push(`${q}: falta el texto del ítem`);
     if (r.resultado === 'NC' && ![1, 2, 3].includes(Number(r.criticidad))) errores.push(`${q}: un No cumple necesita criticidad`);
-    if (r.fotos && (!Array.isArray(r.fotos) || !r.fotos.every(esUuid))) errores.push(`${q}: fotos inválidas`);
+    if (r.fotos && !fotosValidas(r.fotos)) errores.push(`${q}: fotos inválidas`);
   });
   const segs = Array.isArray(p.seguimientos) ? p.seguimientos : [];
   segs.forEach((s, n) => {
     if (!esUuid(s.id)) errores.push(`Seguimiento ${n + 1}: id inválido`);
     if (!Number.isInteger(Number(s.accion_id))) errores.push(`Seguimiento ${n + 1}: acción inválida`);
     if (!['corregido', 'en_curso', 'sin_cambios', 'comentario'].includes(s.resultado)) errores.push(`Seguimiento ${n + 1}: resultado inválido`);
+    if (s.fotos && !fotosValidas(s.fotos)) errores.push(`Seguimiento ${n + 1}: fotos inválidas`);
   });
   return errores;
 }

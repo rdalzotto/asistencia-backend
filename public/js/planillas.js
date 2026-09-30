@@ -155,7 +155,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
       return {
         rel: { id: d.id, visita_id: d.visita_id, constancia_id: d.constancia_id, destino_id: d.destino_id, establecimiento_texto: d.establecimiento_texto,
           plantilla_id: d.plantilla_id, nivel: d.nivel, estado: d.estado, actividades_observadas: d.actividades_observadas || [], iniciado_en: d.iniciado_en },
-        instancias: d.instancias.map(i => ({ id: i.id, modulo_codigo: i.modulo_codigo, etiqueta: i.etiqueta, datos: i.datos || {} })),
+        instancias: d.instancias.map(i => ({ id: i.id, modulo_codigo: i.modulo_codigo, etiqueta: i.etiqueta, datos: i.datos || {}, fotos: i.fotos || [] })),
         respuestas: d.respuestas.map(r => ({ id: r.id, instancia_id: r.instancia_id, item_id: r.item_id, item_codigo: r.item_codigo, item_texto: r.item_texto,
           item_ref: r.item_ref, item_tipo: r.item_tipo, resultado: r.resultado, criticidad: r.criticidad, observacion: r.observacion || '', medida: r.medida || '',
           plazo: r.plazo ? String(r.plazo).slice(0, 10) : '', fotos: r.fotos || [], respondido_en: r.respondido_en })),
@@ -218,7 +218,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     for (const k of await ARStorage.keys('chk_foto_')) {
       const f = await ARStorage.get(k);
       if (!f || f.subida || (relId && f.rel_id !== relId)) continue;
-      await api('/planillas/fotos', { method: 'POST', body: JSON.stringify({ id: f.id, relevamiento_id: f.rel_id, data_url: f.data_url }) });
+      await api('/planillas/fotos', { method: 'POST', body: JSON.stringify({ id: f.id, relevamiento_id: f.rel_id, data_url: f.data_url, original_id: f.original_id || null }) });
       f.subida = true;
       await ARStorage.set(k, f);
     }
@@ -347,7 +347,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     pintarSync();
     if (P.vista === P._vistaAnterior && P.instId === P._instAnterior) { const b = m.querySelector('.pl-body'); if (b) b.scrollTop = scroll; }
     P._vistaAnterior = P.vista; P._instAnterior = P.instId;
-    if (v === 'instancia') cargarMiniaturas();
+    cargarMiniaturas();
   }
 
   const nombreEst = () => P.o.establecimiento || P.doc.rel.establecimiento_texto || 'Establecimiento';
@@ -383,7 +383,8 @@ textarea.pl-in{min-height:64px;resize:vertical}
           <div style="flex:1;font-size:14px">${esc(a.hallazgo)}<div style="font-size:12px;color:var(--text2);margin-top:3px">${esc([a.modulo_nombre, a.instancia_etiqueta].filter(Boolean).join(' · '))}${a.fecha_compromiso ? ' · plazo ' + fmtFecha(a.fecha_compromiso) : ''}</div></div></div>
           <div class="pl-crit" style="margin-top:8px">${[['corregido', '✓ Corregido'], ['en_curso', 'En curso'], ['sin_cambios', 'Sin cambios']].map(([k, t]) =>
             `<button data-a="seguimiento" data-id="${a.id}" data-v="${k}" style="${s?.resultado === k ? 'background:var(--accent);color:#0f1923;border-color:var(--accent)' : ''}">${t}</button>`).join('')}</div>
-          ${s ? `<input class="pl-in" style="margin-top:8px" placeholder="Comentario (opcional)" data-f="seg-com" data-id="${a.id}" value="${esc(s.comentario || '')}">` : ''}</div>`;
+          ${s ? `<input class="pl-in" style="margin-top:8px" placeholder="Comentario (opcional)" data-f="seg-com" data-id="${a.id}" value="${esc(s.comentario || '')}">
+            <div style="margin-top:8px">${tiraFotos('seg', a.id, s.fotos, s.resultado === 'corregido' ? '📷 Foto del después' : '📷 Foto')}</div>` : ''}</div>`;
       }
     }
     h += `<div class="pl-sec">Actividades que se están haciendo hoy</div><div>`;
@@ -452,12 +453,13 @@ textarea.pl-in{min-height:64px;resize:vertical}
         <div><label>Observación 🎤</label><textarea class="pl-in" data-f="observacion" placeholder="Qué se vio. Podés dictar con el micrófono del teclado.">${esc(r.observacion || '')}</textarea></div>
         <div><label>Medida propuesta</label><textarea class="pl-in" data-f="medida">${esc(r.medida || '')}</textarea></div>
         <div class="pl-grid2"><div><label>Plazo sugerido</label><input class="pl-in" type="date" data-f="plazo" value="${esc(r.plazo || '')}"></div></div>
-        <div><label>Fotos</label><div class="pl-fotos" data-fotos="${r.id}">${(r.fotos || []).map(f => `<img data-foto="${f}" alt="Foto del hallazgo">`).join('')}
-          <label class="pl-add-foto">📷 Foto<input type="file" accept="image/*" capture="environment" hidden data-f="foto"></label></div>
+        <div><label>Fotos · tocá una para marcarla con flechas o círculos</label>${tiraFotos('resp', r.id, r.fotos)}
+          ${(r.fotos || []).length > 2 ? '<div style="font-size:11.5px;color:var(--text2);margin-top:4px">Las 2 primeras van a la constancia; todas van al informe. Con ★ elegís cuál va primero.</div>' : ''}
           ${sinFoto ? '<div class="pl-warn" style="margin-top:4px">Falta la foto (obligatoria en críticos)</div>' : ''}</div>
       </div>`;
     } else if (res === 'NA' || res === 'NV' || res === 'C') {
-      h += `<input class="pl-in" style="margin-top:8px" data-f="observacion" placeholder="Nota (opcional)" value="${esc(r.observacion || '')}">`;
+      h += `<input class="pl-in" style="margin-top:8px" data-f="observacion" placeholder="Nota (opcional)" value="${esc(r.observacion || '')}">
+        <div style="margin-top:6px">${tiraFotos('resp', r.id, r.fotos, 'Foto (opcional)')}</div>`;
     }
     if (!it.id) h += `<button class="pl-chip" style="margin-top:8px;border-color:var(--red);color:var(--red)" data-a="libre-quitar">Quitar este ítem</button>`;
     return h + '</div>';
@@ -477,6 +479,8 @@ textarea.pl-in{min-height:64px;resize:vertical}
       h += `<details class="pl-card" ${faltan || !p.hechas ? 'open' : ''}><summary style="cursor:pointer;font-weight:600">Datos ${faltan ? '<span class="pl-warn">· completar</span>' : ''}</summary>
         <div class="pl-grid2" style="margin-top:10px">${campos.map(c => campoInstancia(inst, c)).join('')}</div></details>`;
     }
+    h += `<div class="pl-card"><div style="font-weight:600;font-size:14px;margin-bottom:6px">Fotos generales ${(inst.fotos || []).length ? '(' + inst.fotos.length + ')' : ''}</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Vista de conjunto de la instalación, también lo que está bien.</div>${tiraFotos('inst', inst.id, inst.fotos)}</div>`;
     let grupo = null;
     for (const it of cat) {
       if (it.grupo !== grupo) { grupo = it.grupo; if (grupo) h += `<div class="pl-sub">${esc(grupo)}</div>`; }
@@ -551,16 +555,212 @@ textarea.pl-in{min-height:64px;resize:vertical}
       img.src = url;
     });
   }
+  // Tira de miniaturas + botón de cámara. ft: resp (ítem) | inst (módulo) | seg (seguimiento).
+  function tiraFotos(ft, fid, fotos, texto) {
+    const lista = fotos || [];
+    return `<div class="pl-fotos">${lista.map((f, n) => `<span style="position:relative;display:inline-block">
+        <img data-a="foto-ver" data-ft="${ft}" data-fid="${fid}" data-foto="${f}" alt="Foto ${n + 1}">
+        ${n === 0 && lista.length > 1 ? '<span style="position:absolute;top:2px;left:4px;font-size:12px">★</span>' : ''}</span>`).join('')}
+      <label class="pl-add-foto">${texto || '📷 Foto'}<input type="file" accept="image/*" capture="environment" hidden data-f="foto" data-ft="${ft}" data-fid="${fid}"></label></div>`;
+  }
+
+  // Devuelve (y crea si hace falta) el arreglo de fotos del destino.
+  function listaFotos(ft, fid) {
+    if (ft === 'resp') { const r = P.doc.respuestas.find(x => x.id === fid); if (!r) return null; return (r.fotos = r.fotos || []); }
+    if (ft === 'inst') { const i = P.doc.instancias.find(x => x.id === fid); if (!i) return null; return (i.fotos = i.fotos || []); }
+    if (ft === 'seg') { const s = (P.doc.seguimientos || []).find(x => x.accion_id === Number(fid)); if (!s) return null; return (s.fotos = s.fotos || []); }
+    return null;
+  }
+
+  // Foto guardada en la tablet; si no está (se cargó en otra tablet), se baja del servidor.
+  async function fotoLocal(id) {
+    let f = await ARStorage.get('chk_foto_' + id);
+    if (f?.data_url || !online() || !STATE?.token) return f;
+    try {
+      const r = await fetch('/api/planillas/fotos/' + id, { headers: { Authorization: 'Bearer ' + STATE.token } });
+      if (!r.ok) return null;
+      const blob = await r.blob();
+      const data_url = await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(blob); });
+      f = { id, rel_id: P?.doc?.rel.id || null, data_url, subida: true };
+      await ARStorage.set('chk_foto_' + id, f);
+      return f;
+    } catch (e) { return null; }
+  }
+
   async function cargarMiniaturas() {
     for (const img of document.querySelectorAll('#modal-planillas img[data-foto]')) {
-      const f = await ARStorage.get('chk_foto_' + img.dataset.foto);
+      const f = await fotoLocal(img.dataset.foto);
       if (f?.data_url) img.src = f.data_url;
     }
+  }
+
+  // ── visor y editor de marcas ────────────────────────────────────────────
+  // La foto marcada se guarda como foto nueva (con original_id); la original
+  // queda intacta y también se envía al servidor.
+  const COLORES = { rojo: '#ff3b30', amarillo: '#ffd60a' };
+  let V = null; // { ft, fid, id, foto, img, marcas, herr, color, trazo, esc }
+
+  function capaVisor() {
+    let c = document.getElementById('pl-visor');
+    if (!c) {
+      c = document.createElement('div');
+      c.id = 'pl-visor';
+      c.style.cssText = 'position:fixed;inset:0;z-index:470;background:rgba(0,0,0,.92);display:none;flex-direction:column';
+      c.addEventListener('click', onClickVisor);
+      document.body.appendChild(c);
+    }
+    return c;
+  }
+
+  async function abrirVisor(ft, fid, id) {
+    const foto = await fotoLocal(id);
+    if (!foto?.data_url) return toast('La foto todavía no está en esta tablet', 'error');
+    V = { ft, fid, id, foto, editando: false };
+    const c = capaVisor();
+    const lista = listaFotos(ft, fid) || [];
+    const ed = editable();
+    c.innerHTML = `<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:10px;min-height:0">
+        <img src="${foto.data_url}" alt="Foto" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:6px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;padding:12px calc(12px + env(safe-area-inset-bottom))">
+        ${ed ? `<button class="btn btn-primary btn-sm" data-v="marcar">✏ Marcar</button>` : ''}
+        ${ed && ft === 'resp' && lista.indexOf(id) > 0 ? `<button class="btn btn-secondary btn-sm" data-v="primera">★ Poner primera</button>` : ''}
+        ${ed ? `<button class="btn btn-danger btn-sm" data-v="quitar">Quitar</button>` : ''}
+        <button class="btn btn-secondary btn-sm" data-v="cerrar">Cerrar</button></div>`;
+    c.style.display = 'flex';
+  }
+
+  function cerrarVisor() { const c = capaVisor(); c.style.display = 'none'; c.innerHTML = ''; V = null; }
+
+  async function onClickVisor(e) {
+    const b = e.target.closest('[data-v]');
+    if (!b || !V) return;
+    const v = b.dataset.v;
+    const lista = listaFotos(V.ft, V.fid);
+    if (v === 'cerrar') return cerrarVisor();
+    if (v === 'primera' && lista) { lista.splice(lista.indexOf(V.id), 1); lista.unshift(V.id); guardar(); cerrarVisor(); return pintar(); }
+    if (v === 'quitar' && lista) {
+      if (V.confirmarQuitar) { lista.splice(lista.indexOf(V.id), 1); guardar(); cerrarVisor(); return pintar(); }
+      V.confirmarQuitar = true; b.textContent = '¿Seguro? Tocá de nuevo'; return;
+    }
+    if (v === 'marcar') return abrirEditor();
+    if (v === 'herr') { V.herr = b.dataset.h; return pintarBarraEditor(); }
+    if (v === 'color') { V.color = b.dataset.c; return pintarBarraEditor(); }
+    if (v === 'deshacer') { V.marcas.pop(); return dibujar(); }
+    if (v === 'cancelar') return abrirVisor(V.ft, V.fid, V.id);
+    if (v === 'texto-ok') {
+      const t = document.getElementById('pl-marca-texto')?.value.trim();
+      if (t && V.textoEn) V.marcas.push({ tipo: 'texto', color: V.color, x1: V.textoEn.x, y1: V.textoEn.y, texto: t.slice(0, 40) });
+      V.textoEn = null; document.getElementById('pl-marca-caja').style.display = 'none'; return dibujar();
+    }
+    if (v === 'guardar-marcas') return guardarMarcas();
+  }
+
+  async function abrirEditor() {
+    // Si la foto ya estaba marcada, se edita sobre la original con las marcas anteriores.
+    let base = V.foto;
+    if (V.foto.original_id) { const o = await fotoLocal(V.foto.original_id); if (o?.data_url) base = o; }
+    const img = new Image();
+    await new Promise(ok => { img.onload = ok; img.src = base.data_url; });
+    Object.assign(V, { base, img, marcas: [...(V.foto.marcas || [])], herr: 'flecha', color: 'rojo', trazo: null, textoEn: null });
+    const c = capaVisor();
+    c.innerHTML = `<div id="pl-barra-editor" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;padding:10px"></div>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:0 8px">
+        <canvas id="pl-lienzo" style="max-width:100%;max-height:100%;touch-action:none;border-radius:6px;background:#000"></canvas></div>
+      <div id="pl-marca-caja" style="display:none;gap:8px;padding:10px;justify-content:center">
+        <input id="pl-marca-texto" class="pl-in" maxlength="40" placeholder="Texto corto (ej.: sin protección)" style="max-width:360px">
+        <button class="btn btn-primary btn-sm" data-v="texto-ok">Poner</button></div>
+      <div style="display:flex;gap:8px;justify-content:center;padding:10px calc(10px + env(safe-area-inset-bottom))">
+        <button class="btn btn-secondary btn-sm" data-v="deshacer">↶ Deshacer</button>
+        <button class="btn btn-secondary btn-sm" data-v="cancelar">Cancelar</button>
+        <button class="btn btn-success btn-sm" data-v="guardar-marcas">Guardar foto marcada</button></div>`;
+    const cv = document.getElementById('pl-lienzo');
+    cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+    const pos = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; };
+    cv.addEventListener('pointerdown', e => {
+      const p = pos(e);
+      if (V.herr === 'texto') {
+        V.textoEn = p;
+        const caja = document.getElementById('pl-marca-caja'); caja.style.display = 'flex';
+        const t = document.getElementById('pl-marca-texto'); t.value = ''; t.focus();
+        return;
+      }
+      cv.setPointerCapture(e.pointerId);
+      V.trazo = { tipo: V.herr, color: V.color, x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+    });
+    cv.addEventListener('pointermove', e => { if (!V?.trazo) return; const p = pos(e); V.trazo.x2 = p.x; V.trazo.y2 = p.y; dibujar(); });
+    cv.addEventListener('pointerup', () => {
+      if (!V?.trazo) return;
+      const t = V.trazo; V.trazo = null;
+      if (Math.hypot(t.x2 - t.x1, t.y2 - t.y1) > 8) V.marcas.push(t);
+      dibujar();
+    });
+    pintarBarraEditor();
+    dibujar();
+  }
+
+  function pintarBarraEditor() {
+    const b = document.getElementById('pl-barra-editor');
+    if (!b) return;
+    const btn = (attrs, txt, on) => `<button class="btn btn-sm ${on ? 'btn-primary' : 'btn-secondary'}" ${attrs}>${txt}</button>`;
+    b.innerHTML = btn('data-v="herr" data-h="flecha"', '➚ Flecha', V.herr === 'flecha') + btn('data-v="herr" data-h="circulo"', '◯ Círculo', V.herr === 'circulo')
+      + btn('data-v="herr" data-h="texto"', 'T Texto', V.herr === 'texto')
+      + Object.entries(COLORES).map(([k, c]) => `<button data-v="color" data-c="${k}" aria-label="Color ${k}" style="width:36px;height:36px;border-radius:50%;background:${c};border:3px solid ${V.color === k ? '#fff' : 'transparent'};cursor:pointer"></button>`).join('');
+  }
+
+  function pintarMarcas(ctx, marcas, w) {
+    const grosor = Math.max(3, w / 180);
+    for (const m of marcas) {
+      const col = COLORES[m.color] || COLORES.rojo;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = grosor; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = grosor;
+      if (m.tipo === 'flecha') {
+        const ang = Math.atan2(m.y2 - m.y1, m.x2 - m.x1), cab = grosor * 5;
+        ctx.beginPath(); ctx.moveTo(m.x1, m.y1); ctx.lineTo(m.x2, m.y2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(m.x2, m.y2);
+        ctx.lineTo(m.x2 - cab * Math.cos(ang - 0.45), m.y2 - cab * Math.sin(ang - 0.45));
+        ctx.lineTo(m.x2 - cab * Math.cos(ang + 0.45), m.y2 - cab * Math.sin(ang + 0.45));
+        ctx.closePath(); ctx.fill();
+      } else if (m.tipo === 'circulo') {
+        ctx.beginPath();
+        ctx.ellipse((m.x1 + m.x2) / 2, (m.y1 + m.y2) / 2, Math.abs(m.x2 - m.x1) / 2, Math.abs(m.y2 - m.y1) / 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (m.tipo === 'texto') {
+        const tam = Math.max(18, w / 28);
+        ctx.font = `bold ${tam}px sans-serif`; ctx.textBaseline = 'middle';
+        ctx.shadowBlur = 0; ctx.lineWidth = tam / 6; ctx.strokeStyle = 'rgba(0,0,0,.85)';
+        ctx.strokeText(m.texto, m.x1, m.y1); ctx.fillText(m.texto, m.x1, m.y1);
+      }
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  function dibujar() {
+    const cv = document.getElementById('pl-lienzo');
+    if (!cv || !V?.img) return;
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(V.img, 0, 0);
+    pintarMarcas(ctx, V.trazo ? [...V.marcas, V.trazo] : V.marcas, cv.width);
+  }
+
+  async function guardarMarcas() {
+    const lista = listaFotos(V.ft, V.fid);
+    if (!lista) return cerrarVisor();
+    if (!V.marcas.length) { toast('No hay marcas para guardar', 'info'); return; }
+    const cv = document.getElementById('pl-lienzo');
+    const data_url = cv.toDataURL('image/jpeg', 0.8);
+    const id = uuid();
+    const originalId = V.base.id;
+    await ARStorage.set('chk_foto_' + id, { id, rel_id: P.doc.rel.id, data_url, subida: false, original_id: originalId, marcas: V.marcas });
+    const pos = lista.indexOf(V.id);
+    if (pos >= 0) lista[pos] = id; else lista.push(id);
+    guardar(); cerrarVisor(); pintar();
+    toast('Foto marcada guardada ✓ (la original se conserva)', 'success');
   }
   // Fotos de un hallazgo como data URL (para los desvíos de la constancia).
   async function fotosDe(r) {
     const out = [];
-    for (const id of (r.fotos || []).slice(0, 2)) { const f = await ARStorage.get('chk_foto_' + id); if (f?.data_url) out.push(f.data_url); }
+    for (const id of (r.fotos || []).slice(0, 2)) { const f = await fotoLocal(id); if (f?.data_url) out.push(f.data_url); }
     return out;
   }
 
@@ -584,6 +784,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     if (a === 'vista') { P.vista = v; P.confirmar = null; return pintar(); }
     if (['inicio'].includes(a)) { P.vista = 'inicio'; return pintar(); }
     if (a === 'inst') { P.instId = el.dataset.id; P.vista = 'instancia'; P.confirmar = null; P._vistaAnterior = null; pintar(); document.querySelector('#modal-planillas .pl-body')?.scrollTo(0, 0); return; }
+    if (a === 'foto-ver') return abrirVisor(el.dataset.ft, el.dataset.fid, el.dataset.foto);
     if (!editable() && !['ver-todos'].includes(a)) { toast('El relevamiento está cerrado', 'info'); return; }
     if (a === 'nivel') { P.doc.rel.nivel = v; guardar(); return pintar(); }
     if (a === 'plantilla') {
@@ -717,14 +918,15 @@ textarea.pl-in{min-height:64px;resize:vertical}
     const el = e.target;
     if (el.dataset?.f === 'dato' && el.tagName === 'SELECT') return onInput(e);
     if (el.dataset?.f !== 'foto' || !P || !editable()) return;
-    const t = tarjetaDe(el);
+    const lista = listaFotos(el.dataset.ft, el.dataset.fid);
     const file = el.files?.[0];
-    if (!t?.r || !file) return;
+    if (!lista || !file) return;
+    if (lista.length >= 20) return toast('Máximo 20 fotos por ítem', 'error');
     try {
       const data_url = await comprimir(file);
       const id = uuid();
       await ARStorage.set('chk_foto_' + id, { id, rel_id: P.doc.rel.id, data_url, subida: false });
-      t.r.fotos = [...(t.r.fotos || []), id];
+      lista.push(id);
       guardar(); pintar();
     } catch (err) { toast(err.message, 'error'); }
   }
@@ -765,7 +967,8 @@ textarea.pl-in{min-height:64px;resize:vertical}
         severidad: c === 1 ? 'ALTA' : c === 2 ? 'MEDIA' : 'BAJA',
         estado: 'pendiente',
         normativa_incumplida: r.item_ref || '',
-        descripcion: [(nombres[inst.modulo_codigo] || inst.modulo_codigo) + (inst.etiqueta ? ' · ' + inst.etiqueta : ''), r.observacion].filter(Boolean).join(' — '),
+        descripcion: [(nombres[inst.modulo_codigo] || inst.modulo_codigo) + (inst.etiqueta ? ' · ' + inst.etiqueta : ''), r.observacion,
+          (r.fotos || []).length > 2 ? `(${r.fotos.length - 2} foto(s) más en el informe)` : ''].filter(Boolean).join(' — '),
         accion_correctiva: r.medida || '',
         plazo: c === 1 ? 'Inmediato' : r.plazo ? fmtFecha(r.plazo) : '',
         foto_1: fotos[0] || null, foto_2: fotos[1] || null,

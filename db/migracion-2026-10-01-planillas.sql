@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS public.chk_instancias (
   modulo_nombre   TEXT NOT NULL,               -- copia, por si el módulo cambia de nombre
   etiqueta        TEXT,                        -- "Puesto Norte", "JD 5090 n° 04"
   datos           JSONB NOT NULL DEFAULT '{}', -- campos de la instancia (GPS, ocupantes, dominio...)
+  fotos           JSONB NOT NULL DEFAULT '[]', -- fotos generales del módulo (ids de chk_fotos)
   orden           INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS chk_instancias_rel_idx ON public.chk_instancias (relevamiento_id);
@@ -188,6 +189,7 @@ CREATE TABLE IF NOT EXISTS public.chk_fotos (
   id              UUID PRIMARY KEY,
   empleador_id    INTEGER NOT NULL REFERENCES public.empleadores(id) ON DELETE CASCADE,
   relevamiento_id UUID,
+  original_id     UUID,                        -- si es una foto marcada (flechas, círculos), la foto sin marcar
   mime            TEXT NOT NULL,
   datos           BYTEA NOT NULL,
   bytes           INTEGER NOT NULL,
