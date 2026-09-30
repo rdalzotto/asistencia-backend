@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Firma de constancia · EXIT S.A.</title>
+<style>
+  /* Página para el responsable del establecimiento (no usa la app): clara y simple. */
+  :root { --bg:#f4f6f3; --papel:#fff; --tinta:#1d2a1a; --gris:#5b6656; --linea:#d9ddd2; --verde:#3f7d20; --rojo:#b3261e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--tinta); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size:16px; line-height:1.45; }
+  header { background:var(--verde); color:#fff; padding:14px 16px calc(14px) ; }
+  header b { display:block; font-size:18px; }
+  header span { font-size:13px; opacity:.9; }
+  main { max-width:760px; margin:0 auto; padding:16px; display:grid; gap:14px; }
+  .caja { background:var(--papel); border:1px solid var(--linea); border-radius:10px; padding:14px; }
+  /* La constancia se genera a 820 px (tamaño A4 en pantalla): se reduce para que entre a lo ancho del celular. */
+  .visor { width:100%; height:62vh; overflow:auto; border:1px solid var(--linea); border-radius:8px; background:#fff; }
+  .visor iframe { width:820px; border:0; transform-origin:0 0; display:block; }
+  label { display:block; font-size:13px; font-weight:600; color:var(--gris); margin:10px 0 4px; }
+  input[type=text], input[type=tel] { width:100%; padding:12px; font-size:16px; border:1px solid var(--linea); border-radius:8px; }
+  canvas { width:100%; height:180px; border:2px dashed var(--linea); border-radius:8px; background:#fff; touch-action:none; display:block; }
+  .fila { display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  button { font:inherit; font-weight:700; border:0; border-radius:8px; padding:14px 18px; cursor:pointer; }
+  .primario { background:var(--verde); color:#fff; width:100%; font-size:17px; }
+  .primario:disabled { opacity:.5; }
+  .secundario { background:#eceee8; color:var(--tinta); padding:8px 12px; font-size:14px; }
+  .check { display:flex; gap:10px; align-items:flex-start; font-size:15px; margin:14px 0; }
+  .check input { width:22px; height:22px; margin-top:1px; flex:none; }
+  .error { color:var(--rojo); font-weight:600; }
+  .ok { text-align:center; padding:30px 16px; }
+  .ok b { font-size:22px; color:var(--verde); display:block; margin-bottom:8px; }
+  small { color:var(--gris); }
+</style>
+</head>
+<body>
+<header><b>EXIT S.A. · Higiene y Seguridad</b><span id="sub">Firma de constancia de visita</span></header>
+<main id="main"><div class="caja">Cargando la constancia…</div></main>
+<script>
+(function () {
+  const token = location.hash.slice(1);
+  const main = document.getElementById('main');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const post = (ruta, datos) => fetch('/api/firma-remota/' + ruta, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, ...datos }) })
+    .then(async r => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'No se pudo completar. Probá de nuevo.'); return j; });
+  const mensaje = (titulo, texto, esError) => { main.innerHTML = `<div class="caja ok"><b style="${esError ? 'color:var(--rojo)' : ''}">${esc(titulo)}</b>${esc(texto)}</div>`; };
+
+  if (!token) return mensaje('Enlace incompleto', 'Abrí el enlace completo que te enviaron desde EXIT S.A.', true);
+
+  post('ver', {}).then(d => {
+    document.getElementById('sub').textContent = [d.numero, d.establecimiento].filter(Boolean).join(' · ');
+    if (d.estado === 'firmada') return mensaje('Esta constancia ya está firmada', '¡Gracias! No hace falta hacer nada más.');
+    const vence = new Date(d.expira_en).toLocaleDateString('es-AR');
+    main.innerHTML = `
+      <div class="caja"><b>Constancia de visita de Higiene y Seguridad</b><br>
+        <small>Revisá el contenido y firmá al final. El enlace vence el ${esc(vence)}.</small></div>
+      <div class="visor" id="visor"><div id="escala"><iframe id="doc" sandbox="allow-same-origin" title="Constancia de visita"></iframe></div></div>
+      <form class="caja" id="form" novalidate>
+        <b>Firma del responsable del establecimiento</b>
+        <label for="nombre">Nombre y apellido</label><input type="text" id="nombre" autocomplete="name" required>
+        <label for="cargo">Cargo</label><input type="text" id="cargo" autocomplete="organization-title">
+        <label for="dni">DNI</label><input type="tel" id="dni" inputmode="numeric" placeholder="Solo números" required>
+        <div class="fila"><label style="margin-bottom:4px">Firmá con el dedo en el recuadro</label><button type="button" class="secundario" id="borrar">Borrar</button></div>
+        <canvas id="pad" aria-label="Recuadro para firmar"></canvas>
+        <label class="check"><input type="checkbox" id="conforme"> Leí la constancia y firmo en conformidad con lo relevado en la visita.</label>
+        <p class="error" id="err" role="alert"></p>
+        <button class="primario" id="firmar" type="submit">Firmar constancia</button>
+        <small>Se registran la fecha, la hora y el dispositivo desde el que se firma.</small>
+      </form>`;
+    const fr = document.getElementById('doc');
+    // Sin scripts dentro (sandbox sin allow-scripts); allow-same-origin solo para medir el alto.
+    fr.onload = () => {
+      const alto = fr.contentDocument?.documentElement?.scrollHeight || 1400;
+      const k = Math.min(1, document.getElementById('visor').clientWidth / 820);
+      fr.style.height = alto + 'px';
+      fr.style.transform = `scale(${k})`;
+      const caja = document.getElementById('escala');
+      caja.style.width = 820 * k + 'px'; caja.style.height = alto * k + 'px'; caja.style.overflow = 'hidden';
+      document.getElementById('visor').style.height = Math.min(alto * k + 4, innerHeight * 0.62) + 'px';
+    };
+    fr.srcdoc = d.html;
+    iniciarPad();
+  }).catch(e => mensaje('No se pudo abrir la constancia', e.message, true));
+
+  let hayTrazo = false;
+  function iniciarPad() {
+    const cv = document.getElementById('pad');
+    const ajustar = () => { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); hayTrazo = false; };
+    ajustar();
+    const g = cv.getContext('2d');
+    let dib = false;
+    const p = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * devicePixelRatio, (e.clientY - r.top) * devicePixelRatio]; };
+    cv.addEventListener('pointerdown', e => { dib = true; cv.setPointerCapture(e.pointerId); const [x, y] = p(e); g.beginPath(); g.moveTo(x, y); });
+    cv.addEventListener('pointermove', e => { if (!dib) return; const [x, y] = p(e);
+      g.lineTo(x, y); g.strokeStyle = '#10204a'; g.lineWidth = 2.5 * devicePixelRatio; g.lineCap = 'round'; g.lineJoin = 'round'; g.stroke(); hayTrazo = true; });
+    cv.addEventListener('pointerup', () => { dib = false; });
+    document.getElementById('borrar').onclick = ajustar;
+    document.getElementById('form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const err = document.getElementById('err');
+      err.textContent = '';
+      const nombre = document.getElementById('nombre').value.trim();
+      const dni = document.getElementById('dni').value.replace(/\D/g, '');
+      if (!nombre) return (err.textContent = 'Escribí tu nombre y apellido.');
+      if (dni.length < 7 || dni.length > 9) return (err.textContent = 'Escribí tu DNI (solo números).');
+      if (!hayTrazo) return (err.textContent = 'Falta tu firma en el recuadro.');
+      if (!document.getElementById('conforme').checked) return (err.textContent = 'Marcá que leíste la constancia.');
+      // Firma más liviana: se reduce a 600 px de ancho.
+      const k = Math.min(1, 600 / cv.width), c2 = document.createElement('canvas');
+      c2.width = cv.width * k; c2.height = cv.height * k;
+      c2.getContext('2d').drawImage(cv, 0, 0, c2.width, c2.height);
+      const btn = document.getElementById('firmar'); btn.disabled = true; btn.textContent = 'Enviando…';
+      try {
+        await post('firmar', { nombre_apellido: nombre, cargo: document.getElementById('cargo').value.trim(), dni, firma_svg: c2.toDataURL('image/png'), conforme: true });
+        mensaje('¡Listo, gracias!', 'La constancia quedó firmada. EXIT S.A. recibe el aviso y te envía la versión final.');
+      } catch (ex) { err.textContent = ex.message; btn.disabled = false; btn.textContent = 'Firmar constancia'; }
+    });
+  }
+})();
+</script>
+</body>
+</html>

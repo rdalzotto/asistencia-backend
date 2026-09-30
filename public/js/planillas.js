@@ -1161,17 +1161,19 @@ textarea.pl-in{min-height:64px;resize:vertical}
     inyectarEstilos();
     const m = contenedor();
     m.classList.add('abierto');
-    A = { propuestas: [], filas: null, resultado: null, cargando: true };
+    A = { propuestas: [], filas: null, resultado: null, cargando: true, aval: null, firmandoAval: false };
     P = null;
     pintarAdmin();
     try { A.propuestas = await api('/planillas/catalogo/propuestas'); } catch (e) { toast(e.message, 'error'); }
+    try { A.aval = await api('/constancias/firma-aval'); } catch (e) { /* sin aval */ }
     A.cargando = false;
     pintarAdmin();
   }
 
   function pintarAdmin() {
     const m = contenedor();
-    let h = `<div class="pl-top"><button class="pl-back" data-adm="salir">←</button><div class="t"><b>Planillas · Dirección</b><span>Catálogo y actividades de los establecimientos</span></div></div><div class="pl-body">`;
+    let h = `<div class="pl-top"><button class="pl-back" data-adm="salir">←</button><div class="t"><b>Planillas y constancias · Dirección</b><span>Firma de aval, catálogo y actividades de los establecimientos</span></div></div><div class="pl-body">`;
+    h += bloqueAval();
     h += `<div class="pl-sec">Ítems propuestos por los técnicos (${A.propuestas.length})</div>`;
     if (A.cargando) h += '<div class="pl-card">Cargando…</div>';
     else if (!A.propuestas.length) h += '<div class="pl-card" style="color:var(--text2)">No hay propuestas pendientes.</div>';
@@ -1206,6 +1208,47 @@ textarea.pl-in{min-height:64px;resize:vertical}
     h += `</div><div class="pl-sec">Catálogo base</div><div class="pl-card"><div style="font-size:13px;margin-bottom:8px">Trae las correcciones del catálogo de EXIT que vengan con una actualización de la app. No pisa los ítems que Dirección editó ni los propios.</div>
       <button class="btn btn-secondary btn-sm" data-adm="base">Actualizar catálogo base</button></div></div>`;
     m.innerHTML = h;
+    if (A.firmandoAval) iniciarPadAval();
+  }
+
+  // Firma de aval del responsable del servicio: se carga una vez y sale en todas
+  // las constancias de los técnicos. Solo la puede cambiar el responsable (dueño).
+  function bloqueAval() {
+    const av = A.aval;
+    let h = `<div class="pl-sec">Firma de aval en las constancias</div><div class="pl-card">`;
+    if (!A.firmandoAval) {
+      h += av
+        ? `<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><img src="${av.firma_svg}" alt="Firma de aval" style="height:70px;background:#fff;border-radius:6px;padding:4px">
+            <div><b>${esc(av.nombre_apellido)}</b><div style="font-size:12px;color:var(--text2)">${esc([av.cargo, av.matricula].filter(Boolean).join(' · '))}</div>
+            <div style="font-size:12px;color:var(--text2)">Actualizada el ${fmtFecha(av.actualizado_en)}. Sale sola en todas las constancias.</div></div></div>
+            <button class="btn btn-secondary btn-sm" style="margin-top:10px" data-adm="aval-cambiar">Cambiar firma</button>`
+        : `<div style="font-size:14px;margin-bottom:8px">Todavía no está cargada. Firmá una vez y va a salir como aval del responsable del servicio en todas las constancias de los técnicos.</div>
+            <button class="btn btn-primary btn-sm" data-adm="aval-cambiar">Cargar mi firma</button>`;
+    } else {
+      h += `<div class="pl-grid2">
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600">NOMBRE Y APELLIDO</label><input class="pl-in" id="aval-nombre" value="${esc(av?.nombre_apellido || ((STATE.nombre || '') + ' ' + (STATE.apellido || '')).trim())}"></div>
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600">CARGO</label><input class="pl-in" id="aval-cargo" value="${esc(av?.cargo || 'Responsable del servicio de Higiene y Seguridad')}"></div>
+          <div><label style="font-size:11px;color:var(--text2);font-weight:600">MATRÍCULA</label><input class="pl-in" id="aval-matricula" value="${esc(av?.matricula || '')}"></div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span style="font-size:12px;color:var(--text2)">Firmá en el recuadro</span><button class="btn btn-secondary btn-sm" data-adm="aval-borrar">Borrar</button></div>
+        <canvas id="aval-pad" style="width:100%;height:170px;background:#fff;border-radius:8px;touch-action:none;display:block;margin-top:6px"></canvas>
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-success btn-sm" data-adm="aval-guardar">Guardar firma de aval</button><button class="btn btn-secondary btn-sm" data-adm="aval-cancelar">Cancelar</button></div>`;
+    }
+    return h + '</div>';
+  }
+
+  function iniciarPadAval() {
+    const cv = document.getElementById('aval-pad');
+    if (!cv) return;
+    const r = cv.getBoundingClientRect();
+    cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+    A.avalTrazo = false;
+    let dib = false;
+    const p = e => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * devicePixelRatio, (e.clientY - b.top) * devicePixelRatio]; };
+    cv.addEventListener('pointerdown', e => { dib = true; cv.setPointerCapture(e.pointerId); const [x, y] = p(e); g.beginPath(); g.moveTo(x, y); });
+    cv.addEventListener('pointermove', e => { if (!dib) return; const [x, y] = p(e); g.lineTo(x, y); g.strokeStyle = '#10204a'; g.lineWidth = 2.5 * devicePixelRatio; g.lineCap = 'round'; g.stroke(); A.avalTrazo = true; });
+    cv.addEventListener('pointerup', () => { dib = false; });
   }
 
   async function descargarPlantillaActividades() {
@@ -1273,6 +1316,26 @@ textarea.pl-in{min-height:64px;resize:vertical}
         A.filas = null;
         toast('Actividades importadas', 'success');
       } catch (err) { toast(err.message, 'error'); el.disabled = false; }
+      return pintarAdmin();
+    }
+    if (a === 'aval-cambiar') { A.firmandoAval = true; return pintarAdmin(); }
+    if (a === 'aval-cancelar') { A.firmandoAval = false; return pintarAdmin(); }
+    if (a === 'aval-borrar') return iniciarPadAval();
+    if (a === 'aval-guardar') {
+      const cv = document.getElementById('aval-pad');
+      if (!A.avalTrazo) return toast('Falta la firma en el recuadro', 'error');
+      const k = Math.min(1, 600 / cv.width), c2 = document.createElement('canvas');
+      c2.width = cv.width * k; c2.height = cv.height * k;
+      c2.getContext('2d').drawImage(cv, 0, 0, c2.width, c2.height);
+      const body = { nombre_apellido: document.getElementById('aval-nombre').value, cargo: document.getElementById('aval-cargo').value,
+        matricula: document.getElementById('aval-matricula').value, firma_svg: c2.toDataURL('image/png') };
+      try {
+        await api('/constancias/firma-aval', { method: 'PUT', body: JSON.stringify(body) });
+        A.aval = await api('/constancias/firma-aval');
+        await ARStorage.set('firma_aval', A.aval);
+        A.firmandoAval = false;
+        toast('Firma de aval guardada ✓', 'success');
+      } catch (err) { toast(err.message, 'error', 6000); }
       return pintarAdmin();
     }
     if (a === 'base') {

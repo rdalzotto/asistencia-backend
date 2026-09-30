@@ -3892,7 +3892,7 @@ function tabPendientes(id, el) {
 function abrirPanelConfig() {
   const existing = document.getElementById('modal-config');
   if (existing) existing.remove();
-  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button><button class="tab" onclick="cerrarModal('modal-config');Planillas.abrirAdmin()">Planillas</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div style="display:flex;gap:6px;margin-bottom:10px" id="dest-filtro-tabs"><button type="button" class="btn btn-sm btn-primary" onclick="filtrarDestinosConfig('todos',this)" style="flex:1">Todos</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('cliente',this)" style="flex:1">Propios</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('contratista',this)" style="flex:1">Contratistas</button></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="sep"></div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Política interna de solicitud de vacaciones (no son exigencias del convenio 130/75 en sí, son configurables por la empresa):</div><div class="form-group"><label>Días de anticipación requeridos</label><input type="number" id="conv-vac-anticipacion" value="15" min="0"></div><div class="form-group"><label>Mínimo de días corridos por pedido</label><input type="number" id="conv-vac-minbloque" value="7" min="1"></div><div class="form-group" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="conv-vac-acuerdo-partes" style="width:auto"><label style="margin:0" for="conv-vac-acuerdo-partes">Permitir acuerdo de partes (el empleado puede pedir con menos anticipación si confirma que coordinó la cobertura con su empleador)</label></div><div class="sep"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
+  const html = `<div class="modal-overlay active" id="modal-config"><div class="modal" style="max-height:90vh"><div class="modal-handle"></div><div class="modal-title">Configuración</div><div class="tabs" style="margin-bottom:16px"><button class="tab active" onclick="tabConfig('empresa',this)">Empresa</button><button class="tab" onclick="tabConfig('jornada',this)">Jornada</button><button class="tab" onclick="tabConfig('destinos',this)">Destinos</button><button class="tab" onclick="tabConfig('convenio',this)">Convenio</button><button class="tab" onclick="cerrarModal('modal-config');Planillas.abrirAdmin()">Planillas y firmas</button></div><div id="config-empresa" class="section active"><div class="form-group"><label>Razón social</label><input type="text" id="cfg-razon"></div><div class="form-group"><label>CUIT</label><input type="text" id="cfg-cuit"></div><div class="form-group"><label>Domicilio</label><input type="text" id="cfg-domicilio"></div><div class="form-group"><label>Teléfono</label><input type="text" id="cfg-tel"></div><div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div><div class="form-group"><label>Nombre del sistema</label><input type="text" id="cfg-sistema" placeholder="AsistenciaAR"></div><div class="form-group"><label>Subtítulo del sistema</label><input type="text" id="cfg-subtitulo" placeholder="Ej: Registro de asistencia, visitas y reserva de recursos" value="Registro de asistencia, visitas y reserva de recursos"></div><div class="form-group"><label>Lat. oficina</label><input type="number" id="cfg-lat" step="0.0000001" placeholder="-31.xxx"></div><div class="form-group"><label>Lng. oficina</label><input type="number" id="cfg-lng" step="0.0000001" placeholder="-58.xxx"></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="cfg-radio" placeholder="300"></div><div class="form-group"><label>Logo de la empresa</label><div id="cfg-logo-preview" style="display:none;margin-bottom:8px"><img id="cfg-logo-img" src="" style="max-width:220px;max-height:90px;border-radius:8px;display:block;background:var(--bg3);padding:8px"></div><input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="previsualizarLogo(this)"><button class="btn btn-secondary" onclick="document.getElementById('cfg-logo-input').click()">📷 Elegir logo</button><div style="font-size:11px;color:var(--text3);margin-top:6px">Se muestra en la pantalla de inicio de sesión. Usá una imagen liviana (idealmente menos de 500 KB).</div></div><button class="btn btn-primary" onclick="guardarConfigEmpresa()">Guardar</button></div><div id="config-jornada" class="section"><div class="form-group"><label>Modalidad</label><select id="cfg-modalidad"><option value="corrida">Corrida</option><option value="partida">Partida</option></select></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Hora ingreso</label><input type="time" id="cfg-ingreso" value="07:30"></div><div class="form-group"><label>Hora egreso</label><input type="time" id="cfg-egreso" value="16:30"></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="form-group"><label>Inicio almuerzo</label><input type="time" id="cfg-alm-ini" value="12:00"></div><div class="form-group"><label>Fin almuerzo</label><input type="time" id="cfg-alm-fin" value="13:00"></div></div><div class="form-group"><label>Empleado</label><select id="cfg-jornada-emp"></select></div><button class="btn btn-primary" onclick="guardarJornada()">Guardar jornada</button></div><div id="config-destinos" class="section"><div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-primary" style="flex:1" onclick="toggleFormDestino()">+ Agregar destino</button><button class="btn btn-secondary" onclick="descargarPlantillaDestinos()">📄 Plantilla</button><button class="btn btn-secondary" onclick="document.getElementById('dest-excel-input').click()">&#128194; Importar Excel</button><input type="file" id="dest-excel-input" accept=".xlsx,.xls" style="display:none" onchange="importarDestinos(this)"></div><div id="form-destino-nuevo" style="display:none;background:var(--bg3);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px"><div class="form-group"><label>Nombre *</label><input type="text" id="dest-nombre" placeholder="Ej: Cliente García"></div><div class="form-group"><label>Tipo *</label><select id="dest-tipo"><option value="cliente">Cliente</option><option value="contratista">Contratista</option><option value="proveedor">Proveedor</option><option value="organismo">Organismo</option><option value="otro">Otro</option></select></div><div class="form-group"><label>Localidad</label><input type="text" id="dest-localidad" placeholder="Ej: Concordia"></div><div class="form-group"><label>Domicilio</label><input type="text" id="dest-domicilio" placeholder="Ej: Av. Principal 123"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div class="form-group"><label>Latitud GPS</label><input type="number" step="0.000001" id="dest-lat" placeholder="-31.400379"></div><div class="form-group"><label>Longitud GPS</label><input type="number" step="0.000001" id="dest-lng" placeholder="-58.014207"></div></div><div class="form-group"><label>Radio GPS (metros)</label><input type="number" id="dest-radio" value="200"></div><div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="agregarDestino()">Guardar destino</button><button class="btn btn-secondary" onclick="toggleFormDestino()">Cancelar</button></div></div><div style="display:flex;gap:6px;margin-bottom:10px" id="dest-filtro-tabs"><button type="button" class="btn btn-sm btn-primary" onclick="filtrarDestinosConfig('todos',this)" style="flex:1">Todos</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('cliente',this)" style="flex:1">Propios</button><button type="button" class="btn btn-sm btn-secondary" onclick="filtrarDestinosConfig('contratista',this)" style="flex:1">Contratistas</button></div><div id="lista-destinos-config" style="margin-top:8px"></div></div><div id="config-convenio" class="section"><div class="form-group"><label>Horas diarias</label><input type="number" id="conv-horas" value="8" step="0.5"></div><div class="form-group"><label>Tolerancia tardanza (min)</label><input type="number" id="conv-toler" value="10"></div><div class="sep"></div><div style="font-size:12px;color:var(--text2);margin-bottom:10px">Política interna de solicitud de vacaciones (no son exigencias del convenio 130/75 en sí, son configurables por la empresa):</div><div class="form-group"><label>Días de anticipación requeridos</label><input type="number" id="conv-vac-anticipacion" value="15" min="0"></div><div class="form-group"><label>Mínimo de días corridos por pedido</label><input type="number" id="conv-vac-minbloque" value="7" min="1"></div><div class="form-group" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="conv-vac-acuerdo-partes" style="width:auto"><label style="margin:0" for="conv-vac-acuerdo-partes">Permitir acuerdo de partes (el empleado puede pedir con menos anticipación si confirma que coordinó la cobertura con su empleador)</label></div><div class="sep"></div><div class="form-group"><label>Texto del convenio</label><textarea id="conv-texto" style="min-height:120px"></textarea></div><button class="btn btn-primary" onclick="guardarConvenio()">Guardar cambios</button></div><button class="btn btn-secondary" onclick="cerrarModal('modal-config')" style="margin-top:16px">Cerrar</button></div></div>`;
   document.body.insertAdjacentHTML('beforeend', html);
   cargarConfigEmpresa(); cargarDestinosConfig(); cargarConfigConvenio();
   api('/config/empleados').then(emps => {
@@ -6383,23 +6383,18 @@ async function abrirConstancia(visitaId, visitaDatos) {
     CONST_STATE.pendienteSync = true;
     toast('Sin conexión — se guardará cuando haya señal', 'info', 4000);
   }
-  // Cargar firmas guardadas por tipo (tecnico y responsable_exit son independientes)
+  // Firma del técnico: la última que guardó (la vuelve a confirmar en el cierre).
   try {
     const ft = await api('/constancias/firma-guardada');
-    // ft es un objeto { tecnico: {...}, responsable_exit: {...} }
-    if (ft && typeof ft === 'object') {
-      if (ft.tecnico) CONST_STATE.firmas.tecnico = ft.tecnico;
-      if (ft.responsable_exit) CONST_STATE.firmas.responsable_exit = ft.responsable_exit;
-    }
+    if (ft?.tecnico && !CONST_STATE.firmas.tecnico?.firma_svg) CONST_STATE.firmas.tecnico = ft.tecnico;
   } catch {}
-  // Precargar desde datos del usuario logueado si no hay firma guardada
   const _nombreCompleto = ((STATE.nombre||'')+' '+(STATE.apellido||'')).trim();
   if (!CONST_STATE.firmas.tecnico?.nombre_apellido && _nombreCompleto) {
     CONST_STATE.firmas.tecnico = {nombre_apellido:_nombreCompleto, cargo:STATE.cargo||'Asesor técnico', matricula:STATE.matricula||'', firma_svg:null, tipo:'tecnico'};
   }
-  if (!CONST_STATE.firmas.responsable_exit?.nombre_apellido) {
-    CONST_STATE.firmas.responsable_exit = {nombre_apellido:_nombreCompleto, cargo:STATE.cargo||'Responsable del servicio', matricula:STATE.matricula||'', firma_svg:null, tipo:'responsable_exit'};
-  }
+  // Firma de aval del responsable del servicio: la carga Dirección una vez y sale
+  // sola en todas las constancias. Se guarda en la tablet para usarla sin señal.
+  await cargarFirmaAval();
   renderConstanciaPasos(); renderConstanciaPaso();
   const modal = document.getElementById('modal-constancia');
   modal.style.display = 'flex'; modal.classList.add('active');
@@ -6757,6 +6752,23 @@ function renderFilaDesvio(d,i) {
   </div></div>`;
 }
 
+// Firma de aval (ver cargarFirmaAval): si la constancia ya tenía una guardada, se respeta.
+async function cargarFirmaAval() {
+  try { const av = await api('/constancias/firma-aval'); if (av) await ARStorage.set('firma_aval', av); } catch {}
+  const aval = await ARStorage.get('firma_aval');
+  if (!CONST_STATE.firmas.responsable_exit?.firma_svg || CONST_STATE.firmas.responsable_exit?.aval) {
+    CONST_STATE.firmas.responsable_exit = aval ? { ...aval, tipo: 'responsable_exit', aval: true } : null;
+  }
+}
+
+// El responsable del establecimiento no está al cerrar: la constancia se cierra
+// igual y después se le manda un enlace para que firme desde el celular.
+function marcarFirmaClienteDespues(valor) {
+  CONST_STATE.firmaClienteDespues = !!valor;
+  guardarConstanciaTrasAccion();
+  renderConstanciaPaso();
+}
+
 function renderPasoFirmas() {
   const fT=CONST_STATE.firmas.tecnico, fE=CONST_STATE.firmas.responsable_exit, fC=CONST_STATE.firmas.cliente;
   // Las imágenes base64 NUNCA van inline en template strings — se insertan por DOM
@@ -6786,9 +6798,21 @@ function renderPasoFirmas() {
     </div>`;
   };
   const html = `<div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:16px">10. Firmas</div>
-  ${bloqueHTML('cliente','Responsable del cliente','Firma del representante de la empresa visitada',fC,true)}
+  ${CONST_STATE.firmaClienteDespues && !fC?.firma_svg
+    ? `<div style="margin-bottom:16px;background:rgba(255,145,0,0.1);border:1px solid var(--orange);border-radius:8px;padding:14px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px">Responsable del establecimiento: firma después</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px">Al finalizar vas a poder mandarle un enlace por WhatsApp o email para que vea la constancia y firme desde el celular.</div>
+        <button onclick="marcarFirmaClienteDespues(false)" class="btn btn-secondary btn-sm">Está presente: firmar ahora</button></div>`
+    : bloqueHTML('cliente','Responsable del establecimiento','Firma en la reunión de cierre',fC,true)
+      + (!fC?.firma_svg ? `<button onclick="marcarFirmaClienteDespues(true)" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:10px;font-size:13px;cursor:pointer;width:100%;margin:-8px 0 16px">No está presente: que firme después con un enlace</button>` : '')}
   ${bloqueHTML('tecnico','Asesor EXIT S.A.','Tu firma como técnico/asesor',fT,false)}
-  ${bloqueHTML('responsable_exit','Responsable del servicio EXIT S.A.','Firma del responsable del servicio EXIT',fE,false)}`;
+  ${fE?.firma_svg
+    ? `<div data-firma-img="responsable_exit" style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px"><div style="font-size:13px;font-weight:600">Aval: responsable del servicio EXIT S.A.</div>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(0,230,118,0.15);color:var(--green)">✓ Se agrega sola</span></div>
+        <div style="font-size:12px;font-weight:600">${fE.nombre_apellido||''}</div>${fE.cargo?`<div style="font-size:11px;color:var(--text2)">${fE.cargo}</div>`:''}
+        <div class="firma-preview-slot" style="display:none;margin-top:8px"><img style="max-height:60px;background:white;border-radius:4px;padding:4px"></div></div>`
+    : `<div style="margin-bottom:16px;background:var(--bg3);border-radius:8px;padding:14px;font-size:12px;color:var(--text2)">Aval del responsable del servicio: Dirección todavía no cargó su firma (Configuración → Planillas). La constancia sale igual.</div>`}`;
   // Insertar imágenes por DOM (nunca inline en HTML string)
   const container = document.createElement('div');
   container.innerHTML = html;
@@ -7260,6 +7284,10 @@ async function confirmarFinalizarConstancia() {
     if (!String(id).startsWith('offline_')) {
       await api('/constancias/'+id, {method:'PATCH', body:JSON.stringify({estado:'completada'})});
       CONST_STATE.estadoConstancia = 'completada';
+      // Firma de aval del responsable del servicio: el servidor pone la cargada por Dirección.
+      if (CONST_STATE.firmas.responsable_exit?.aval) {
+        api('/constancias/'+id+'/firmas', {method:'POST', body:JSON.stringify({tipo:'responsable_exit'})}).catch(()=>{});
+      }
       actualizarBadgeEstadoConstancia();
       // Si la visita está vinculada y no está completada aún, marcarla como completada
       if (CONST_STATE.visitaId) {
@@ -7306,6 +7334,12 @@ function mostrarVistaPreviewConstancia(soloLectura = false) {
     btnFooter = `<button onclick="compartirConstancia()" class="btn btn-primary" style="flex:1">📤 Compartir / Enviar</button>
                  <button onclick="cerrarPreviewYSalir()" class="btn btn-secondary" style="flex:1">✓ Cerrar</button>`;
   }
+  // Falta la firma del responsable del establecimiento: pedirla a distancia o subir la firmada en papel.
+  const sinFirmaCliente = !CONST_STATE.firmas.cliente?.firma_svg && !soloLectura;
+  const btnFirmaCliente = sinFirmaCliente ? `<div style="background:rgba(255,145,0,0.1);border-top:1px solid var(--orange);padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+      <div style="flex:1;min-width:180px;font-size:13px"><b>Falta la firma del responsable del establecimiento.</b> <span id="estado-firma-remota" style="color:var(--text2)"></span></div>
+      <button onclick="pedirFirmaCliente()" class="btn btn-warning btn-sm">✍ Pedir firma a distancia</button>
+      <label class="btn btn-secondary btn-sm" style="cursor:pointer">📎 Subir firmada en papel<input type="file" accept="image/*,application/pdf" hidden onchange="subirConstanciaFirmadaPapel(this)"></label></div>` : '';
   overlay.innerHTML = `
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0">
       <button onclick="document.getElementById('modal-constancia-preview').remove()" style="background:none;border:none;color:var(--text2);font-size:20px;cursor:pointer">←</button>
@@ -7315,10 +7349,84 @@ function mostrarVistaPreviewConstancia(soloLectura = false) {
     <div style="flex:1;overflow-y:auto;padding:0">
       <iframe id="preview-iframe" style="width:100%;height:100%;border:none;background:white" srcdoc="${html.replace(/"/g,'&quot;')}"></iframe>
     </div>
+    ${btnFirmaCliente}
     <div style="background:var(--bg2);border-top:1px solid var(--border);padding:14px 16px;display:flex;gap:10px;flex-shrink:0">
       ${btnFooter}
     </div>`;
   document.body.appendChild(overlay);
+  if (sinFirmaCliente) mostrarEstadoFirmaRemota();
+}
+
+async function mostrarEstadoFirmaRemota() {
+  const el = document.getElementById('estado-firma-remota');
+  const id = CONST_STATE.constanciaId;
+  if (!el || !id || String(id).startsWith('offline_')) return;
+  try {
+    const r = await api('/constancias/' + id + '/firma-remota');
+    const f = s => new Date(s).toLocaleDateString('es-AR');
+    el.textContent = r.estado === 'pendiente' ? `Enlace enviado el ${f(r.creado_en)}, vence el ${f(r.expira_en)}.`
+      : r.estado === 'vencido' ? 'El enlace anterior venció: mandá uno nuevo.'
+      : r.estado === 'firmada' ? 'Ya firmó a distancia: cerrá y volvé a abrir la constancia para verla.' : '';
+  } catch {}
+}
+
+// Constancia tal como la ve el cliente (con los logos ya puestos) para firmar a distancia.
+function htmlConstanciaParaFirmar() {
+  const doc = new DOMParser().parseFromString(generarHTMLConstancia(), 'text/html');
+  doc.querySelectorAll('img[data-logo-exit]').forEach(img => { img.src = EXIT_LOGO_ACTUAL || EXIT_LOGO_DEFAULT; });
+  if (CONST_STATE.logoCliente) doc.querySelectorAll('img[data-logo-cliente]').forEach(img => { img.src = CONST_STATE.logoCliente; });
+  doc.querySelectorAll('script').forEach(s => s.remove());
+  return '<!doctype html>' + doc.documentElement.outerHTML;
+}
+
+async function pedirFirmaCliente() {
+  const id = CONST_STATE.constanciaId;
+  if (!id || String(id).startsWith('offline_')) return toast('Hace falta señal para generar el enlace. La constancia queda guardada: pedilo cuando tengas conexión.', 'info', 6000);
+  let r;
+  try {
+    toast('Generando enlace…', 'info', 2000);
+    r = await api('/constancias/' + id + '/firma-remota', { method: 'POST', body: JSON.stringify({ html: htmlConstanciaParaFirmar() }) });
+  } catch (e) { return toast(esErrorDeConexion(e) ? 'Sin señal: probá de nuevo cuando tengas conexión.' : e.message, 'error', 6000); }
+  const lugar = (CONST_STATE.datos.establecimiento_sector || '').split(' — ')[0];
+  const numero = document.getElementById('const-header-numero')?.textContent || '';
+  const texto = `Hola. Te envío la constancia de la visita de Higiene y Seguridad de EXIT S.A.${lugar ? ' en ' + lugar : ''} (${numero}). Podés revisarla y firmarla desde el celular en este enlace (vence en ${r.dias} días):`;
+  const d = document.createElement('div');
+  d.id = 'modal-firma-remota';
+  d.style.cssText = 'position:fixed;inset:0;z-index:750;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:16px';
+  d.innerHTML = `<div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:20px;max-width:420px;width:100%">
+    <div style="font-size:16px;font-weight:700;margin-bottom:6px">Enlace para firmar</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px">Mandáselo al responsable del establecimiento. Cuando firme, te llega un aviso y la firma aparece en la constancia.</div>
+    <input id="firma-remota-url" readonly value="${r.url}" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px;font-size:12px;margin-bottom:12px">
+    <div style="display:grid;gap:8px">
+      <a class="btn btn-success" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(texto + ' ' + r.url)}" style="text-decoration:none">WhatsApp</a>
+      ${navigator.share ? '<button class="btn btn-primary" id="firma-remota-compartir">Compartir (email, otras apps)</button>' : ''}
+      <button class="btn btn-secondary" id="firma-remota-copiar">Copiar enlace</button>
+      <button class="btn btn-secondary" id="firma-remota-cerrar">Listo</button>
+    </div></div>`;
+  document.body.appendChild(d);
+  document.getElementById('firma-remota-cerrar').onclick = () => { d.remove(); mostrarEstadoFirmaRemota(); };
+  document.getElementById('firma-remota-copiar').onclick = async () => {
+    try { await navigator.clipboard.writeText(r.url); toast('Enlace copiado ✓', 'success'); }
+    catch { const i = document.getElementById('firma-remota-url'); i.select(); toast('Seleccionado: copialo con "Copiar"', 'info'); }
+  };
+  const btnC = document.getElementById('firma-remota-compartir');
+  if (btnC) btnC.onclick = () => navigator.share({ title: 'Constancia de visita ' + numero, text: texto, url: r.url }).catch(() => {});
+}
+
+async function subirConstanciaFirmadaPapel(input) {
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  const id = CONST_STATE.constanciaId;
+  if (!id || String(id).startsWith('offline_')) return toast('Hace falta señal para subir el archivo.', 'info');
+  if (file.size > 8 * 1024 * 1024) return toast('El archivo supera los 8 MB', 'error');
+  const data_url = await new Promise(ok => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(file); });
+  try {
+    await api('/constancias/' + id + '/firma-papel', { method: 'POST', body: JSON.stringify({ data_url }) });
+    toast('Constancia firmada en papel guardada ✓', 'success');
+    const el = document.getElementById('estado-firma-remota');
+    if (el) el.textContent = 'Se subió la constancia firmada en papel.';
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 function cerrarPreviewConstancia() {

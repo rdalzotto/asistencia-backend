@@ -41,6 +41,7 @@ app.use('/api/extintores',     require('./routes/extintores'));
 app.use('/api/email',          require('./routes/email'));
 app.use('/api/crm',            require('./routes/crm'));
 app.use('/api/planillas',      require('./routes/planillas'));
+app.use('/api/firma-remota',   require('./routes/firmaRemota')); // pública: firma del cliente con enlace
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {

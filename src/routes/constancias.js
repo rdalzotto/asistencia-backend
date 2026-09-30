@@ -119,6 +119,44 @@ router.post('/firma-guardada', auth, async (req, res) => {
   }
 });
 
+// ── FIRMA DE AVAL (responsable del servicio) ─────────────────────────────────
+// Rogelio la carga una vez y sale en todas las constancias como aval de la
+// visita del técnico. El técnico no la puede cambiar: el servidor la toma de acá.
+const PNG_DATA_URL = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
+const esDueno = req => !process.env.DUENO_EMAIL || (req.user.email || '').toLowerCase() === process.env.DUENO_EMAIL.toLowerCase();
+
+router.get('/firma-aval', auth, async (req, res) => {
+  try {
+    const { rows: [f] } = await db.query(
+      'SELECT nombre_apellido, cargo, matricula, firma_svg, actualizado_en FROM public.firma_aval WHERE empleador_id = $1', [req.user.empleadorId]);
+    res.json(f || null);
+  } catch (err) {
+    if (err.code === '42P01') return res.json(null); // falta correr la migración: sin aval
+    console.error('[CONST] firma-aval GET:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/firma-aval', auth, soloAdmin, async (req, res) => {
+  if (!esDueno(req)) return res.status(403).json({ error: 'Solo el responsable del servicio puede cargar la firma de aval' });
+  const { nombre_apellido, cargo, matricula, firma_svg } = req.body || {};
+  if (!String(nombre_apellido || '').trim()) return res.status(400).json({ error: 'Falta el nombre' });
+  if (!PNG_DATA_URL.test(String(firma_svg || '')) || firma_svg.length > 700000) return res.status(400).json({ error: 'Firma inválida' });
+  try {
+    await db.query(`
+      INSERT INTO public.firma_aval (empleador_id, nombre_apellido, cargo, matricula, firma_svg, actualizado_por, actualizado_en)
+      VALUES ($1,$2,$3,$4,$5,$6,NOW())
+      ON CONFLICT (empleador_id) DO UPDATE SET nombre_apellido = EXCLUDED.nombre_apellido, cargo = EXCLUDED.cargo,
+        matricula = EXCLUDED.matricula, firma_svg = EXCLUDED.firma_svg, actualizado_por = EXCLUDED.actualizado_por, actualizado_en = NOW()`,
+      [req.user.empleadorId, String(nombre_apellido).trim().slice(0, 120), (cargo || '').trim().slice(0, 120) || null,
+        (matricula || '').trim().slice(0, 60) || null, firma_svg, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[CONST] firma-aval PUT:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ── LOGO DE DESTINO EXTERNO ──────────────────────────────────────────────────
 router.get('/destino-logo/:destino_id', auth, async (req, res) => {
   try {
@@ -382,7 +420,18 @@ router.post('/:id/desvios', auth, async (req, res) => {
 });
 
 router.post('/:id/firmas', auth, async (req, res) => {
-  const { tipo, nombre_apellido, cargo, matricula, firma_svg, dni, destino_id } = req.body;
+  let { tipo, nombre_apellido, cargo, matricula, firma_svg, dni, destino_id } = req.body;
+  // La firma del responsable del servicio es siempre la de aval, no la que mande la tablet.
+  if (tipo === 'responsable_exit') {
+    try {
+      const { rows: [av] } = await db.query('SELECT * FROM public.firma_aval WHERE empleador_id = $1', [req.user.empleadorId]);
+      // Sin aval cargado todavía: se acepta la que venga (constancias viejas guardadas sin señal).
+      if (av) ({ nombre_apellido, cargo, matricula, firma_svg } = av);
+    } catch (err) {
+      if (err.code !== '42P01') { console.error('[CONST] aval:', err.message); return res.status(500).json({ error: 'Error interno' }); }
+      // sin la migración todavía: se mantiene el comportamiento anterior
+    }
+  }
   if (!tipo || !firma_svg) return res.status(400).json({ error: 'Datos incompletos' });
   try {
     const { rows: [propia] } = await db.query(
@@ -403,7 +452,7 @@ router.post('/:id/firmas', auth, async (req, res) => {
       ({ rows: [firma] } = await db.query(`INSERT INTO public.constancia_firmas (constancia_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
         [req.params.id, tipo, nombre_apellido||null, cargo||null, matricula||null, firma_svg]));
     }
-    if (tipo !== 'cliente') {
+    if (tipo === 'tecnico') { // la de aval no se guarda como firma personal del técnico
       // Guardar firma por tipo (no borrar todas)
       await db.query(`DELETE FROM public.firmas_guardadas WHERE usuario_id = $1 AND tipo = $2`, [req.user.id, tipo]);
       await db.query(`INSERT INTO public.firmas_guardadas (usuario_id, empleador_id, tipo, nombre_apellido, cargo, matricula, firma_svg) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
@@ -541,6 +590,87 @@ router.delete('/grupos-email/:id', auth, async (req, res) => {
       [req.params.id, req.user.empleadorId]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+});
+
+// ── FIRMA DEL CLIENTE A DISTANCIA ────────────────────────────────────────────
+// Si el responsable del establecimiento no está al cerrar la visita, se le manda
+// un enlace: ve la constancia en el celular y firma. Ver routes/firmaRemota.js.
+const DIAS_VALIDEZ_ENLACE = 15;
+
+async function constanciaPropia(req, id) {
+  const params = [id, req.user.empleadorId];
+  let extra = '';
+  if (req.user.rol !== 'admin') { params.push(req.user.empleadoId || 0); extra = ' AND empleado_id = $3'; }
+  const { rows: [c] } = await db.query(`SELECT id, numero_informe, establecimiento_sector FROM public.constancias WHERE id = $1 AND empleador_id = $2${extra}`, params);
+  return c || null;
+}
+
+router.post('/:id/firma-remota', auth, async (req, res) => {
+  const html = String(req.body?.html || '');
+  if (html.length < 200 || html.length > 9 * 1024 * 1024) return res.status(400).json({ error: 'Falta la constancia para firmar' });
+  try {
+    const c = await constanciaPropia(req, req.params.id);
+    if (!c) return res.status(404).json({ error: 'Constancia no encontrada' });
+    const token = require('crypto').randomBytes(24).toString('base64url');
+    await db.query('UPDATE public.constancia_firma_remota SET anulado = TRUE WHERE constancia_id = $1 AND firmado_en IS NULL', [c.id]);
+    await db.query(`INSERT INTO public.constancia_firma_remota (token, constancia_id, empleador_id, numero, establecimiento, html, creado_por, expira_en)
+      VALUES ($1,$2,$3,$4,$5,$6,$7, NOW() + ($8 || ' days')::interval)`,
+      [token, c.id, req.user.empleadorId, c.numero_informe, c.establecimiento_sector, html, req.user.id, String(DIAS_VALIDEZ_ENLACE)]);
+    const base = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    // El token va después de "#": el navegador no lo manda al servidor ni queda en registros.
+    res.json({ ok: true, url: `${base}/firmar.html#${token}`, dias: DIAS_VALIDEZ_ENLACE });
+  } catch (err) {
+    console.error('[CONST] firma-remota:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.get('/:id/firma-remota', auth, async (req, res) => {
+  try {
+    const c = await constanciaPropia(req, req.params.id);
+    if (!c) return res.status(404).json({ error: 'Constancia no encontrada' });
+    const { rows: [f] } = await db.query(`SELECT creado_en, expira_en, firmado_en, anulado FROM public.constancia_firma_remota
+      WHERE constancia_id = $1 ORDER BY creado_en DESC LIMIT 1`, [c.id]);
+    if (!f) return res.json({ estado: 'sin_pedido' });
+    const estado = f.firmado_en ? 'firmada' : f.anulado ? 'anulado' : new Date(f.expira_en) < new Date() ? 'vencido' : 'pendiente';
+    res.json({ estado, creado_en: f.creado_en, expira_en: f.expira_en, firmado_en: f.firmado_en });
+  } catch (err) {
+    console.error('[CONST] firma-remota estado:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Alternativa: foto o PDF de la constancia firmada en papel.
+router.post('/:id/firma-papel', auth, async (req, res) => {
+  const m = /^data:(image\/jpeg|image\/png|application\/pdf);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data_url || ''));
+  if (!m) return res.status(400).json({ error: 'Subí una foto (JPG o PNG) o un PDF' });
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > 8 * 1024 * 1024) return res.status(413).json({ error: 'El archivo supera los 8 MB' });
+  try {
+    const c = await constanciaPropia(req, req.params.id);
+    if (!c) return res.status(404).json({ error: 'Constancia no encontrada' });
+    await db.query('INSERT INTO public.constancia_firma_papel (constancia_id, empleador_id, mime, datos, bytes, subido_por) VALUES ($1,$2,$3,$4,$5,$6)',
+      [c.id, req.user.empleadorId, m[1], buf, buf.length, req.user.id]);
+    await db.query('UPDATE public.constancias SET firmada_cliente = TRUE, actualizado_en = NOW() WHERE id = $1', [c.id]);
+    await db.query('UPDATE public.constancia_firma_remota SET anulado = TRUE WHERE constancia_id = $1 AND firmado_en IS NULL', [c.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[CONST] firma-papel:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.get('/:id/firma-papel', auth, async (req, res) => {
+  try {
+    const c = await constanciaPropia(req, req.params.id);
+    if (!c) return res.status(404).json({ error: 'Constancia no encontrada' });
+    const { rows: [f] } = await db.query('SELECT mime, datos FROM public.constancia_firma_papel WHERE constancia_id = $1 ORDER BY creado_en DESC LIMIT 1', [c.id]);
+    if (!f) return res.status(404).json({ error: 'No hay constancia firmada en papel' });
+    res.set('Content-Type', f.mime).set('Cache-Control', 'private, no-store').send(f.datos);
+  } catch (err) {
+    console.error('[CONST] firma-papel GET:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 module.exports = router;
