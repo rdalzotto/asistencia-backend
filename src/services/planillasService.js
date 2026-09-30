@@ -119,6 +119,36 @@ function validarEnvio(p) {
   return errores;
 }
 
+// Cómo cambió un ítem entre la visita anterior y la actual.
+// null = no comparable (falta alguno o es No aplica / No verificado).
+function evolucion(antes, ahora) {
+  const ok = r => r === 'C' || r === 'NC';
+  if (!ok(antes) || !ok(ahora)) return null;
+  if (antes === 'NC' && ahora === 'C') return 'mejoro';
+  if (antes === 'C' && ahora === 'NC') return 'empeoro';
+  return ahora === 'NC' ? 'sigue_nc' : 'sigue_c';
+}
+
+// Compara las respuestas de hoy con las anteriores de los MISMOS ítems.
+// pares: [{ antes: {resultado, criticidad}, ahora: {resultado, criticidad} }]
+// El índice de antes y el de ahora se calculan sobre los mismos ítems, para que la
+// comparación sea justa aunque las visitas hayan cubierto temas distintos.
+function comparar(pares) {
+  const c = { comparables: 0, mejoro: 0, empeoro: 0, sigue_nc: 0, sigue_c: 0 };
+  const antes = [], ahora = [];
+  for (const p of pares) {
+    const e = evolucion(p.antes?.resultado, p.ahora?.resultado);
+    if (!e) continue;
+    c.comparables++; c[e]++;
+    const crit = p.ahora.criticidad ?? p.antes.criticidad;
+    antes.push({ resultado: p.antes.resultado, criticidad: crit });
+    ahora.push({ resultado: p.ahora.resultado, criticidad: crit });
+  }
+  c.indice_antes = resumir(antes).indice;
+  c.indice_ahora = resumir(ahora).indice;
+  return c;
+}
+
 // Qué pasa con una acción según lo verificado en una visita posterior.
 function estadoTrasSeguimiento(estadoActual, resultado) {
   if (resultado === 'corregido') return 'verificada';
@@ -135,5 +165,5 @@ function textoHallazgo(r) {
 module.exports = {
   RESULTADOS, PESO, PLAZO_DIAS,
   resumir, calificar, resumirRelevamiento, plazoSugerido, validarEnvio,
-  estadoTrasSeguimiento, textoHallazgo, esUuid,
+  estadoTrasSeguimiento, textoHallazgo, esUuid, evolucion, comparar,
 };

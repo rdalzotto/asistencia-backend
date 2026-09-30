@@ -159,3 +159,26 @@ test('fotos: se validan en ítems, módulos y seguimientos (máximo 20)', () => 
   assert.ok(e.some(x => x.startsWith('Módulo 1: fotos')));
   assert.ok(e.some(x => x.startsWith('Seguimiento 1: fotos')));
 });
+
+test('evolución de un ítem entre visitas', () => {
+  assert.strictEqual(s.evolucion('NC', 'C'), 'mejoro');
+  assert.strictEqual(s.evolucion('C', 'NC'), 'empeoro');
+  assert.strictEqual(s.evolucion('NC', 'NC'), 'sigue_nc');
+  assert.strictEqual(s.evolucion('C', 'C'), 'sigue_c');
+  assert.strictEqual(s.evolucion('NA', 'C'), null);
+  assert.strictEqual(s.evolucion(undefined, 'NC'), null);
+});
+
+test('comparación con la visita anterior usa los mismos ítems', () => {
+  const c = s.comparar([
+    { antes: { resultado: 'NC', criticidad: 1 }, ahora: { resultado: 'C', criticidad: 1 } },   // mejoró (peso 3)
+    { antes: { resultado: 'C', criticidad: 3 }, ahora: { resultado: 'NC', criticidad: 3 } },   // empeoró (peso 1)
+    { antes: { resultado: 'NC', criticidad: 2 }, ahora: { resultado: 'NC', criticidad: 2 } },  // sigue (peso 2)
+    { antes: null, ahora: { resultado: 'NC', criticidad: 2 } },                                  // nuevo: no comparable
+    { antes: { resultado: 'NV', criticidad: 2 }, ahora: { resultado: 'C', criticidad: 2 } },   // no comparable
+  ]);
+  assert.strictEqual(c.comparables, 3);
+  assert.deepStrictEqual([c.mejoro, c.empeoro, c.sigue_nc, c.sigue_c], [1, 1, 1, 0]);
+  assert.strictEqual(c.indice_antes, 16.7);  // 1 de 6
+  assert.strictEqual(c.indice_ahora, 50);    // 3 de 6
+});

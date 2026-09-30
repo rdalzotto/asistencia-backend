@@ -234,8 +234,10 @@ async function destinoPropio(empleadorId, destinoId) {
 // Todo lo que la tablet necesita saber de un establecimiento antes de ir:
 // actividades registradas, instalaciones ya relevadas (para repetirlas con sus
 // datos), acciones abiertas a verificar y el último índice.
-async function contextoDestino(empleadorId, destinoId) {
-  const [act, inst, acc, ult] = await Promise.all([
+// excluirRel: relevamiento en curso, para no compararlo consigo mismo.
+async function contextoDestino(empleadorId, destinoId, excluirRel = null) {
+  const excl = svc.esUuid(excluirRel) ? excluirRel : '00000000-0000-0000-0000-000000000000';
+  const [act, inst, acc, ult, prev] = await Promise.all([
     db.query(`SELECT id, actividad, rubro, modulo_codigo, frecuencia, meses, trabajadores, contratista, observaciones, origen
               FROM public.chk_actividades WHERE empleador_id = $1 AND destino_id = $2 AND activo ORDER BY frecuencia, actividad`,
       [empleadorId, destinoId]),
@@ -243,22 +245,37 @@ async function contextoDestino(empleadorId, destinoId) {
               FROM public.chk_instancias i JOIN public.chk_relevamientos r ON r.id = i.relevamiento_id
               WHERE r.empleador_id = $1 AND r.destino_id = $2 AND i.etiqueta IS NOT NULL
               ORDER BY i.modulo_codigo, lower(COALESCE(i.etiqueta,'')), r.creado_en DESC`, [empleadorId, destinoId]),
+    // item_id / modulo_codigo / etiqueta permiten reconocer la acción al chequear de nuevo el mismo ítem.
     db.query(`SELECT a.id, a.hallazgo, a.ref_normativa, a.criticidad, a.medida, a.responsable_cliente, a.fecha_compromiso,
-                     a.estado, a.modulo_nombre, a.instancia_etiqueta, a.creado_en, a.relevamiento_id
+                     a.estado, a.modulo_nombre, a.instancia_etiqueta, a.creado_en, a.relevamiento_id,
+                     x.item_id, i.modulo_codigo
               FROM public.chk_acciones a
+              LEFT JOIN public.chk_respuestas x ON x.id = a.respuesta_id
+              LEFT JOIN public.chk_instancias i ON i.id = x.instancia_id
               WHERE a.empleador_id = $1 AND a.destino_id = $2 AND a.estado IN ('propuesta','acordada','cumplida')
-              ORDER BY a.criticidad, a.fecha_compromiso NULLS LAST, a.id`, [empleadorId, destinoId]),
+                AND a.relevamiento_id IS DISTINCT FROM $3::uuid
+              ORDER BY a.criticidad, a.fecha_compromiso NULLS LAST, a.id`, [empleadorId, destinoId, excl]),
     db.query(`SELECT id, indice, calificacion, creado_en FROM public.chk_relevamientos
-              WHERE empleador_id = $1 AND destino_id = $2 AND indice IS NOT NULL ORDER BY creado_en DESC LIMIT 1`,
-      [empleadorId, destinoId]),
+              WHERE empleador_id = $1 AND destino_id = $2 AND indice IS NOT NULL AND id <> $3::uuid ORDER BY creado_en DESC LIMIT 1`,
+      [empleadorId, destinoId, excl]),
+    // Última respuesta de cada ítem en cada instalación (vivienda "Puesto Norte", tractor "JD 5090"...),
+    // para contrastar con lo que se ve hoy.
+    db.query(`SELECT DISTINCT ON (i.modulo_codigo, lower(COALESCE(i.etiqueta,'')), x.item_id)
+                     i.modulo_codigo, i.etiqueta, x.item_id, x.resultado, x.criticidad, x.observacion, r.creado_en AS fecha, r.id AS relevamiento_id
+              FROM public.chk_respuestas x
+              JOIN public.chk_instancias i ON i.id = x.instancia_id
+              JOIN public.chk_relevamientos r ON r.id = i.relevamiento_id
+              WHERE r.empleador_id = $1 AND r.destino_id = $2 AND x.item_id IS NOT NULL AND r.id <> $3::uuid
+              ORDER BY i.modulo_codigo, lower(COALESCE(i.etiqueta,'')), x.item_id, r.creado_en DESC`, [empleadorId, destinoId, excl]),
   ]);
-  return { destino_id: Number(destinoId), actividades: act.rows, instancias_conocidas: inst.rows, acciones_abiertas: acc.rows, ultimo: ult.rows[0] || null };
+  return { destino_id: Number(destinoId), actividades: act.rows, instancias_conocidas: inst.rows, acciones_abiertas: acc.rows,
+    ultimo: ult.rows[0] || null, respuestas_anteriores: prev.rows };
 }
 
 router.get('/destinos/:id/contexto', auth, async (req, res) => {
   try {
     if (!await destinoPropio(req.user.empleadorId, req.params.id)) return res.status(404).json({ error: 'Establecimiento no encontrado' });
-    res.json(await contextoDestino(req.user.empleadorId, req.params.id));
+    res.json(await contextoDestino(req.user.empleadorId, req.params.id, req.query.excluir));
   } catch (err) { console.error('[CHK] contexto:', err.message); res.status(500).json({ error: 'Error interno' }); }
 });
 

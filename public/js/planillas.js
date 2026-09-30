@@ -124,13 +124,77 @@ textarea.pl-in{min-height:64px;resize:vertical}
     }
     return cat;
   }
-  async function contexto(destinoId) {
-    if (!destinoId) return { actividades: [], instancias_conocidas: [], acciones_abiertas: [] };
+  // excluirRel: el relevamiento en curso, para no contrastarlo consigo mismo
+  // (también se filtra acá por si la copia guardada en la tablet lo incluye).
+  async function contexto(destinoId, excluirRel) {
+    const vacio = { actividades: [], instancias_conocidas: [], acciones_abiertas: [], respuestas_anteriores: [] };
+    if (!destinoId) return vacio;
     let ctx = await ARStorage.get('chk_ctx_' + destinoId);
     if (online()) {
-      try { ctx = await api('/planillas/destinos/' + destinoId + '/contexto'); await ARStorage.set('chk_ctx_' + destinoId, ctx); } catch (e) { /* copia local */ }
+      try { ctx = await api('/planillas/destinos/' + destinoId + '/contexto?excluir=' + encodeURIComponent(excluirRel || '')); await ARStorage.set('chk_ctx_' + destinoId, ctx); } catch (e) { /* copia local */ }
     }
-    return ctx || { actividades: [], instancias_conocidas: [], acciones_abiertas: [] };
+    ctx = { ...vacio, ...(ctx || {}) };
+    ctx.acciones_abiertas = ctx.acciones_abiertas.filter(a => a.relevamiento_id !== excluirRel);
+    ctx.respuestas_anteriores = ctx.respuestas_anteriores.filter(r => r.relevamiento_id !== excluirRel);
+    return ctx;
+  }
+
+  // ── contraste con la visita anterior ────────────────────────────────────
+  const claveItem = (modulo, etiqueta, itemId) => modulo + '|' + String(etiqueta || '').trim().toLowerCase() + '|' + itemId;
+  function evolucion(antes, ahora) {
+    const ok = x => x === 'C' || x === 'NC';
+    if (!ok(antes) || !ok(ahora)) return null;
+    if (antes === 'NC' && ahora === 'C') return 'mejoro';
+    if (antes === 'C' && ahora === 'NC') return 'empeoro';
+    return ahora === 'NC' ? 'sigue_nc' : 'sigue_c';
+  }
+  const EVOL = {
+    mejoro: ['✓ Mejoró', 'var(--green)'], empeoro: ['✗ Empeoró', 'var(--red)'],
+    sigue_nc: ['= Sigue sin cumplir', 'var(--orange)'], sigue_c: ['= Sigue cumpliendo', 'var(--text2)'],
+  };
+  const anteriorDe = (inst, itemId) => P.prev?.get(claveItem(inst.modulo_codigo, inst.etiqueta, itemId)) || null;
+
+  // Pares (antes, ahora) de los ítems chequeados hoy que también se chequearon antes.
+  function paresDe(instancias) {
+    const pares = [];
+    for (const i of instancias) for (const r of respuestasDe(i.id)) {
+      if (!r.item_id) continue;
+      const a = anteriorDe(i, r.item_id);
+      if (a) pares.push({ antes: a, ahora: r, inst: i });
+    }
+    return pares;
+  }
+  function comparar(pares) {
+    const c = { comparables: 0, mejoro: 0, empeoro: 0, sigue_nc: 0, sigue_c: 0, lista: { mejoro: [], empeoro: [], sigue_nc: [] } };
+    const antes = [], ahora = [];
+    for (const p of pares) {
+      const e = evolucion(p.antes.resultado, p.ahora.resultado);
+      if (!e) continue;
+      c.comparables++; c[e]++;
+      if (c.lista[e]) c.lista[e].push(p);
+      const crit = p.ahora.criticidad ?? p.antes.criticidad;
+      antes.push({ resultado: p.antes.resultado, criticidad: crit });
+      ahora.push({ resultado: p.ahora.resultado, criticidad: crit });
+    }
+    c.indice_antes = resumir(antes).indice;
+    c.indice_ahora = resumir(ahora).indice;
+    return c;
+  }
+
+  // Si el ítem que hoy se chequea tenía una acción abierta, su verificación se
+  // registra sola (corregido / sin cambios). Si el técnico la marcó a mano arriba, se respeta.
+  function seguimientoAutomatico(inst, itemId, resultado) {
+    const acc = (P.ctx.acciones_abiertas || []).find(a => a.item_id === itemId && a.modulo_codigo === inst.modulo_codigo
+      && String(a.instancia_etiqueta || '').trim().toLowerCase() === String(inst.etiqueta || '').trim().toLowerCase());
+    if (!acc) return;
+    P.doc.seguimientos = P.doc.seguimientos || [];
+    const s = P.doc.seguimientos.find(x => x.accion_id === acc.id);
+    if (s && !s.auto) return;
+    const nuevo = resultado === 'C' ? 'corregido' : resultado === 'NC' ? 'sin_cambios' : null;
+    if (!nuevo) { if (s) P.doc.seguimientos = P.doc.seguimientos.filter(x => x !== s); return; }
+    const comentario = nuevo === 'corregido' ? 'Verificado al chequear el ítem: ahora cumple.' : 'Verificado al chequear el ítem: sigue sin cumplir.';
+    if (s) Object.assign(s, { resultado: nuevo, comentario });
+    else P.doc.seguimientos.push({ id: uuid(), accion_id: acc.id, resultado: nuevo, comentario, fotos: [], auto: true });
   }
   const claveIdx = (visitaId, constanciaId, destinoId) =>
     'chk_idx_' + (visitaId ? 'v' + visitaId : 'c' + constanciaId) + '_' + (destinoId || 'x');
@@ -245,7 +309,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     const m = contenedor();
     m.innerHTML = '<div class="pl-body" style="text-align:center;color:var(--text2);padding-top:60px">Cargando planillas…</div>';
     m.classList.add('abierto');
-    const [cat, ctx] = await Promise.all([catalogo(), contexto(o.destinoId)]);
+    const cat = await catalogo();
     if (!cat || !cat.modulos) {
       m.innerHTML = `<div class="pl-top"><button class="pl-back" data-a="cerrar">← Volver</button><div class="t"><b>Planillas</b></div></div>
         <div class="pl-body"><div class="pl-card">No hay catálogo en la tablet. Conectate a internet una vez para descargarlo (se guarda y después funciona sin señal).</div></div>`;
@@ -253,8 +317,10 @@ textarea.pl-in{min-height:64px;resize:vertical}
       return;
     }
     const doc = await cargarRelevamiento(o);
+    const ctx = await contexto(o.destinoId, doc.rel.id);
     P = { o, cat, ctx, doc, vista: doc.instancias.length ? 'inicio' : 'agregar', instId: null, verTodos: false, confirmar: null };
     P.mod = Object.fromEntries(cat.modulos.map(x => [x.codigo, x]));
+    P.prev = new Map(ctx.respuestas_anteriores.map(r => [claveItem(r.modulo_codigo, r.etiqueta, r.item_id), r]));
     if (doc._nuevo) delete doc._nuevo;
     pintar();
   }
@@ -369,6 +435,8 @@ textarea.pl-in{min-height:64px;resize:vertical}
           <div style="flex:1;font-size:14px">${esc(a.hallazgo)}<div style="font-size:12px;color:var(--text2);margin-top:3px">${esc([a.modulo_nombre, a.instancia_etiqueta].filter(Boolean).join(' · '))}${a.fecha_compromiso ? ' · plazo ' + fmtFecha(a.fecha_compromiso) : ''}</div></div></div>
           <div class="pl-crit" style="margin-top:8px">${[['corregido', '✓ Corregido'], ['en_curso', 'En curso'], ['sin_cambios', 'Sin cambios']].map(([k, t]) =>
             `<button data-a="seguimiento" data-id="${a.id}" data-v="${k}" style="${s?.resultado === k ? 'background:var(--accent);color:#0f1923;border-color:var(--accent)' : ''}">${t}</button>`).join('')}</div>
+          ${s?.auto ? `<div style="font-size:12px;color:var(--accent);margin-top:6px">Marcado solo al chequear el ítem hoy. Si no es así, tocá otra opción.</div>` : ''}
+          ${!s && a.item_id ? `<div style="font-size:12px;color:var(--text2);margin-top:6px">Se marca solo al chequear ese ítem en ${esc(a.modulo_nombre || 'su tema')}${a.instancia_etiqueta ? ' · ' + esc(a.instancia_etiqueta) : ''}.</div>` : ''}
           ${s ? `<input class="pl-in" style="margin-top:8px" placeholder="Comentario (opcional)" data-f="seg-com" data-id="${a.id}" value="${esc(s.comentario || '')}">
             <div style="margin-top:8px">${tiraFotos('seg', a.id, s.fotos, s.resultado === 'corregido' ? '📷 Foto del después' : '📷 Foto')}</div>` : ''}</div>`;
       }
@@ -385,8 +453,10 @@ textarea.pl-in{min-height:64px;resize:vertical}
     d.instancias.forEach(i => {
       const p = progreso(i);
       const falta = P.mod[i.modulo_codigo]?.repetible && !i.etiqueta;
+      const cmp = comparar(paresDe([i]));
+      const txtCmp = cmp.comparables ? ` · antes ${cmp.indice_antes}% → hoy ${cmp.indice_ahora}%${cmp.mejoro ? ` <span style="color:var(--green)">${cmp.mejoro} mejoró</span>` : ''}${cmp.empeoro ? ` <span style="color:var(--red)">${cmp.empeoro} empeoró</span>` : ''}` : '';
       h += `<div class="pl-card pl-row" data-a="inst" data-id="${i.id}"><div class="n"><b>${esc(nombreInst(i))}</b>
-        <small>${falta ? '<span class="pl-warn">Falta el nombre · </span>' : ''}${p.hechas} de ${p.total}${p.nc ? ` · <span style="color:var(--red)">${p.nc} no cumple</span>` : ''}</small></div>
+        <small>${falta ? '<span class="pl-warn">Falta el nombre · </span>' : ''}${p.hechas} de ${p.total}${p.nc ? ` · <span style="color:var(--red)">${p.nc} no cumple</span>` : ''}${txtCmp}</small></div>
         <div class="pl-bar"><i style="width:${p.pct}%"></i></div></div>`;
     });
     h += `<div style="margin-top:6px"><button class="pl-chip" data-a="vista" data-v="agregar">+ Otro chequeo</button></div>`;
@@ -446,6 +516,19 @@ textarea.pl-in{min-height:64px;resize:vertical}
     return `<div><label style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase">${esc(c.etiqueta)}${c.requerido ? ' *' : ''}</label>${ctrl}</div>`;
   }
 
+  // "Anterior (12/08): No cumple — observación" y, si ya se respondió hoy, cómo evolucionó.
+  function lineaAnterior(inst, it, r) {
+    if (!it.id) return '';
+    const a = anteriorDe(inst, it.id);
+    if (!a) return '';
+    const e = r ? evolucion(a.resultado, r.resultado) : null;
+    const colAntes = a.resultado === 'NC' ? 'var(--red)' : a.resultado === 'C' ? 'var(--green)' : 'var(--text2)';
+    return `<div style="font-size:12.5px;margin:-2px 0 8px;padding:6px 8px;background:var(--bg3);border-radius:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <span style="color:var(--text2)">Anterior (${fmtFecha(a.fecha)}):</span><b style="color:${colAntes}">${RES[a.resultado] || a.resultado}</b>
+      ${a.observacion ? `<span style="color:var(--text2)">— ${esc(a.observacion)}</span>` : ''}
+      ${e ? `<span style="margin-left:auto;font-weight:700;color:${EVOL[e][1]}">${EVOL[e][0]}</span>` : ''}</div>`;
+  }
+
   function tarjetaItem(inst, it, r) {
     const res = r?.resultado;
     const crit = r ? Number(r.criticidad || it.criticidad || 2) : it.criticidad;
@@ -453,6 +536,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
     let h = `<div class="pl-item ${res ? 'r-' + res : ''}" ${key}>
       <div class="tx">${it.codigo ? `<span style="color:var(--text3);font-family:var(--mono);font-size:12px">${esc(it.codigo)}</span> ` : ''}${esc(it.texto)}</div>
       <div class="ref"><span class="pl-tag">${TIPO[it.tipo] || 'Agregado en el campo'}</span><span class="pl-tag" style="color:${colorCrit(it.criticidad)}">${CRIT[it.criticidad] || ''}</span>${esc(it.ref_normativa || '')}</div>
+      ${lineaAnterior(inst, it, r)}
       <div class="pl-btns">${Object.entries(RES).map(([k, t]) => `<button data-a="res" data-v="${k}" class="${res === k ? 'on-' + k : ''}">${t}</button>`).join('')}</div>`;
     if (res === 'NC') {
       const sinFoto = crit === 1 && !(r.fotos || []).length;
@@ -513,6 +597,34 @@ textarea.pl-in{min-height:64px;resize:vertical}
   }
   function siguienteInst(inst) { const l = P.doc.instancias; return l[l.indexOf(inst) + 1] || null; }
 
+  // Contraste con la visita anterior, sobre los mismos ítems y las mismas instalaciones.
+  function bloqueComparacion() {
+    const d = P.doc;
+    const c = comparar(paresDe(d.instancias));
+    const segs = (d.seguimientos || []);
+    const accs = P.ctx.acciones_abiertas || [];
+    const corr = segs.filter(s => s.resultado === 'corregido').length;
+    const sinCambio = segs.filter(s => s.resultado === 'sin_cambios').length;
+    const enCurso = segs.filter(s => s.resultado === 'en_curso').length;
+    if (!c.comparables && !accs.length) return '';
+    const flecha = c.indice_ahora > c.indice_antes ? '▲' : c.indice_ahora < c.indice_antes ? '▼' : '=';
+    const colF = c.indice_ahora > c.indice_antes ? 'var(--green)' : c.indice_ahora < c.indice_antes ? 'var(--red)' : 'var(--text2)';
+    const lista = (arr, titulo, col) => arr.length ? `<div style="margin-top:8px"><b style="font-size:12px;color:${col};text-transform:uppercase">${titulo} (${arr.length})</b>
+      ${arr.map(p => `<div style="font-size:13px;margin-top:3px">• ${esc(p.ahora.item_texto)} <span style="color:var(--text2)">· ${esc(nombreInst(p.inst))}</span></div>`).join('')}</div>` : '';
+    let h = `<div class="pl-sec">Contra la visita anterior</div><div class="pl-card">`;
+    if (c.comparables) {
+      h += `<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:22px;font-weight:700">${c.indice_antes}% <span style="color:${colF}">${flecha}</span> ${c.indice_ahora}%</div>
+        <div style="font-size:13px"><span style="color:var(--green)">${c.mejoro} mejoraron</span> · <span style="color:var(--red)">${c.empeoro} empeoraron</span> · <span style="color:var(--orange)">${c.sigue_nc} siguen sin cumplir</span> · ${c.sigue_c} siguen cumpliendo</div></div>
+        <div style="font-size:12px;color:var(--text2);margin-top:4px">Sobre ${c.comparables} ítems chequeados en las dos visitas.</div>
+        ${lista(c.lista.mejoro, 'Mejoraron', 'var(--green)')}${lista(c.lista.empeoro, 'Empeoraron', 'var(--red)')}${lista(c.lista.sigue_nc, 'Siguen sin cumplir', 'var(--orange)')}`;
+    }
+    if (accs.length) {
+      h += `<div style="margin-top:${c.comparables ? 12 : 0}px;font-size:13px"><b>Pendientes anteriores (${accs.length}):</b> <span style="color:var(--green)">${corr} corregidos</span> · ${enCurso} en curso · <span style="color:var(--orange)">${sinCambio} sin cambios</span> · ${accs.length - corr - enCurso - sinCambio} sin verificar</div>`;
+    }
+    return h + '</div>';
+  }
+
   function vResumen() {
     const d = P.doc;
     const res = resumir(d.respuestas);
@@ -533,6 +645,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
         <div style="font-size:13px;margin-top:4px">${res.C} cumple · ${res.NC} no cumple · ${res.NA} no aplica · ${res.NV} no verificado</div></div></div>
       ${sinResp ? `<div style="font-size:12px;color:var(--text2)">${sinResp} ítems de estos chequeos quedaron sin responder: no cuentan en el índice.</div>` : ''}
       ${faltanFotos ? `<div class="pl-warn">Hay ${faltanFotos} crítico(s) sin foto.</div>` : ''}
+      ${bloqueComparacion()}
       <div class="pl-sec">Por módulo</div><div class="pl-card" style="overflow-x:auto"><table class="pl-tabla"><tr><th>Módulo</th><th>Cant.</th><th>No cumple</th><th>Índice</th></tr>
       ${Object.values(porMod).map(x => { const r = resumir(x.rs); return `<tr><td>${esc(x.nombre)}</td><td>${x.inst}</td><td>${r.NC}</td><td style="color:${colorCalif(r.calificacion)}">${r.indice === null ? '—' : r.indice + '%'}</td></tr>`; }).join('')}</table></div>
       <div class="pl-sec">Hallazgos (${nc.length})</div>
@@ -819,8 +932,9 @@ textarea.pl-in{min-height:64px;resize:vertical}
       const id = Number(el.dataset.id);
       P.doc.seguimientos = P.doc.seguimientos || [];
       let s = P.doc.seguimientos.find(x => x.accion_id === id);
+      // Marcado a mano: deja de ser automático y ya no lo cambia el chequeo del ítem.
       if (s && s.resultado === v) P.doc.seguimientos = P.doc.seguimientos.filter(x => x !== s);
-      else if (s) s.resultado = v;
+      else if (s) { s.resultado = v; s.auto = false; }
       else P.doc.seguimientos.push({ id: uuid(), accion_id: id, resultado: v, comentario: '' });
       guardar(); return pintar();
     }
@@ -857,7 +971,11 @@ textarea.pl-in{min-height:64px;resize:vertical}
       let r = t.r;
       if (a === 'res') {
         // Tocar de nuevo la misma opción la desmarca (en ítems del catálogo; los agregados en el campo se quitan con "Quitar").
-        if (r && r.resultado === v && t.it) { P.doc.respuestas = P.doc.respuestas.filter(x => x !== r); guardar(); return pintar(); }
+        if (r && r.resultado === v && t.it) {
+          P.doc.respuestas = P.doc.respuestas.filter(x => x !== r);
+          seguimientoAutomatico(t.inst, t.it.id, null);
+          guardar(); return pintar();
+        }
         if (r && r.resultado === v) return;
         if (!r) {
           r = { id: uuid(), instancia_id: t.inst.id, item_id: t.it.id, item_codigo: t.it.codigo, item_texto: t.it.texto, item_ref: t.it.ref_normativa,
@@ -870,6 +988,7 @@ textarea.pl-in{min-height:64px;resize:vertical}
           if (!r.medida && t.it?.medida_sugerida) r.medida = t.it.medida_sugerida;
           if (!r.plazo) r.plazo = plazoSugerido(Number(r.criticidad || 2), String(P.doc.rel.iniciado_en || '').slice(0, 10) || hoy());
         }
+        if (t.it?.id) seguimientoAutomatico(t.inst, t.it.id, v);
       } else {
         r.criticidad = Number(v);
         r.plazo = plazoSugerido(r.criticidad, String(P.doc.rel.iniciado_en || '').slice(0, 10) || hoy());
