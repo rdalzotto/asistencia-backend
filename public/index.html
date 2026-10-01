@@ -949,7 +949,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
     <div id="grupo-externa" style="display:none">
       <div class="form-group"><label>Motivo de salida</label><select id="reg-categoria"></select></div>
-      <div class="form-group" id="grupo-destino" style="display:none"><label>Destino</label><select id="reg-destino"><option value="">— Seleccionar destino —</option></select></div>
+      <div class="form-group" id="grupo-destino" style="display:none"><label>Destino (cliente o establecimiento)</label><select id="reg-destino"><option value="">— Seleccionar destino —</option></select></div>
       <div class="form-group"><label>Descripción (opcional)</label><input type="text" id="reg-descripcion" placeholder="Detalles adicionales"></div>
     </div>
     <div class="verification-steps" id="verif-steps">
@@ -1818,7 +1818,7 @@ let BANCO_SALDO_DISPONIBLE = 0;
 function renderBancoHoras(bh) {
   const hoy = new Date();
   document.getElementById('banco-mes').textContent = hoy.toLocaleString('es-AR',{month:'long',year:'numeric'});
-  document.getElementById('banco-trabajadas').textContent = (bh.horas_trabajadas||0) + 'h';
+  document.getElementById('banco-trabajadas').textContent = Number(bh.horas_trabajadas||0).toFixed(1) + 'h';
   document.getElementById('banco-convenio').textContent = Number(bh.horas_convenio||0) + 'h';
   // El balance viene "a la fecha" del servidor: contra lo esperado hasta ayer,
   // no contra las horas del mes completo (antes el día 1 marcaba -178).
@@ -1952,7 +1952,7 @@ async function abrirModalRegistro() {
     sel.innerHTML = STATE.categorias.map(c => '<option value="'+c.id+'">'+c.nombre+'</option>').join('');
     const selD = document.getElementById('reg-destino');
     selD.innerHTML = '<option value="">— Sin destino específico —</option>' +
-      STATE.destinos.map(d => '<option value="'+d.id+'">'+d.nombre+' ('+(d.localidad||'')+')</option>').join('');
+      STATE.destinos.map(d => '<option value="'+d.id+'">'+escHtml(d.nombre)+(d.localidad ? ' ('+escHtml(d.localidad)+')' : '')+'</option>').join('');
   } catch {}
   actualizarOpcionesTipoMovimiento();
   cambiarTipoMovimiento();
@@ -1963,6 +1963,10 @@ async function abrirModalRegistro() {
 function cambiarTipoMovimiento() {
   const tipo = document.getElementById('reg-tipo').value;
   document.getElementById('grupo-externa').style.display = tipo === 'salida_externa' ? 'block' : 'none';
+  // El campo Destino estaba siempre oculto (desde jun/2026 nunca se mostraba):
+  // en salida externa se muestra siempre, opcional (01/10/2026, Roberto no
+  // podía elegir la estancia y la escribió en la descripción).
+  document.getElementById('grupo-destino').style.display = tipo === 'salida_externa' ? 'block' : 'none';
 }
 
 async function iniciarVerificacion() {
@@ -2272,7 +2276,7 @@ function mostrarOpcionesModalidad(motivo) {
   const selD = document.getElementById('reg-destino-externo');
   if (selD && STATE.destinos) {
     selD.innerHTML = '<option value="">— Seleccionar destino —</option>' +
-      STATE.destinos.map(d => '<option value="'+d.id+'">'+d.nombre+' ('+(d.localidad||'')+')</option>').join('');
+      STATE.destinos.map(d => '<option value="'+d.id+'">'+escHtml(d.nombre)+(d.localidad ? ' ('+escHtml(d.localidad)+')' : '')+'</option>').join('');
   }
   banner.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
