@@ -432,7 +432,11 @@ function generarHash(datos) {
 const TRANSICIONES_FICHAJE = {
   null:                   ['ingreso', 'inicio_jornada_remota'],
   ingreso:                ['salida_almuerzo', 'salida_externa', 'egreso'],
-  salida_almuerzo:        ['regreso_almuerzo'],
+  // Desde el almuerzo también se puede volver trabajando afuera (Externo) o
+  // desde casa — ej. salió a almorzar a las 13 y a las 17 va directo a
+  // medir a un cliente (Roberto, 30/09/2026: fuera del radio de la oficina
+  // no tenía ningún fichaje posible y perdió la tarde).
+  salida_almuerzo:        ['regreso_almuerzo', 'inicio_jornada_remota'],
   regreso_almuerzo:       ['salida_externa', 'egreso'],
   salida_externa:         ['regreso_externo'],
   regreso_externo:        ['salida_externa', 'egreso'],
@@ -451,6 +455,35 @@ function tipoMovimientoPermitido(ultimoTipo, tipoNuevo) {
   if (tipoNuevo === 'trabajo_feriado') return true;
   const permitidos = TRANSICIONES_FICHAJE[ultimoTipo || null] || [];
   return permitidos.includes(tipoNuevo);
+}
+
+// ─── Fichaje faltante cargado por el admin ───────────────────────────────────
+// El admin intercala un fichaje que el empleado no pudo marcar (ej. el
+// "Regreso almuerzo" de las 17). Tiene que encajar en la secuencia del día:
+// con el fichaje anterior a esa hora Y con el siguiente, si lo hay.
+const TIPOS_CARGA_MANUAL = [
+  'ingreso', 'salida_almuerzo', 'regreso_almuerzo',
+  'salida_externa', 'regreso_externo', 'egreso',
+];
+const NOMBRES_TIPO = {
+  ingreso: 'Ingreso', egreso: 'Egreso',
+  salida_almuerzo: 'Salida almuerzo', regreso_almuerzo: 'Regreso almuerzo',
+  salida_externa: 'Salida externa', regreso_externo: 'Regreso de externo',
+  inicio_jornada_remota: 'Inicio jornada remota/externa', fin_jornada_remota: 'Fin jornada remota/externa',
+};
+
+// Devuelve null si se puede cargar, o el motivo (texto para el admin) si no.
+function validarFichajeManual({ anterior, tipo, siguiente }) {
+  const n = (t) => `"${NOMBRES_TIPO[t] || t}"`;
+  if (!TIPOS_CARGA_MANUAL.includes(tipo))
+    return 'Ese tipo de fichaje no se puede cargar a mano.';
+  if (!tipoMovimientoPermitido(anterior || null, tipo))
+    return anterior
+      ? `Antes de esa hora el último fichaje es ${n(anterior)}: no puede seguir un ${n(tipo)}.`
+      : `${n(tipo)} no puede ser el primer fichaje del día.`;
+  if (siguiente && !tipoMovimientoPermitido(tipo, siguiente))
+    return `Después de esa hora ya hay un ${n(siguiente)}, que no puede ir después de un ${n(tipo)}.`;
+  return null;
 }
 
 // ─── Último movimiento de hoy de un empleado ────────────────────────────────
@@ -540,6 +573,9 @@ module.exports = {
   generarHash,
   TRANSICIONES_FICHAJE,
   tipoMovimientoPermitido,
+  TIPOS_CARGA_MANUAL,
+  NOMBRES_TIPO,
+  validarFichajeManual,
   obtenerUltimoMovimientoHoy,
   jornadaActivaHoy,
   jornadaActivaEnFecha,

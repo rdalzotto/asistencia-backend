@@ -910,6 +910,87 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// ─── POST /movimientos/fichaje-manual-admin ───────────────────────────────────
+// El admin carga un fichaje que el empleado no pudo marcar (ej. Roberto
+// 30/09/2026: volvió a trabajar a las 17 y no pudo fichar el regreso).
+// { empleado_id, fecha, hora 'HH:MM', tipo, motivo }. Tiene que encajar en la
+// secuencia de ese día; queda validado, con quién lo cargó y por qué, y se le
+// avisa al empleado.
+router.post('/fichaje-manual-admin', auth, soloAdmin, async (req, res) => {
+  const { empleado_id, fecha, hora, tipo } = req.body;
+  const motivo = String(req.body.motivo || '').trim();
+  if (!empleado_id || !/^\d{4}-\d{2}-\d{2}$/.test(fecha || '') || !/^\d{2}:\d{2}$/.test(hora || '') || !tipo)
+    return res.status(400).json({ error: 'Faltan datos: empleado, fecha, hora y tipo de fichaje.' });
+  if (motivo.length < 5)
+    return res.status(400).json({ error: 'Escribí el motivo de la carga manual (queda registrado).' });
+
+  const horaISO = `${fecha}T${hora}:00-03:00`;
+  const horaMs = new Date(horaISO).getTime();
+  if (!Number.isFinite(horaMs))
+    return res.status(400).json({ error: 'Fecha u hora inválida.' });
+  if (horaMs > Date.now())
+    return res.status(400).json({ error: 'No se puede cargar un fichaje a futuro.' });
+  if (Date.now() - horaMs > 62 * 24 * 3600 * 1000)
+    return res.status(400).json({ error: 'Solo se pueden cargar fichajes de los últimos 2 meses.' });
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [emp] } = await client.query(
+      'SELECT id, nombre, apellido, usuario_id FROM public.empleados WHERE id = $1 AND empleador_id = $2',
+      [empleado_id, req.user.empleadorId]
+    );
+    if (!emp) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Empleado no encontrado' }); }
+    // Mismo criterio que validar-remoto: un admin no se carga fichajes a sí mismo.
+    if (emp.usuario_id === req.user.id && !esDueno(req.user)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'No podés cargarte un fichaje a vos mismo — tiene que hacerlo otro administrador.' });
+    }
+
+    const vecino = async (cond, orden) => (await client.query(`
+      SELECT tipo FROM public.movimientos
+      WHERE empleado_id = $1 AND fecha = $2 AND tipo <> 'trabajo_feriado' AND hora ${cond} $3::timestamptz
+      ORDER BY hora ${orden} LIMIT 1
+    `, [empleado_id, fecha, horaISO])).rows[0]?.tipo || null;
+    if (await vecino('=', 'ASC')) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Ya hay un fichaje exactamente a esa hora.' });
+    }
+    const anterior = await vecino('<', 'DESC');
+    const siguiente = await vecino('>', 'ASC');
+    const problema = jornada.validarFichajeManual({ anterior, tipo, siguiente });
+    if (problema) { await client.query('ROLLBACK'); return res.status(400).json({ error: problema }); }
+
+    const hash = jornada.generarHash({ tipo: 'fichaje_manual_admin', subtipo: tipo, empleado_id, fecha, hora, admin: req.user.id });
+    const { rows: [mov] } = await client.query(`
+      INSERT INTO public.movimientos
+        (empleado_id, empleador_id, tipo, fecha, hora, cierre_automatico,
+         validado, validado_por, validado_en, hash_sha256, observacion_admin)
+      VALUES ($1, $2, $3, $4, $5, FALSE, TRUE, $6, NOW(), $7, $8)
+      RETURNING *
+    `, [empleado_id, req.user.empleadorId, tipo, fecha, horaISO, req.user.id, hash,
+        `Cargado a mano por administrador: ${motivo}`]);
+
+    await jornada.actualizarBancoHoras(empleado_id, fecha, client);
+    await client.query('COMMIT');
+
+    // El empleado se entera de lo que se cargó a su nombre.
+    try {
+      const fechaTxt = fecha.split('-').reverse().join('/');
+      await push.pushUsuario(emp.usuario_id, 'Fichaje cargado por administración',
+        `${jornada.NOMBRES_TIPO[tipo]} del ${fechaTxt} a las ${hora}. Motivo: ${motivo}`);
+    } catch (e) { console.error('[MOV] fichaje-manual-admin push:', e.message); }
+
+    res.json({ ok: true, movimiento: mov });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[MOV] fichaje-manual-admin error:', err.message);
+    res.status(500).json({ error: 'Error interno: ' + err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── GET /movimientos/consulta-egreso-pendiente ───────────────────────────────
 router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
   const empleadoId = req.user.empleadoId;

@@ -936,7 +936,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <option value="regreso_almuerzo">↩ Regreso almuerzo</option>
         <option value="salida_externa">📍 Salida externa</option>
         <option value="regreso_externo">↩ Regreso de externo</option>
-        <option value="inicio_jornada_remota">🏠 Inicio jornada remota</option>
+        <option value="inicio_jornada_remota" id="opt-inicio-jornada-remota">🏠 Inicio jornada remota</option>
         <option value="fin_jornada_remota" id="opt-fin-jornada-remota">🏁 Fin jornada remota</option>
         <option value="egreso">🔴 Egreso</option>
       </select>
@@ -1684,7 +1684,7 @@ async function cargarEquipoEstado() {
 const TRANSICIONES_FICHAJE = {
   null:                  ['ingreso','inicio_jornada_remota'],
   ingreso:               ['salida_almuerzo','salida_externa','egreso'],
-  salida_almuerzo:       ['regreso_almuerzo'],
+  salida_almuerzo:       ['regreso_almuerzo','inicio_jornada_remota'],
   regreso_almuerzo:      ['salida_externa','egreso'],
   salida_externa:        ['regreso_externo'],
   regreso_externo:       ['salida_externa','egreso'],
@@ -1723,6 +1723,10 @@ function actualizarOpcionesTipoMovimiento() {
   // "Salida externa" (que es una diligencia corta y no cierra la jornada).
   const optFin = document.getElementById('opt-fin-jornada-remota');
   if (optFin) optFin.textContent = STATE.contextoRemotoActivo === 'externo' ? '🏢 Volver a la oficina' : '🏁 Fin jornada remota';
+  // Desde el almuerzo, "Inicio jornada remota" es volver trabajando afuera
+  // (ej. directo a un cliente a la tarde) — se pregunta Externo o casa.
+  const optIni = document.getElementById('opt-inicio-jornada-remota');
+  if (optIni) optIni.textContent = STATE.ultimoMovimiento === 'salida_almuerzo' ? '🚗 Vuelvo trabajando afuera (cliente o casa)' : '🏠 Inicio jornada remota';
 }
 
 function renderMovimientosHoy(movs) {
@@ -2085,6 +2089,13 @@ async function confirmarMovimiento() {
   if (tipo === 'inicio_jornada_remota' && !STATE.gpsCoords?.lat) {
     document.getElementById('btn-confirmar-mov').disabled = false;
     mostrarPreguntaModalidad('sin_gps_remoto');
+    return;
+  }
+  // Vuelve del almuerzo trabajando afuera: misma pregunta Externo / casa
+  // que cuando el GPS da fuera del radio (Externo como opción principal).
+  if (tipo === 'inicio_jornada_remota' && STATE.ultimoMovimiento === 'salida_almuerzo') {
+    document.getElementById('btn-confirmar-mov').disabled = false;
+    mostrarPreguntaModalidad('fuera_radio');
     return;
   }
 
@@ -2929,6 +2940,7 @@ async function cargarDashboardAdmin() {
           <div style="display:flex;align-items:center;gap:8px">
             <span class="badge ${colEstado[e.estado]||'badge-gray'}">${lblEstado[e.estado]||e.estado}</span>
             ${['en_oficina','en_almuerzo','en_externo','remoto_pendiente','externo_pendiente'].includes(e.estado) ? `<button class="btn btn-sm btn-danger" style="padding:4px 10px;font-size:12px" onclick="abrirEgresoManual(${e.empleado_id},'${e.nombre} ${e.apellido}')">⏎ Egresar</button>` : ''}
+            <button class="btn btn-sm btn-secondary" style="padding:4px 10px;font-size:12px" title="Cargar un fichaje que faltó" onclick="abrirFichajeManual(${e.empleado_id},'${e.nombre} ${e.apellido}')">📝 Fichaje</button>
           </div>
         </div>
       `).join('');
@@ -7893,6 +7905,66 @@ async function confirmarEgresoManual() {
   } catch(e) { toast(e.message || 'Error al registrar egreso', 'error'); }
 }
 
+// ── FICHAJE FALTANTE CARGADO POR EL ADMIN ────────────────────────────────────
+// Para cuando el empleado no pudo marcar (ej. volvió a trabajar a las 17 y la
+// app no lo dejó). Se muestran los fichajes de ese día para ubicar el nuevo.
+const NOMBRES_FICHAJE = {ingreso:'Ingreso',egreso:'Egreso',salida_almuerzo:'Salida almuerzo',regreso_almuerzo:'Regreso almuerzo',salida_externa:'Salida externa',regreso_externo:'Regreso de externo',inicio_jornada_remota:'Inicio remoto/externo',fin_jornada_remota:'Fin remoto/externo',trabajo_feriado:'Trabajo en feriado'};
+
+function abrirFichajeManual(empleadoId, nombre) {
+  document.getElementById('fm-titulo').textContent = 'Cargar fichaje — ' + nombre;
+  document.getElementById('fm-empleado-id').value = empleadoId;
+  const ahoraAR = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+  const fechaStr = ahoraAR.getFullYear() + '-' + String(ahoraAR.getMonth()+1).padStart(2,'0') + '-' + String(ahoraAR.getDate()).padStart(2,'0');
+  const fechaEl = document.getElementById('fm-fecha');
+  fechaEl.value = fechaStr;
+  fechaEl.max = fechaStr;
+  document.getElementById('fm-hora').value = '';
+  document.getElementById('fm-motivo').value = '';
+  abrirModal('modal-fichaje-manual');
+  cargarFichajesDelDiaManual();
+}
+
+async function cargarFichajesDelDiaManual() {
+  const empleadoId = document.getElementById('fm-empleado-id').value;
+  const fecha = document.getElementById('fm-fecha').value;
+  const cont = document.getElementById('fm-dia');
+  if (!fecha) { cont.innerHTML = ''; return; }
+  cont.innerHTML = '<span style="color:var(--text3)">Cargando…</span>';
+  try {
+    const movs = await api(`/movimientos/historial?empleado_id=${empleadoId}&desde=${fecha}&hasta=${fecha}&limit=100`);
+    movs.sort((a, b) => new Date(a.hora) - new Date(b.hora));
+    cont.innerHTML = movs.length
+      ? movs.map(m => {
+          const h = new Date(m.hora).toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'America/Argentina/Buenos_Aires' });
+          const auto = (m.cierre_automatico || m.salida_automatica) ? ' <span style="color:var(--orange)">(automático)</span>' : '';
+          return `<div>${h} · ${NOMBRES_FICHAJE[m.tipo] || m.tipo}${auto}</div>`;
+        }).join('')
+      : '<span style="color:var(--text3)">Sin fichajes ese día</span>';
+  } catch(e) { cont.innerHTML = '<span style="color:var(--red)">No se pudieron leer los fichajes de ese día</span>'; }
+}
+
+async function confirmarFichajeManual() {
+  const empleado_id = parseInt(document.getElementById('fm-empleado-id').value);
+  const fecha  = document.getElementById('fm-fecha').value;
+  const hora   = document.getElementById('fm-hora').value;
+  const tipo   = document.getElementById('fm-tipo').value;
+  const motivo = document.getElementById('fm-motivo').value.trim();
+  if (!fecha || !hora) return toast('Completá fecha y hora', 'error');
+  if (motivo.length < 5) return toast('Escribí el motivo (queda registrado)', 'error');
+  const btn = document.getElementById('btn-confirmar-fm');
+  btn.disabled = true;
+  try {
+    await api('/movimientos/fichaje-manual-admin', {
+      method: 'POST',
+      body: JSON.stringify({ empleado_id, fecha, hora, tipo, motivo })
+    });
+    cerrarModal('modal-fichaje-manual');
+    toast('Fichaje cargado ✓ — se le avisó al empleado', 'success');
+    cargarDashboardAdmin();
+  } catch(e) { toast(e.message || 'Error al cargar el fichaje', 'error', 8000); }
+  finally { btn.disabled = false; }
+}
+
 // ── CONSULTA DE EGRESO ────────────────────────────────────────────────────────
 let _ceHoraEgresoTurno = null;
 
@@ -8020,6 +8092,47 @@ async function eoConfirmarQuedarme() {
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-egreso-manual')">Cancelar</button>
       <button class="btn btn-primary" style="flex:1" onclick="confirmarEgresoManual()">Confirmar egreso</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODAL FICHAJE FALTANTE (ADMIN) ───────────────────────────────────── -->
+<div class="modal-overlay" id="modal-fichaje-manual" style="z-index:600">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="fm-titulo">Cargar fichaje</div>
+    <input type="hidden" id="fm-empleado-id">
+    <div class="form-group">
+      <label>Fecha</label>
+      <input type="date" id="fm-fecha" onchange="cargarFichajesDelDiaManual()" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:15px">
+    </div>
+    <div style="font-size:13px;color:var(--text2);background:var(--bg3);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Fichajes de ese día</div>
+      <div id="fm-dia"></div>
+    </div>
+    <div class="form-group">
+      <label>Fichaje que faltó</label>
+      <select id="fm-tipo" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:15px">
+        <option value="regreso_almuerzo">↩ Regreso almuerzo</option>
+        <option value="ingreso">🟢 Ingreso</option>
+        <option value="salida_almuerzo">🍽 Salida almuerzo</option>
+        <option value="salida_externa">📍 Salida externa</option>
+        <option value="regreso_externo">↩ Regreso de externo</option>
+        <option value="egreso">🔴 Egreso</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Hora</label>
+      <input type="time" id="fm-hora" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:18px">
+    </div>
+    <div class="form-group">
+      <label>Motivo</label>
+      <textarea id="fm-motivo" rows="2" placeholder="Ej.: volvió a las 17 para mediciones y la app no le dejó fichar" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:14px"></textarea>
+    </div>
+    <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Tiene que encajar con los fichajes de ese día. Queda registrado quién lo cargó y por qué, y se le avisa al empleado.</p>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-fichaje-manual')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1" id="btn-confirmar-fm" onclick="confirmarFichajeManual()">Cargar fichaje</button>
     </div>
   </div>
 </div>
