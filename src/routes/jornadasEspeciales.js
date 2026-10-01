@@ -32,10 +32,37 @@ async function recalcular(client, empleadoId, fecha) {
 
 const SELECT_JE = `
   SELECT je.*, je.fecha::text AS fecha, to_char(je.hora_fin_estimada, 'HH24:MI') AS hora_fin_estimada,
-         e.nombre, e.apellido, uc.email AS creada_por_email
+         e.nombre, e.apellido, uc.email AS creada_por_email,
+         (SELECT json_agg(vd.cliente_nombre ORDER BY vd.orden) FROM public.visita_destinos vd
+           WHERE vd.visita_id = je.visita_id) AS destinos
   FROM public.jornadas_especiales je
   JOIN public.empleados e ON e.id = je.empleado_id
   LEFT JOIN public.usuarios uc ON uc.id = je.creada_por`;
+
+// ─── Etapa 2: visita programada sola ──────────────────────────────────────────
+// Si al cargar la jornada especial se eligen establecimientos (destinos_externos),
+// se crea UNA visita programada ese día: organiza el primer empleado y el resto
+// va como acompañante 'mismo_cliente' (mismo modelo que un viaje compartido).
+async function crearVisitaDeJornada(client, { empleadorId, empleadoIds, fecha, horaFin, motivo, destinos, esAdmin }) {
+  const { rows: [v] } = await client.query(`
+    INSERT INTO public.visitas
+      (empleador_id, empleado_id, fecha, hora_estimada_salida, hora_estimada_regreso, origen,
+       km_estimados, viatico_estimado, observaciones, estado, visto_admin, visita_horario_excepcional)
+    VALUES ($1, $2, $3::date, NULL, $4, 'oficina', 0, 0, $5, 'programada', $6, FALSE)
+    RETURNING id
+  `, [empleadorId, empleadoIds[0], fecha, horaFin || null, `Jornada especial: ${motivo}`, esAdmin]);
+  for (let i = 0; i < destinos.length; i++) {
+    const d = destinos[i];
+    await client.query(`
+      INSERT INTO public.visita_destinos (visita_id, orden, cliente_nombre, domicilio, lat, lng, motivo)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, [v.id, i + 1, d.nombre, [d.domicilio, d.localidad].filter(Boolean).join(', ') || null, d.lat, d.lng, motivo]);
+  }
+  for (const id of empleadoIds.slice(1)) {
+    await client.query(`INSERT INTO public.visita_acompanantes (visita_id, empleado_id, tipo) VALUES ($1, $2, 'mismo_cliente')`, [v.id, id]);
+  }
+  return v.id;
+}
 
 // ─── GET /jornadas-especiales/mia?fecha= ──────────────────────────────────────
 // La del propio empleado para ese día (por defecto hoy), o null.
@@ -84,6 +111,10 @@ router.post('/', auth, async (req, res) => {
   if (problema) return res.status(400).json({ error: problema });
   if (hora_fin_estimada && !/^\d{2}:\d{2}$/.test(hora_fin_estimada))
     return res.status(400).json({ error: 'Hora estimada de fin inválida.' });
+  const destinoIds = Array.isArray(req.body.destino_ids)
+    ? [...new Set(req.body.destino_ids.map(Number).filter(Boolean))] : [];
+  if (destinoIds.length && fecha < hoy)
+    return res.status(400).json({ error: 'Para días pasados no se programa la visita: sacá los establecimientos.' });
 
   const client = await db.connect();
   try {
@@ -124,17 +155,41 @@ router.post('/', auth, async (req, res) => {
       if (aprobada) await recalcular(client, emp.id, fecha);
       creadas.push({ ...je, nombre: emp.nombre, apellido: emp.apellido, usuario_id: emp.usuario_id, propia });
     }
+
+    // Etapa 2: establecimientos elegidos → visita programada para ese día.
+    let destinosNombres = [];
+    if (destinoIds.length) {
+      const { rows: dests } = await client.query(
+        'SELECT id, nombre, domicilio, localidad, lat, lng FROM public.destinos_externos WHERE id = ANY($1::int[]) AND empleador_id = $2 AND activo = TRUE',
+        [destinoIds, req.user.empleadorId]
+      );
+      if (dests.length !== destinoIds.length) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Algún establecimiento elegido no existe o está inactivo.' });
+      }
+      const ordenados = destinoIds.map(id => dests.find(d => d.id === id));
+      const visitaId = await crearVisitaDeJornada(client, {
+        empleadorId: req.user.empleadorId,
+        empleadoIds: ids.filter(id => creadas.some(c => c.empleado_id === id)),
+        fecha, horaFin: hora_fin_estimada, motivo, destinos: ordenados, esAdmin,
+      });
+      await client.query('UPDATE public.jornadas_especiales SET visita_id = $1 WHERE id = ANY($2::int[])', [visitaId, creadas.map(c => c.id)]);
+      creadas.forEach(c => { c.visita_id = visitaId; });
+      destinosNombres = ordenados.map(d => d.nombre);
+    }
     await client.query('COMMIT');
+    creadas.forEach(c => { c.destinos = destinosNombres.length ? destinosNombres : null; });
 
     for (const je of creadas) {
       try {
         const nombre = `${je.nombre} ${je.apellido}`.trim();
+        const dest = je.destinos ? ` · Visita: ${je.destinos.join(', ')}` : '';
         if (je.estado === 'pendiente') {
           await push.pushAdmins(req.user.empleadorId, 'Jornada especial para aprobar',
-            `${nombre}: ${nombreTipo(je)} el ${fechaTxt(je.fecha)} — ${je.motivo}`);
+            `${nombre}: ${nombreTipo(je)} el ${fechaTxt(je.fecha)} — ${je.motivo}${dest}`);
         } else if (!je.propia) {
           await push.pushUsuario(je.usuario_id, 'Jornada especial cargada',
-            `${nombreTipo(je)} el ${fechaTxt(je.fecha)} — ${je.motivo}. Fichá con los botones de la jornada especial.`);
+            `${nombreTipo(je)} el ${fechaTxt(je.fecha)} — ${je.motivo}${dest}. Fichá con los botones de la jornada especial.`);
         }
       } catch (e) { console.error('[JE] push alta:', e.message); }
     }
@@ -216,8 +271,27 @@ router.post('/:id/anular', auth, async (req, res) => {
       WHERE id = $3
     `, [req.user.id, nota, je.id]);
     await recalcular(client, je.empleado_id, je.fecha);
+
+    // La visita que se programó con ella se cancela si todavía no empezó y
+    // nadie más de ese viaje sigue con su jornada especial vigente.
+    let visitaCancelada = false;
+    if (je.visita_id) {
+      const { rows: [otra] } = await client.query(
+        `SELECT 1 FROM public.jornadas_especiales WHERE visita_id = $1 AND id <> $2 AND estado IN ('pendiente','aprobada') LIMIT 1`,
+        [je.visita_id, je.id]
+      );
+      if (!otra) {
+        const { rowCount } = await client.query(
+          `UPDATE public.visitas SET estado = 'cancelada',
+             observaciones = COALESCE(observaciones || ' | ', '') || 'Cancelada al anular la jornada especial'
+           WHERE id = $1 AND estado = 'programada'`,
+          [je.visita_id]
+        );
+        visitaCancelada = rowCount > 0;
+      }
+    }
     await client.query('COMMIT');
-    res.json({ ok: true });
+    res.json({ ok: true, visita_cancelada: visitaCancelada });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[JE] anular:', err.message);
