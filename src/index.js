@@ -160,17 +160,20 @@ async function cronJornadaInteligente() {
         ON jpd.empleado_id = e.id AND jpd.dia_semana = $1
       WHERE COALESCE(jpd.hora_egreso, jc.hora_egreso) IS NOT NULL
         AND e.activo = TRUE
+        -- Se pregunta solo a quien está trabajando AHORA en un tramo que
+        -- empezó antes de su hora de salida. No a quien está en almuerzo o
+        -- en salida externa, ni a quien retomó a propósito después de esa
+        -- hora (volvió a las 17 para un trabajo) — Roberto/Walter 30/09/2026.
         AND EXISTS (
-          SELECT 1 FROM public.movimientos m
-          WHERE m.empleado_id = e.id
-            AND m.fecha = CURRENT_DATE
-            AND m.tipo IN ('ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota')
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM public.movimientos m2
-          WHERE m2.empleado_id = e.id
-            AND m2.fecha = CURRENT_DATE
-            AND m2.tipo IN ('egreso','fin_jornada_remota')
+          SELECT 1 FROM (
+            SELECT m.tipo, m.hora FROM public.movimientos m
+            WHERE m.empleado_id = e.id AND m.fecha = CURRENT_DATE
+              AND m.tipo <> 'trabajo_feriado'
+            ORDER BY m.hora DESC LIMIT 1
+          ) ult
+          WHERE ult.tipo IN ('ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota')
+            AND (ult.hora AT TIME ZONE 'America/Argentina/Buenos_Aires')::time
+                < COALESCE(jpd.hora_egreso, jc.hora_egreso)::time
         )
         AND NOT EXISTS (
           SELECT 1 FROM public.consultas_egreso ce
@@ -303,17 +306,18 @@ async function cronJornadaInteligente() {
 
     // ── 4. Cierre de seguridad a las 20:00 ────────────────────────────────────
     if (h === 20 && m === 0) {
+      // Se mira el ÚLTIMO movimiento del día: antes bastaba con que hubiera
+      // un egreso cualquiera más temprano para que alguien que reabrió la
+      // jornada a la tarde quedara afuera de este cierre (Walter, 30/09/2026).
+      // Quien quedó en almuerzo o en salida externa también se cierra acá.
       const { rows: rezagados } = await db.query(`
-        SELECT DISTINCT m.empleado_id, m.empleador_id
-        FROM public.movimientos m
-        WHERE m.fecha = CURRENT_DATE
-          AND m.tipo IN ('ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota')
-          AND NOT EXISTS (
-            SELECT 1 FROM public.movimientos m2
-            WHERE m2.empleado_id = m.empleado_id
-              AND m2.fecha = CURRENT_DATE
-              AND m2.tipo IN ('egreso','fin_jornada_remota')
-          )
+        SELECT * FROM (
+          SELECT DISTINCT ON (m.empleado_id) m.empleado_id, m.empleador_id, m.tipo AS ultimo_tipo
+          FROM public.movimientos m
+          WHERE m.fecha = CURRENT_DATE AND m.tipo <> 'trabajo_feriado'
+          ORDER BY m.empleado_id, m.hora DESC
+        ) u
+        WHERE u.ultimo_tipo NOT IN ('egreso','fin_jornada_remota')
       `);
 
       for (const row of rezagados) {
@@ -321,7 +325,10 @@ async function cronJornadaInteligente() {
           'SELECT nombre, apellido FROM public.empleados WHERE id = $1', [row.empleado_id]
         );
         const nombre = `${emp?.nombre || ''} ${emp?.apellido || ''}`.trim();
-        await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'cierre_20hs');
+        // Una jornada remota/externa se cierra con su propio tipo (antes se
+        // le ponía 'egreso', que no corresponde a esa secuencia).
+        const tipoCierre = row.ultimo_tipo === 'inicio_jornada_remota' ? 'fin_jornada_remota' : 'egreso';
+        await registrarEgresoAuto(row.empleado_id, row.empleador_id, 'cierre_20hs', tipoCierre);
         const n = push.notif.cierreAutomatico(nombre);
         await push.pushAdmins(row.empleador_id, n.titulo, n.cuerpo);
         console.log(`[CRON] Cierre de seguridad 20hs: ${nombre}`);

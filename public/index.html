@@ -2359,7 +2359,14 @@ async function iniciarAlertas(movimientos) {
     egreso.setHours(hh, mm, 0, 0);
     const minHastaEgreso = (egreso - ahora) / 60000;
     const minAntes = minHastaEgreso - 15;
-    const minCierre = minHastaEgreso + 15;
+
+    // Si retomó la jornada DESPUÉS de su hora de salida (volvió del almuerzo
+    // a las 17 para un trabajo, reingresó a la tarde), es una vuelta a
+    // propósito: no se le recuerda la salida ni se le pregunta nada. Antes la
+    // app lo cerraba al segundo de fichar (Walter, 30/09/2026). Las horas de
+    // más las sigue cubriendo el aviso de extensión del servidor (8 hs).
+    const apertura = new Date(movimientos[movimientos.length - 1].hora);
+    if (apertura >= egreso) return;
 
     // Alerta 15 min antes
     if (minAntes > 0) {
@@ -2378,21 +2385,18 @@ async function iniciarAlertas(movimientos) {
         if (['ingreso','regreso_almuerzo','regreso_externo'].includes(ul))
           abrirSalidaJustificada('hora_egreso', horaEgresoStr);
       }, minHastaEgreso * 60000));
-    } else if (minCierre > 0 && minHastaEgreso <= 0) {
-      // Ya pasó la hora de egreso pero no el cierre → modal ahora
+    } else {
+      // Ya pasó la hora de egreso → recordatorio ahora (se puede cerrar)
       const ul = STATE.ultimoMovimiento;
       if (['ingreso','regreso_almuerzo','regreso_externo'].includes(ul))
         abrirSalidaJustificada('hora_egreso', horaEgresoStr);
     }
 
-    // Cierre automático 15 min después si no respondió
-    if (minCierre > 0) {
-      _alertaTimers.push(setTimeout(() => {
-        ejecutarCierreAutomatico('egreso', `Cierre automático — jornada no registrada a las ${horaEgresoStr}`);
-      }, minCierre * 60000));
-    } else {
-      ejecutarCierreAutomatico('egreso', 'Cierre automático por jornada no registrada');
-    }
+    // Ya NO hay cierre automático por reloj en la app para la jornada de
+    // oficina: cerraba a cualquiera que siguiera trabajando pasada su hora
+    // (o que abriera la app tarde) y le borraba esas horas. El servidor ya no
+    // cierra la oficina a la hora de salida (solo recuerda), y queda el
+    // cierre de seguridad de las 20:00 como último resguardo.
   } catch(e) { console.error('[alertas]', e); }
 }
 
