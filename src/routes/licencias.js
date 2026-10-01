@@ -4,6 +4,7 @@ const { auth, soloAdmin } = require('../middleware/auth');
 const push   = require('../services/pushService');
 const multer = require('multer');
 const ausenciasSvc = require('../services/ausenciasService');
+const jornada = require('../services/jornadaService');
 
 // Certificados en memoria (van a la base, no al disco del servidor).
 const subirCertificado = multer({
@@ -446,14 +447,57 @@ router.patch('/vacaciones/:id', auth, soloAdmin, async (req, res) => {
 // BANCO DE HORAS
 // ════════════════════════════════════════════════════════════════
 
+// Filas de v_banco_horas con el mes en curso "a la fecha" (jornadaService.
+// balanceALaFecha): balance y saldo_disponible dejan de contar las horas de
+// convenio de los días que todavía no pasaron. Se agregan
+// horas_esperadas_a_la_fecha y balance_mes_completo (el valor guardado).
+async function bancoHorasALaFecha(empleadorId, empleadoId = null) {
+  const params = [empleadorId];
+  let query = 'SELECT * FROM public.v_banco_horas WHERE empleador_id = $1';
+  if (empleadoId) { params.push(empleadoId); query += ' AND empleado_id = $2'; }
+  const { rows } = await db.query(query, params);
+  if (!rows.length) return rows;
+
+  const [anio, mes, dia] = jornada.fechaHoyArgentina().split('-').map(Number);
+  const { rows: fer } = await db.query(
+    `SELECT fecha::text AS f FROM public.feriados WHERE EXTRACT(YEAR FROM fecha) = $1 AND EXTRACT(MONTH FROM fecha) = $2`,
+    [anio, mes]
+  );
+  const feriados = new Set(fer.map(r => r.f));
+  const { rows: dls } = await db.query(`
+    SELECT e.id, jc.dias_laborables FROM public.empleados e
+    LEFT JOIN public.jornadas_config jc ON jc.id = e.jornada_config_id
+    WHERE e.id = ANY($1::int[])
+  `, [rows.map(r => r.empleado_id)]);
+  const diasPorEmp = new Map(dls.map(r => [r.id, r.dias_laborables]));
+
+  return rows.map(r => {
+    const { esperadas, balance } = jornada.balanceALaFecha({
+      horasConvenio: r.horas_convenio, horasTrabajadas: r.horas_trabajadas,
+      anio, mes, dia, feriados,
+      diasLaborables: diasPorEmp.get(r.empleado_id) || [1, 2, 3, 4, 5, 6],
+    });
+    const ajuste = balance - Number(r.balance || 0);
+    const r2 = (n) => Math.round(n * 100) / 100;
+    return {
+      ...r,
+      horas_esperadas_a_la_fecha: esperadas,
+      balance_mes_completo: Number(r.balance || 0),
+      balance,
+      saldo_total_horas: r2(Number(r.saldo_total_horas || 0) + ajuste),
+      saldo_disponible: r2(Number(r.saldo_disponible || 0) + ajuste),
+    };
+  });
+}
+
 router.get('/banco-horas', auth, async (req, res) => {
   try {
-    let query = 'SELECT * FROM public.v_banco_horas WHERE empleador_id = $1';
-    const params = [req.user.empleadorId];
-    if (req.user.rol === 'empleado') { params.push(req.user.empleadoId); query += ` AND empleado_id = $2`; }
-    const { rows } = await db.query(query, params);
+    const rows = await bancoHorasALaFecha(req.user.empleadorId, req.user.rol === 'empleado' ? req.user.empleadoId : null);
     res.json(rows);
-  } catch (err) { res.status(500).json({ error: 'Error interno' }); }
+  } catch (err) {
+    console.error('[LIC] banco-horas error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 router.get('/banco-horas/detalle', auth, async (req, res) => {
@@ -495,10 +539,8 @@ router.post('/compensatorio/solicitar', auth, async (req, res) => {
   const bloquesN = parseInt(bloques, 10);
   if (!bloquesN || bloquesN < 1 || !fecha_solicitada) return res.status(400).json({ error: 'Datos incompletos' });
   try {
-    const { rows: [bh] } = await db.query(
-      'SELECT saldo_disponible FROM public.v_banco_horas WHERE empleado_id = $1 AND empleador_id = $2',
-      [empleadoId, req.user.empleadorId]
-    );
+    // Mismo saldo "a la fecha" que ve el empleado en su panel.
+    const [bh] = await bancoHorasALaFecha(req.user.empleadorId, empleadoId);
     const saldoDisponible = Number(bh?.saldo_disponible || 0);
     if (saldoDisponible < bloquesN * 8) {
       return res.status(400).json({ error: `Saldo insuficiente: tenés ${saldoDisponible.toFixed(1)}h disponibles, se necesitan ${bloquesN * 8}h` });

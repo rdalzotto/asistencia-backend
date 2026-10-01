@@ -274,8 +274,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="card">
       <div class="card-title">Banco de horas — <span id="banco-mes">este mes</span></div>
       <div class="info-row"><span class="lbl">Horas trabajadas</span><span class="val" id="banco-trabajadas">--</span></div>
-      <div class="info-row"><span class="lbl">Horas convenio</span><span class="val" id="banco-convenio">--</span></div>
-      <div class="info-row"><span class="lbl">Balance</span><span class="val" id="banco-balance" style="color:var(--green)">--</span></div>
+      <div class="info-row"><span class="lbl">Horas convenio del mes</span><span class="val" id="banco-convenio">--</span></div>
+      <div class="info-row"><span class="lbl">Esperadas hasta ayer</span><span class="val" id="banco-esperadas">--</span></div>
+      <div class="info-row"><span class="lbl">Balance a la fecha</span><span class="val" id="banco-balance" style="color:var(--green)">--</span></div>
       <div class="banco-bar"><div class="banco-bar-fill" id="banco-bar-fill" style="width:0%;background:var(--green)"></div></div>
       <div class="sep"></div>
       <div class="info-row"><span class="lbl">Saldo acumulado disponible</span><span class="val" id="banco-saldo-disponible">--</span></div>
@@ -1812,7 +1813,11 @@ function renderBancoHoras(bh) {
   const hoy = new Date();
   document.getElementById('banco-mes').textContent = hoy.toLocaleString('es-AR',{month:'long',year:'numeric'});
   document.getElementById('banco-trabajadas').textContent = (bh.horas_trabajadas||0) + 'h';
-  document.getElementById('banco-convenio').textContent = (bh.horas_convenio||0) + 'h';
+  document.getElementById('banco-convenio').textContent = Number(bh.horas_convenio||0) + 'h';
+  // El balance viene "a la fecha" del servidor: contra lo esperado hasta ayer,
+  // no contra las horas del mes completo (antes el día 1 marcaba -178).
+  const espEl = document.getElementById('banco-esperadas');
+  if (espEl) espEl.textContent = Number(bh.horas_esperadas_a_la_fecha||0).toFixed(1) + 'h';
   const balance = Number(bh.balance||0);
   const balEl = document.getElementById('banco-balance');
   balEl.textContent = (balance>=0?'+':'') + balance.toFixed(1) + 'h';

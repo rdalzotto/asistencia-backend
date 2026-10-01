@@ -402,6 +402,36 @@ async function actualizarBancoHoras(empleadoId, fecha, client) {
   `, [empleadoId, anio, mes, horasConvenio, horasTrabajadas, horasExtra, horasAusencia]);
 }
 
+// ─── Días hábiles del mes hasta un día dado (sin base de datos) ─────────────
+// Cuenta del día 1 al día `hastaDia` inclusive los días de la semana
+// laborables (1=lun…7=dom) que no son feriado (feriados: Set de 'YYYY-MM-DD').
+function contarDiasHabiles(anio, mes, hastaDia, diasLaborables, feriados = new Set()) {
+  let count = 0;
+  for (let dia = 1; dia <= hastaDia; dia++) {
+    const d = new Date(Date.UTC(anio, mes - 1, dia));
+    if (d.getUTCMonth() !== mes - 1) break;
+    const diaSemana = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
+    const fecha = d.toISOString().split('T')[0];
+    if (diasLaborables.includes(diaSemana) && !feriados.has(fecha)) count++;
+  }
+  return count;
+}
+
+// ─── Saldo del mes "a la fecha" ─────────────────────────────────────────────
+// El banco guarda el balance contra las horas de convenio del mes completo
+// (178), así que el día 1 todos figuraban con -178. Para mostrar y para pedir
+// compensatorio se usa lo esperado HASTA AYER: convenio × días hábiles ya
+// pasados / días hábiles del mes (hoy no cuenta todavía; lo trabajado hoy sí
+// suma en cuanto se cierra cada tramo). Decisión 01/10/2026.
+function balanceALaFecha({ horasConvenio, horasTrabajadas, anio, mes, dia, diasLaborables, feriados }) {
+  const ultimoDia = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
+  const diasMes = contarDiasHabiles(anio, mes, ultimoDia, diasLaborables, feriados);
+  const diasPasados = contarDiasHabiles(anio, mes, dia - 1, diasLaborables, feriados);
+  const esperadas = diasMes > 0 ? Number(horasConvenio) * diasPasados / diasMes : 0;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  return { esperadas: r2(esperadas), balance: r2(Number(horasTrabajadas) - esperadas) };
+}
+
 async function contarDiasLaborablesDelMes(anio, mes, diasLaborables) {
   const primerDia = new Date(anio, mes - 1, 1);
   const ultimoDia = new Date(anio, mes, 0);
@@ -576,6 +606,8 @@ module.exports = {
   TIPOS_CARGA_MANUAL,
   NOMBRES_TIPO,
   validarFichajeManual,
+  contarDiasHabiles,
+  balanceALaFecha,
   obtenerUltimoMovimientoHoy,
   jornadaActivaHoy,
   jornadaActivaEnFecha,
