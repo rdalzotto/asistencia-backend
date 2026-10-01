@@ -15,6 +15,14 @@
   const TIPOS = { viaje: '🚗 Viaje', no_habil: '📅 Día no hábil', evento: '🎓 Evento', partida: '⏸️ Horario partido' };
   const REVISION = { pendiente: ['badge-gray', 'Sin revisar'], revisado: ['badge-green', 'Revisado'], observado: ['badge-orange', 'Observado'] };
   const PREFIJO = 'gasto_pendiente_';
+  // Medio de transporte (mismo criterio que viajesService.TIPOS_VEHICULO).
+  const VEHICULOS = {
+    empresa:            { icono: '🚙', nombre: 'Vehículo de la empresa', usaKm: true,  pagaKm: false, propietario: false, placeholder: 'Ej. Saveiro' },
+    particular:         { icono: '🚗', nombre: 'Auto particular',        usaKm: true,  pagaKm: 'auto', propietario: true, placeholder: 'Ej. Corolla AB123CD (opcional)' },
+    moto:               { icono: '🏍️', nombre: 'Moto particular',        usaKm: true,  pagaKm: 'moto', propietario: true, placeholder: 'Ej. Honda 150 (opcional)' },
+    transporte_publico: { icono: '🚌', nombre: 'Transporte público (colectivo, subte, Uber)', usaKm: false, pagaKm: false, propietario: false },
+    provisto_cliente:   { icono: '🤝', nombre: 'Lo traslada quien contrata', usaKm: false, pagaKm: false, propietario: false },
+  };
   let actual = null; // { id, data }
 
   const $ = (id) => document.getElementById(id);
@@ -90,6 +98,7 @@
       const saldo = p.saldo > 0 ? `<span style="color:var(--orange)">devuelve ${pesos(p.saldo)}</span>`
         : p.saldo < 0 ? `<span style="color:var(--green)">se le debe ${pesos(-p.saldo)}</span>` : 'saldo $0';
       return `<tr><td style="padding:4px 6px">${escHtml(p.nombre)}</td><td style="text-align:right;padding:4px 6px">${pesos(p.gastos)}</td>
+        <td style="text-align:right;padding:4px 6px">${p.reintegro_km ? pesos(p.reintegro_km) : '—'}</td>
         <td style="text-align:right;padding:4px 6px">${pesos(p.adelantos)}</td><td style="text-align:right;padding:4px 6px">${saldo}</td></tr>`;
     };
     const mio = resumen.por_persona.find(p => p.empleado_id === STATE.empleadoId);
@@ -103,16 +112,25 @@
       <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px;font-size:13px">
         ${!admin && mio ? `
           <div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
-            <b>Vos:</b> gastos ${pesos(mio.gastos)} · adelanto ${pesos(mio.adelantos)} ·
+            <b>Vos:</b> gastos ${pesos(mio.gastos)}${mio.reintegro_km ? ' · km ' + pesos(mio.reintegro_km) : ''} · adelanto ${pesos(mio.adelantos)} ·
             ${mio.saldo === 0 ? 'saldo $0' : mio.saldo > 0 ? `<span style="color:var(--orange)">tenés que devolver ${pesos(mio.saldo)}</span>` : `<span style="color:var(--green)">se te debe ${pesos(-mio.saldo)}</span>`}
           </div>` : ''}
           <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-            <b>Total gastos ${pesos(resumen.total)}</b><span>Adelantos ${pesos(resumen.total_adelantos)}</span><span>🚗 ${resumen.km} km</span>
+            <b>Costo del viaje ${pesos(resumen.costo_total)}</b><span>Gastos ${pesos(resumen.total)}</span>${resumen.total_reintegro_km ? `<span>Km particulares ${pesos(resumen.total_reintegro_km)}</span>` : ''}<span>Adelantos ${pesos(resumen.total_adelantos)}</span><span>🚗 ${resumen.km} km</span>
           </div>
-          <table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:var(--text3)"><td style="padding:4px 6px">Persona</td><td style="text-align:right;padding:4px 6px">Gastos</td><td style="text-align:right;padding:4px 6px">Adelantos</td><td style="text-align:right;padding:4px 6px">Saldo</td></tr>
+          <table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:var(--text3)"><td style="padding:4px 6px">Persona</td><td style="text-align:right;padding:4px 6px">Gastos</td><td style="text-align:right;padding:4px 6px">Km</td><td style="text-align:right;padding:4px 6px">Adelantos</td><td style="text-align:right;padding:4px 6px">Saldo</td></tr>
             ${resumen.por_persona.map(persona).join('')}</table>
           <div style="font-size:12px;color:var(--text2);margin-top:6px">${Object.entries(resumen.por_categoria).map(([k, m]) => (CATEGORIAS[k] || k) + ' ' + pesos(m)).join(' · ') || 'Sin gastos todavía'}</div>
           <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Viajes.excel()">📥 Excel</button>
+          ${admin ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;color:var(--text2)">
+            Valor por km vigente (auto y moto particular):
+            <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-top:4px">
+              <input type="number" id="vkm-auto" placeholder="Auto $/km" min="0" step="0.01" value="${actual.data.valores_km?.auto ?? ''}">
+              <input type="number" id="vkm-moto" placeholder="Moto $/km" min="0" step="0.01" value="${actual.data.valores_km?.moto ?? ''}">
+              <button class="btn btn-sm btn-secondary" onclick="Viajes.guardarValoresKm()">Guardar</button>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">Se aplica a los vehículos que se carguen desde ahora; cada vehículo guarda el valor con que se cargó.</div>
+          </div>` : ''}
       </div>
 
       <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="Viajes.formGasto()">💸 Cargar gasto</button>
@@ -138,20 +156,10 @@
         <div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 6px">Adelantos (los registra administración)</div>
         ${adelantos.map(a => `<div style="font-size:13px;padding:4px 0">${fecha(a.fecha)} · ${escHtml(a.nombre.trim())} · <b>${pesos(a.monto)}</b> (${a.medio})${a.nota ? ' — ' + escHtml(a.nota) : ''}</div>`).join('')}` : '')}
 
-      <div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 6px">🚗 Kilómetros</div>
-      ${vehiculos.map(x => `<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;margin-bottom:6px">
-          <input style="width:100%;min-width:0" type="text" value="${escHtml(x.vehiculo)}" id="veh-n-${x.id}">
-          <input style="width:100%;min-width:0" type="number" value="${x.odometro_salida ?? ''}" placeholder="Salida" id="veh-s-${x.id}">
-          <input style="width:100%;min-width:0" type="number" value="${x.odometro_llegada ?? ''}" placeholder="Llegada" id="veh-l-${x.id}">
-          <button class="btn btn-sm btn-secondary" style="padding:4px 8px" onclick="Viajes.guardarVehiculo(${x.id})">✓</button>
-        </div>
-        <div style="font-size:11px;color:var(--text3);margin:-2px 0 8px">${x.odometro_salida != null && x.odometro_llegada != null ? (Number(x.odometro_llegada) - Number(x.odometro_salida)).toFixed(1) + ' km recorridos' : 'Cargá el odómetro al volver'}</div>`).join('')}
-      <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center">
-        <input style="width:100%;min-width:0" type="text" id="veh-n-nuevo" placeholder="Vehículo (ej. Hilux AB123CD)">
-        <input style="width:100%;min-width:0" type="number" id="veh-s-nuevo" placeholder="Odómetro salida">
-        <input style="width:100%;min-width:0" type="number" id="veh-l-nuevo" placeholder="Llegada">
-        <button class="btn btn-sm btn-secondary" style="padding:4px 8px" onclick="Viajes.guardarVehiculo()">+</button>
-      </div>`;
+      <div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 6px">🚗 Cómo viajaron</div>
+      ${vehiculos.map(x => filaVehiculo(x, admin)).join('') || '<p style="color:var(--text3);font-size:13px">Todavía no se cargó cómo viajaron.</p>'}
+      <button class="btn btn-sm btn-secondary" style="margin-top:6px" onclick="Viajes.formVehiculo()">+ Agregar medio de transporte</button>
+      <div id="viaje-form-vehiculo"></div>`;
   }
 
   function filaGasto(g, admin) {
@@ -314,11 +322,105 @@
     catch (e) { toast(e.message, 'error', 7000); }
   }
 
-  async function guardarVehiculo(id) {
-    const k = id || 'nuevo';
-    const body = { id: id || undefined, vehiculo: $('veh-n-' + k).value.trim(), odometro_salida: $('veh-s-' + k).value, odometro_llegada: $('veh-l-' + k).value };
-    try { await api(`/viajes/${actual.id}/vehiculos`, { method: 'POST', body: JSON.stringify(body) }); toast('Kilómetros guardados ✓', 'success'); await recargar(); }
+  function filaVehiculo(x, admin) {
+    const t = VEHICULOS[x.tipo] || VEHICULOS.empresa;
+    const km = Number(x.km || 0);
+    let detalle = '';
+    if (t.usaKm) {
+      detalle = x.odometro_salida != null && x.odometro_llegada != null
+        ? `odómetro ${x.odometro_salida} → ${x.odometro_llegada} · <b>${km} km</b>`
+        : x.km_declarados != null ? `<b>${km} km</b> declarados` : '<span style="color:var(--orange)">Faltan los km (odómetro al volver o km recorridos)</span>';
+    } else if (x.tipo === 'transporte_publico') {
+      detalle = 'Los pasajes se cargan como gasto en "Pasajes / transporte".';
+    } else {
+      detalle = 'Sin costo de traslado para la empresa.';
+    }
+    let pago = '';
+    if (t.pagaKm) {
+      pago = x.valor_km == null
+        ? '<div style="color:var(--orange);font-size:12px">Falta el valor por km (lo carga administración).</div>'
+        : `<div style="font-size:12px;color:var(--green);overflow-wrap:anywhere">${km} km × ${pesos(x.valor_km)} = <b>${pesos(x.reintegro)}</b> a favor de ${escHtml((x.propietario_nombre || '').trim())}</div>`;
+    }
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;flex-wrap:wrap">
+        <span style="flex:1 1 180px;min-width:0;overflow-wrap:anywhere">${t.icono} <b>${t.nombre}</b>${x.vehiculo ? ' · ' + escHtml(x.vehiculo) : ''}${t.propietario && x.propietario_nombre ? ' · de ' + escHtml(x.propietario_nombre.trim()) : ''}</span>
+        <span style="white-space:nowrap;margin-left:auto">
+          <button class="btn btn-sm btn-secondary" style="padding:1px 8px;font-size:11px" onclick="Viajes.formVehiculo(${x.id})">✏️</button>
+          <button class="btn btn-sm btn-secondary" style="padding:1px 8px;font-size:11px" onclick="Viajes.quitarVehiculo(${x.id})">Quitar</button>
+        </span>
+      </div>
+      <div style="color:var(--text2);font-size:12px">${detalle}</div>${pago}</div>`;
+  }
+
+  function formVehiculo(id) {
+    const { participantes, vehiculos } = actual.data;
+    const x = id ? vehiculos.find(v => v.id === id) : null;
+    const admin = esAdmin();
+    $('viaje-form-vehiculo').innerHTML = `
+      <div style="border:1px solid var(--accent);border-radius:var(--radius-sm);padding:10px;margin-top:8px">
+        <input type="hidden" id="vh-id" value="${x ? x.id : ''}">
+        <select id="vh-tipo" onchange="Viajes.actualizarFormVehiculo()" style="width:100%">
+          ${Object.entries(VEHICULOS).map(([k, t]) => `<option value="${k}" ${(x ? x.tipo : 'empresa') === k ? 'selected' : ''}>${t.icono} ${t.nombre}</option>`).join('')}
+        </select>
+        <select id="vh-dueno" style="width:100%;margin-top:6px">
+          ${participantes.map(p => `<option value="${p.empleado_id}" ${x && x.propietario_empleado_id === p.empleado_id ? 'selected' : ''}>De ${escHtml(p.nombre.trim())}</option>`).join('')}
+        </select>
+        <input type="text" id="vh-nombre" style="width:100%;margin-top:6px" value="${x && x.vehiculo ? escHtml(x.vehiculo) : ''}">
+        <div id="vh-km" style="margin-top:6px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+            <input type="number" id="vh-sal" placeholder="Odómetro al salir" min="0" step="0.1" value="${x?.odometro_salida ?? ''}">
+            <input type="number" id="vh-lle" placeholder="Odómetro al volver" min="0" step="0.1" value="${x?.odometro_llegada ?? ''}">
+          </div>
+          <input type="number" id="vh-kmd" placeholder="…o km recorridos (si no anotaste el odómetro)" min="0" step="0.1" style="width:100%;margin-top:6px" value="${x?.km_declarados ?? ''}">
+        </div>
+        ${admin ? `<input type="number" id="vh-valor" placeholder="Valor por km $ (vacío = el vigente)" min="0" step="0.01" style="width:100%;margin-top:6px" value="${x?.valor_km ?? ''}">` : ''}
+        <div id="vh-nota" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('viaje-form-vehiculo').innerHTML=''">Cancelar</button>
+          <button class="btn btn-primary" style="flex:1" onclick="Viajes.guardarVehiculo()">Guardar</button>
+        </div>
+      </div>`;
+    actualizarFormVehiculo();
+  }
+
+  function actualizarFormVehiculo() {
+    const t = VEHICULOS[$('vh-tipo').value];
+    $('vh-dueno').style.display = t.propietario ? '' : 'none';
+    $('vh-nombre').style.display = t.usaKm ? '' : 'none';
+    $('vh-nombre').placeholder = t.placeholder || '';
+    $('vh-km').style.display = t.usaKm ? '' : 'none';
+    if ($('vh-valor')) $('vh-valor').style.display = t.pagaKm ? '' : 'none';
+    const vk = actual.data.valores_km || {};
+    $('vh-nota').textContent = t.pagaKm
+      ? `Se le reintegra al dueño km × valor por km (${t.pagaKm === 'moto' ? 'moto' : 'auto'}: ${vk[t.pagaKm] != null ? pesos(vk[t.pagaKm]) : 'todavía sin cargar'}).`
+      : $('vh-tipo').value === 'empresa' ? 'No se paga por km; el combustible se carga como gasto.'
+      : $('vh-tipo').value === 'transporte_publico' ? 'Solo se pagan los pasajes: cargalos como gasto en "Pasajes / transporte".'
+      : 'Sin costo de traslado para la empresa.';
+  }
+
+  async function guardarVehiculo() {
+    const body = {
+      id: $('vh-id').value ? Number($('vh-id').value) : undefined,
+      tipo: $('vh-tipo').value, vehiculo: $('vh-nombre').value.trim(), propietario_empleado_id: Number($('vh-dueno').value),
+      odometro_salida: $('vh-sal').value, odometro_llegada: $('vh-lle').value, km_declarados: $('vh-kmd').value,
+    };
+    if ($('vh-valor') && $('vh-valor').value !== '') body.valor_km = $('vh-valor').value;
+    try { await api(`/viajes/${actual.id}/vehiculos`, { method: 'POST', body: JSON.stringify(body) }); toast('Guardado ✓', 'success'); await recargar(); }
     catch (e) { toast(e.message, 'error', 7000); }
+  }
+
+  async function quitarVehiculo(id) {
+    if (!confirm('¿Quitar este medio de transporte del viaje?')) return;
+    try { await api(`/viajes/${actual.id}/vehiculos/${id}/quitar`, { method: 'POST', body: '{}' }); await recargar(); }
+    catch (e) { toast(e.message, 'error', 7000); }
+  }
+
+  async function guardarValoresKm() {
+    try {
+      await api('/viajes/config/km', { method: 'POST', body: JSON.stringify({ auto: $('vkm-auto').value, moto: $('vkm-moto').value }) });
+      toast('Valores por km guardados ✓ — se aplican a los vehículos que se carguen desde ahora', 'success', 6000);
+      await recargar();
+    } catch (e) { toast(e.message, 'error', 7000); }
   }
 
   // ── Excel para Andrea ───────────────────────────────────────────────────
@@ -327,9 +429,10 @@
     const wb = XLSX.utils.book_new();
     const res = [
       ['Viaje', v.titulo], ['Fechas', fecha(v.desde) + (v.hasta !== v.desde ? ' a ' + fecha(v.hasta) : '')], ['Lugar', v.lugar || ''],
-      ['Total gastos', resumen.total], ['Total adelantos', resumen.total_adelantos], ['Km', resumen.km], [],
-      ['Persona', 'Gastos', 'Con comprobante', 'Sin comprobante', 'Adelantos', 'Saldo (+ devuelve / − se le debe)'],
-      ...resumen.por_persona.map(p => [p.nombre, p.gastos, p.con_comprobante, p.sin_comprobante, p.adelantos, p.saldo]), [],
+      ['Costo del viaje (gastos + km particulares)', resumen.costo_total], ['Total gastos', resumen.total],
+      ['Reintegro km particulares', resumen.total_reintegro_km], ['Total adelantos', resumen.total_adelantos], ['Km', resumen.km], [],
+      ['Persona', 'Gastos', 'Con comprobante', 'Sin comprobante', 'Km reintegrados', 'Reintegro km', 'Adelantos', 'Saldo (+ devuelve / − se le debe)'],
+      ...resumen.por_persona.map(p => [p.nombre, p.gastos, p.con_comprobante, p.sin_comprobante, p.km_reintegro, p.reintegro_km, p.adelantos, p.saldo]), [],
       ['Categoría', 'Total'], ...Object.entries(resumen.por_categoria).map(([k, m]) => [CATEGORIAS[k].replace(/^\S+\s/, ''), m]),
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(res), 'Resumen');
@@ -341,8 +444,9 @@
       ['Fecha', 'Persona', 'Monto', 'Medio', 'Nota'], ...adelantos.map(a => [fecha(a.fecha), a.nombre.trim(), Number(a.monto), a.medio, a.nota || '']),
     ]), 'Adelantos');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ['Vehículo', 'Odómetro salida', 'Odómetro llegada', 'Km'],
-      ...vehiculos.map(x => [x.vehiculo, x.odometro_salida, x.odometro_llegada, x.odometro_salida != null && x.odometro_llegada != null ? Number(x.odometro_llegada) - Number(x.odometro_salida) : '']),
+      ['Medio', 'Vehículo', 'Dueño', 'Odómetro salida', 'Odómetro llegada', 'Km', 'Valor por km', 'Reintegro'],
+      ...vehiculos.map(x => [(VEHICULOS[x.tipo] || VEHICULOS.empresa).nombre, x.vehiculo || '', (x.propietario_nombre || '').trim(),
+        x.odometro_salida ?? '', x.odometro_llegada ?? '', Number(x.km || 0), x.valor_km ?? '', Number(x.reintegro || 0)]),
     ]), 'Km');
     XLSX.writeFile(wb, `Viaje_${v.desde}_${v.titulo.replace(/[^\w]+/g, '_').slice(0, 40)}.xlsx`);
   }
@@ -360,10 +464,10 @@
             <span style="font-size:14px;font-weight:600">${TIPOS[v.tipo] || ''} ${escHtml(v.titulo)}</span>
             ${v.sin_revisar ? `<span class="badge badge-orange">${v.sin_revisar} sin revisar</span>` : ''}
           </div>
-          <div style="font-size:12px;color:var(--text2)">${fecha(v.desde)}${v.hasta !== v.desde ? ' → ' + fecha(v.hasta) : ''} · ${v.personas} persona${v.personas > 1 ? 's' : ''} · gastos ${pesos(v.gastos)} · adelantos ${pesos(v.adelantos)}${Number(v.km) ? ' · ' + Number(v.km) + ' km' : ''}</div>
+          <div style="font-size:12px;color:var(--text2)">${fecha(v.desde)}${v.hasta !== v.desde ? ' → ' + fecha(v.hasta) : ''} · ${v.personas} persona${v.personas > 1 ? 's' : ''} · gastos ${pesos(v.gastos)}${Number(v.reintegro_km) ? ' + km ' + pesos(v.reintegro_km) : ''} · adelantos ${pesos(v.adelantos)}${Number(v.km) ? ' · ' + Number(v.km) + ' km' : ''}</div>
         </div>`).join('') : '<p style="color:var(--text3);font-size:13px">No hay viajes en los últimos 4 meses.</p>';
     } catch (e) { cont.innerHTML = '<p style="color:var(--red);font-size:13px">No se pudo cargar la lista de viajes</p>'; }
   }
 
-  window.Viajes = { abrirMios, abrir, formGasto, guardarGasto, sincronizarPendientes, verComprobante, anularGasto, revisar, guardarAdelanto, anularAdelanto, guardarVehiculo, excel, cargarListaAdmin };
+  window.Viajes = { abrirMios, abrir, formGasto, guardarGasto, sincronizarPendientes, verComprobante, anularGasto, revisar, guardarAdelanto, anularAdelanto, formVehiculo, actualizarFormVehiculo, guardarVehiculo, quitarVehiculo, guardarValoresKm, excel, cargarListaAdmin };
 })();

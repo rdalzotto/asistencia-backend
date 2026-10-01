@@ -73,3 +73,47 @@ test('resumen: saldo = adelantos − gastos, por persona y categoría, km', () =
   const wal = r.por_persona.find(p => p.empleado_id === 11);
   assert.equal(wal.saldo, -80000); // la empresa le debe
 });
+
+// ── Medio de transporte y reintegro por km ──────────────────────────────────
+test('km: por odómetro o declarados; transporte público no cuenta km', () => {
+  assert.equal(v.kmVehiculo({ tipo: 'empresa', odometro_salida: '1000', odometro_llegada: '1450.5' }), 450.5);
+  assert.equal(v.kmVehiculo({ tipo: 'particular', km_declarados: '620' }), 620);
+  assert.equal(v.kmVehiculo({ tipo: 'transporte_publico', km_declarados: '620' }), 0);
+  assert.equal(v.kmVehiculo({ tipo: 'empresa' }), 0);
+});
+
+test('reintegro: auto o moto particular × valor; la Saveiro de la empresa no', () => {
+  assert.equal(v.reintegroVehiculo({ tipo: 'particular', propietario_empleado_id: 12, km_declarados: 600, valor_km: '250.5' }), 150300);
+  assert.equal(v.reintegroVehiculo({ tipo: 'moto', propietario_empleado_id: 8, odometro_salida: 100, odometro_llegada: 180, valor_km: 120 }), 9600);
+  assert.equal(v.reintegroVehiculo({ tipo: 'empresa', propietario_empleado_id: 8, km_declarados: 600, valor_km: 250 }), 0);
+  assert.equal(v.reintegroVehiculo({ tipo: 'particular', propietario_empleado_id: 12, km_declarados: 600, valor_km: null }), 0); // falta el valor
+});
+
+test('vehículo: validaciones por tipo', () => {
+  assert.equal(v.validarVehiculo({ tipo: 'empresa', vehiculo: 'Saveiro' }, [8]), null);
+  assert.match(v.validarVehiculo({ tipo: 'empresa' }, [8]), /Saveiro/);
+  assert.match(v.validarVehiculo({ tipo: 'particular' }, [8]), /de quién/);
+  assert.match(v.validarVehiculo({ tipo: 'moto', propietario_empleado_id: 11 }, [8]), /alguien que viaja/);
+  assert.equal(v.validarVehiculo({ tipo: 'moto', propietario_empleado_id: 8, km_declarados: 80 }, [8]), null);
+  assert.equal(v.validarVehiculo({ tipo: 'transporte_publico' }, [8]), null);
+  assert.match(v.validarVehiculo({ tipo: 'bici' }, [8]), /medio de transporte/);
+  assert.match(v.validarVehiculo({ tipo: 'empresa', vehiculo: 'Saveiro', odometro_salida: 10, odometro_llegada: 5 }, [8]), /menor/);
+});
+
+test('resumen: el reintegro por km se suma a lo que se le debe al dueño', () => {
+  const r = v.resumenViaje({
+    participantes: [{ empleado_id: 12, nombre: 'Rogelio' }, { empleado_id: 11, nombre: 'Walter' }],
+    gastos: [{ empleado_id: 11, categoria: 'combustible', monto: 50000, sin_comprobante: false }],
+    adelantos: [{ empleado_id: 11, monto: 60000 }],
+    vehiculos: [
+      { tipo: 'particular', propietario_empleado_id: 12, km_declarados: 600, valor_km: 250 },
+      { tipo: 'empresa', vehiculo: 'Saveiro', odometro_salida: 1000, odometro_llegada: 1200 },
+    ],
+  });
+  const rog = r.por_persona.find(p => p.empleado_id === 12);
+  assert.deepEqual([rog.km_reintegro, rog.reintegro_km, rog.saldo], [600, 150000, -150000]); // se le deben 150.000
+  assert.equal(r.por_persona.find(p => p.empleado_id === 11).saldo, 10000); // Walter devuelve 10.000
+  assert.equal(r.km, 800);
+  assert.equal(r.total_reintegro_km, 150000);
+  assert.equal(r.costo_total, 200000);
+});

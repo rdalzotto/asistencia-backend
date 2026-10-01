@@ -70,16 +70,45 @@ async function detalle(req, v) {
     WHERE x.viaje_id = $1 AND x.anulado = FALSE ${filtro}
     ORDER BY x.fecha, x.creado_en
   `, params);
-  const { rows: vehiculos } = await db.query(
-    'SELECT id, vehiculo, odometro_salida, odometro_llegada, actualizado_en FROM public.viaje_vehiculos WHERE viaje_id = $1 ORDER BY id',
-    [v.id]
-  );
+  const { rows: vehiculos } = await db.query(`
+    SELECT x.id, x.tipo, x.vehiculo, x.propietario_empleado_id,
+           e.nombre || ' ' || COALESCE(e.apellido, '') AS propietario_nombre,
+           x.odometro_salida, x.odometro_llegada, x.km_declarados, x.valor_km, x.actualizado_en
+    FROM public.viaje_vehiculos x LEFT JOIN public.empleados e ON e.id = x.propietario_empleado_id
+    WHERE x.viaje_id = $1 ORDER BY x.id
+  `, [v.id]);
+  vehiculos.forEach(x => { x.km = svc.kmVehiculo(x); x.reintegro = svc.reintegroVehiculo(x); });
+  const { rows: [cfg] } = await db.query('SELECT * FROM public.empleadores WHERE id = $1', [req.user.empleadorId]);
   const resumen = svc.resumenViaje({
     participantes: parts,
     gastos, adelantos, vehiculos,
   });
-  return { viaje: v, participantes: parts, gastos, adelantos, vehiculos, resumen };
+  return { viaje: v, participantes: parts, gastos, adelantos, vehiculos, resumen,
+    valores_km: { auto: cfg?.valor_km_auto ?? null, moto: cfg?.valor_km_moto ?? null } };
 }
+
+// Km de un vehículo en SQL (mismo criterio que viajesService.kmVehiculo).
+const KM_SQL = `CASE WHEN vv.tipo IN ('transporte_publico','provisto_cliente') THEN 0
+  WHEN vv.odometro_salida IS NOT NULL AND vv.odometro_llegada IS NOT NULL THEN vv.odometro_llegada - vv.odometro_salida
+  ELSE COALESCE(vv.km_declarados, 0) END`;
+
+// ─── GET/POST /viajes/config/km (admin) — valores por km vigentes ────────────
+// Los carga Andrea. Se congelan en cada vehículo al cargarlo.
+router.get('/config/km', auth, soloAdmin, async (req, res) => {
+  try {
+    const { rows: [e] } = await db.query('SELECT * FROM public.empleadores WHERE id = $1', [req.user.empleadorId]);
+    res.json({ auto: e?.valor_km_auto ?? null, moto: e?.valor_km_moto ?? null });
+  } catch (err) { console.error('[VIAJES] config km:', err.message); res.status(500).json({ error: 'Error interno' }); }
+});
+router.post('/config/km', auth, soloAdmin, async (req, res) => {
+  const val = (x) => (x === '' || x == null ? null : Number(x));
+  const auto = val(req.body.auto), moto = val(req.body.moto);
+  if ([auto, moto].some(n => n != null && !(n >= 0))) return res.status(400).json({ error: 'Valor por km inválido.' });
+  try {
+    await db.query('UPDATE public.empleadores SET valor_km_auto = $1, valor_km_moto = $2 WHERE id = $3', [auto, moto, req.user.empleadorId]);
+    res.json({ ok: true, auto, moto });
+  } catch (err) { console.error('[VIAJES] config km guardar:', err.message); res.status(500).json({ error: 'Error interno' }); }
+});
 
 // ─── GET /viajes/mios — viajes en los que participo (últimos 90 días y futuros)
 router.get('/mios', auth, async (req, res) => {
@@ -113,7 +142,9 @@ router.get('/', auth, soloAdmin, async (req, res) => {
         (SELECT COALESCE(SUM(g.monto), 0) FROM public.viaje_gastos g WHERE g.viaje_id = v.id AND NOT g.anulado) AS gastos,
         (SELECT COUNT(*)::int FROM public.viaje_gastos g WHERE g.viaje_id = v.id AND NOT g.anulado AND g.revision = 'pendiente') AS sin_revisar,
         (SELECT COALESCE(SUM(a.monto), 0) FROM public.viaje_adelantos a WHERE a.viaje_id = v.id AND NOT a.anulado) AS adelantos,
-        (SELECT COALESCE(SUM(vv.odometro_llegada - vv.odometro_salida), 0) FROM public.viaje_vehiculos vv WHERE vv.viaje_id = v.id) AS km
+        (SELECT COALESCE(SUM(${KM_SQL}), 0) FROM public.viaje_vehiculos vv WHERE vv.viaje_id = v.id) AS km,
+        (SELECT COALESCE(SUM(ROUND((${KM_SQL}) * vv.valor_km, 2)), 0) FROM public.viaje_vehiculos vv
+          WHERE vv.viaje_id = v.id AND vv.tipo IN ('particular','moto') AND vv.propietario_empleado_id IS NOT NULL AND vv.valor_km IS NOT NULL) AS reintegro_km
       FROM public.viajes v ${where}
         AND EXISTS (SELECT 1 FROM public.jornadas_especiales je WHERE je.viaje_id = v.id AND je.estado <> 'anulada')
       ORDER BY v.desde DESC LIMIT 200
@@ -296,34 +327,74 @@ router.post('/:id/adelantos/:aid/anular', auth, soloAdmin, async (req, res) => {
   }
 });
 
-// ─── POST /viajes/:id/vehiculos { id?, vehiculo, odometro_salida, odometro_llegada } ─
+// ─── POST /viajes/:id/vehiculos ──────────────────────────────────────────────
+// { id?, tipo, vehiculo?, propietario_empleado_id?, odometro_salida?,
+//   odometro_llegada?, km_declarados?, valor_km? (solo admin) }
 // Participantes o admin. Con id actualiza (ej. al volver se carga la llegada).
+// El valor por km se congela al cargar el vehículo con el vigente de la
+// empresa (auto o moto); el admin lo puede corregir.
 router.post('/:id/vehiculos', auth, async (req, res) => {
   const b = req.body || {};
-  const vehiculo = String(b.vehiculo || '').trim().slice(0, 100);
-  const sal = b.odometro_salida === '' || b.odometro_salida == null ? null : Number(b.odometro_salida);
-  const lle = b.odometro_llegada === '' || b.odometro_llegada == null ? null : Number(b.odometro_llegada);
-  if (!vehiculo) return res.status(400).json({ error: 'Indicá el vehículo (ej. Hilux AB123CD).' });
-  if ([sal, lle].some(n => n != null && !(n >= 0))) return res.status(400).json({ error: 'Odómetro inválido.' });
-  if (sal != null && lle != null && lle < sal) return res.status(400).json({ error: 'El odómetro de llegada no puede ser menor que el de salida.' });
+  const val = (x) => (x === '' || x == null ? null : Number(x));
+  const datos = {
+    tipo: b.tipo || 'empresa',
+    vehiculo: String(b.vehiculo || '').trim().slice(0, 100) || null,
+    propietario_empleado_id: Number(b.propietario_empleado_id) || null,
+    odometro_salida: val(b.odometro_salida), odometro_llegada: val(b.odometro_llegada), km_declarados: val(b.km_declarados),
+  };
+  const t = svc.TIPOS_VEHICULO[datos.tipo];
+  if (t && !t.propietario) datos.propietario_empleado_id = null;
+  if (t && !t.usaKm) { datos.odometro_salida = null; datos.odometro_llegada = null; datos.km_declarados = null; }
   try {
     const v = await viajeVisible(req, req.params.id);
     if (!v) return res.status(404).json({ error: 'Viaje no encontrado' });
+    const parts = await participantes(v.id);
+    const problema = svc.validarVehiculo(datos, parts.map(p => p.empleado_id));
+    if (problema) return res.status(400).json({ error: problema });
+
+    let valorKm = null;
+    if (t.pagaKm) {
+      const { rows: [e] } = await db.query('SELECT * FROM public.empleadores WHERE id = $1', [req.user.empleadorId]);
+      valorKm = t.pagaKm === 'moto' ? e?.valor_km_moto ?? null : e?.valor_km_auto ?? null;
+    }
+    const valorAdmin = req.user.rol === 'admin' && b.valor_km !== undefined ? val(b.valor_km) : undefined;
+    if (valorAdmin !== undefined && valorAdmin != null && !(valorAdmin >= 0)) return res.status(400).json({ error: 'Valor por km inválido.' });
+
     if (b.id) {
-      const { rowCount } = await db.query(`
-        UPDATE public.viaje_vehiculos SET vehiculo = $1, odometro_salida = $2, odometro_llegada = $3, cargado_por = $4, actualizado_en = NOW()
-        WHERE id = $5 AND viaje_id = $6
-      `, [vehiculo, sal, lle, req.user.id, b.id, v.id]);
-      if (!rowCount) return res.status(404).json({ error: 'Vehículo no encontrado' });
+      const { rows: [ant] } = await db.query('SELECT tipo, valor_km FROM public.viaje_vehiculos WHERE id = $1 AND viaje_id = $2', [b.id, v.id]);
+      if (!ant) return res.status(404).json({ error: 'Vehículo no encontrado' });
+      // Mismo tipo: se respeta el valor congelado; si cambió el tipo, se toma el vigente.
+      const valorFinal = !t.pagaKm ? null : valorAdmin !== undefined ? valorAdmin : (ant.tipo === datos.tipo && ant.valor_km != null ? ant.valor_km : valorKm);
+      await db.query(`
+        UPDATE public.viaje_vehiculos SET tipo = $1, vehiculo = $2, propietario_empleado_id = $3, odometro_salida = $4,
+          odometro_llegada = $5, km_declarados = $6, valor_km = $7, cargado_por = $8, actualizado_en = NOW()
+        WHERE id = $9 AND viaje_id = $10
+      `, [datos.tipo, datos.vehiculo, datos.propietario_empleado_id, datos.odometro_salida, datos.odometro_llegada,
+          datos.km_declarados, valorFinal, req.user.id, b.id, v.id]);
       return res.json({ ok: true, id: Number(b.id) });
     }
     const { rows: [x] } = await db.query(`
-      INSERT INTO public.viaje_vehiculos (viaje_id, vehiculo, odometro_salida, odometro_llegada, cargado_por)
-      VALUES ($1, $2, $3, $4, $5) RETURNING id
-    `, [v.id, vehiculo, sal, lle, req.user.id]);
+      INSERT INTO public.viaje_vehiculos (viaje_id, tipo, vehiculo, propietario_empleado_id, odometro_salida, odometro_llegada, km_declarados, valor_km, cargado_por)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+    `, [v.id, datos.tipo, datos.vehiculo, datos.propietario_empleado_id, datos.odometro_salida, datos.odometro_llegada,
+        datos.km_declarados, t.pagaKm ? (valorAdmin !== undefined ? valorAdmin : valorKm) : null, req.user.id]);
     res.json({ ok: true, id: x.id });
   } catch (err) {
     console.error('[VIAJES] vehiculo:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Quitar un vehículo cargado por error (participantes o admin).
+router.post('/:id/vehiculos/:vid/quitar', auth, async (req, res) => {
+  try {
+    const v = await viajeVisible(req, req.params.id);
+    if (!v) return res.status(404).json({ error: 'Viaje no encontrado' });
+    const { rowCount } = await db.query('DELETE FROM public.viaje_vehiculos WHERE id = $1 AND viaje_id = $2', [req.params.vid, v.id]);
+    if (!rowCount) return res.status(404).json({ error: 'Vehículo no encontrado' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[VIAJES] vehiculo quitar:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
