@@ -42,6 +42,7 @@ app.use('/api/email',          require('./routes/email'));
 app.use('/api/crm',            require('./routes/crm'));
 app.use('/api/planillas',      require('./routes/planillas'));
 app.use('/api/jornadas-especiales', require('./routes/jornadasEspeciales'));
+app.use('/api/viajes',         require('./routes/viajes'));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {

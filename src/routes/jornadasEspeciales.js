@@ -15,6 +15,7 @@ const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 const jornada = require('../services/jornadaService');
 const push    = require('../services/pushService');
+const viajesSvc = require('../services/viajesService');
 
 function esDueno(user) {
   const dueno = (process.env.DUENO_EMAIL || '').trim().toLowerCase();
@@ -130,28 +131,55 @@ router.get('/', auth, soloAdmin, async (req, res) => {
 });
 
 // ─── POST /jornadas-especiales ────────────────────────────────────────────────
-// { fecha, tipo, alcance?, motivo, hora_fin_estimada?, empleado_ids? (admin) }
+// { tipo, alcance?, subtipo?, lugar?, motivo, hora_fin_estimada?,
+//   fecha, hasta?                         → el empleado, para sí
+//   empleado_ids + fecha + hasta?          → admin, mismas fechas para todos
+//   asignaciones: [{empleado_id, desde, hasta}] → admin, fechas de cada uno
+//   destino_ids? | visita_existente_id?    → solo jornadas de un día }
+// Todo lo que se carga junto queda agrupado en un viaje (tabla viajes): ahí
+// se cargan los gastos, los km y los adelantos (routes/viajes.js).
 router.post('/', auth, async (req, res) => {
-  const { fecha, tipo, alcance, hora_fin_estimada } = req.body;
+  const { tipo, alcance, hora_fin_estimada } = req.body;
   const motivo = String(req.body.motivo || '').trim();
   const esAdmin = req.user.rol === 'admin';
-  let ids = Array.isArray(req.body.empleado_ids) && esAdmin
-    ? [...new Set(req.body.empleado_ids.map(Number).filter(Boolean))]
-    : [req.user.empleadoId].filter(Boolean);
-  if (!ids.length) return res.status(400).json({ error: 'Elegí al menos un empleado.' });
+  const subtipo = tipo === 'evento' && viajesSvc.SUBTIPOS_EVENTO[req.body.subtipo] ? req.body.subtipo : null;
+  const lugar = String(req.body.lugar || '').trim().slice(0, 200) || null;
+
+  let asignaciones;
+  if (esAdmin && Array.isArray(req.body.asignaciones)) {
+    asignaciones = req.body.asignaciones.map(a => ({ empleado_id: Number(a.empleado_id), desde: a.desde, hasta: a.hasta || a.desde }));
+  } else {
+    const ids = Array.isArray(req.body.empleado_ids) && esAdmin
+      ? [...new Set(req.body.empleado_ids.map(Number).filter(Boolean))]
+      : [req.user.empleadoId].filter(Boolean);
+    asignaciones = ids.map(id => ({ empleado_id: id, desde: req.body.fecha, hasta: req.body.hasta || req.body.fecha }));
+  }
+  if (!asignaciones.length) return res.status(400).json({ error: 'Elegí al menos un empleado.' });
 
   const hoy = jornada.fechaHoyArgentina();
-  const problema = jornada.validarJornadaEspecial({ tipo, alcance, motivo, fecha, hoy, esAdmin });
-  if (problema) return res.status(400).json({ error: problema });
+  for (const a of asignaciones) {
+    for (const f of [a.desde, a.hasta]) {
+      const problema = jornada.validarJornadaEspecial({ tipo, alcance, motivo, fecha: f, hoy, esAdmin });
+      if (problema) return res.status(400).json({ error: problema });
+    }
+  }
+  const problemaAsig = viajesSvc.validarAsignaciones(asignaciones);
+  if (problemaAsig) return res.status(400).json({ error: problemaAsig });
   if (hora_fin_estimada && !/^\d{2}:\d{2}$/.test(hora_fin_estimada))
     return res.status(400).json({ error: 'Hora estimada de fin inválida.' });
+
   const destinoIds = Array.isArray(req.body.destino_ids)
     ? [...new Set(req.body.destino_ids.map(Number).filter(Boolean))] : [];
+  const visitaExistenteId = Number(req.body.visita_existente_id) || null;
+  const fecha = asignaciones[0].desde;
+  const unSoloDia = asignaciones.every(a => a.desde === a.hasta && a.desde === fecha);
+  if ((destinoIds.length || visitaExistenteId) && !unSoloDia)
+    return res.status(400).json({ error: 'La visita se vincula o se programa en jornadas de un solo día. Para varios días, programá cada visita desde Visitas.' });
   if (destinoIds.length && fecha < hoy)
     return res.status(400).json({ error: 'Para días pasados no se programa la visita: sacá los establecimientos.' });
-  const visitaExistenteId = Number(req.body.visita_existente_id) || null;
   if (visitaExistenteId && destinoIds.length)
     return res.status(400).json({ error: 'Elegí vincular la visita ya programada o programar una nueva, no las dos.' });
+  const ids = asignaciones.map(a => a.empleado_id);
 
   const client = await db.connect();
   try {
@@ -165,32 +193,44 @@ router.post('/', auth, async (req, res) => {
       return res.status(404).json({ error: 'Empleado no encontrado.' });
     }
 
+    const rango = viajesSvc.rangoViaje(asignaciones);
+    const { rows: [viaje] } = await client.query(`
+      INSERT INTO public.viajes (empleador_id, titulo, tipo, subtipo, lugar, desde, hasta, creado_por)
+      VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8) RETURNING id
+    `, [req.user.empleadorId, motivo.slice(0, 200), tipo, subtipo, lugar, rango.desde, rango.hasta, req.user.id]);
+
     const creadas = [];
-    for (const emp of emps) {
+    for (const a of asignaciones) {
+      const emp = emps.find(e => e.id === a.empleado_id);
       const propia = emp.usuario_id === req.user.id;
       // Aprobada de entrada: la carga un admin para otro, o el dueño. El
       // empleado (o un admin para sí mismo) queda pendiente de otro admin.
       const aprobada = (esAdmin && !propia) || esDueno(req.user);
-      const { rows: [ya] } = await client.query(
-        `SELECT id, estado FROM public.jornadas_especiales WHERE empleado_id = $1 AND fecha = $2::date AND estado IN ('pendiente','aprobada')`,
-        [emp.id, fecha]
-      );
-      if (ya) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: `${emp.nombre} ${emp.apellido} ya tiene una jornada especial ${ya.estado} el ${fechaTxt(fecha)}. Anulala primero si querés cambiarla.` });
+      const meses = new Map();
+      for (const f of viajesSvc.diasEntre(a.desde, a.hasta)) {
+        const { rows: [ya] } = await client.query(
+          `SELECT id, estado FROM public.jornadas_especiales WHERE empleado_id = $1 AND fecha = $2::date AND estado IN ('pendiente','aprobada')`,
+          [emp.id, f]
+        );
+        if (ya) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({ error: `${emp.nombre} ${emp.apellido} ya tiene una jornada especial ${ya.estado} el ${fechaTxt(f)}. Anulala primero si querés cambiarla.` });
+        }
+        const { rows: [je] } = await client.query(`
+          INSERT INTO public.jornadas_especiales
+            (empleador_id, empleado_id, fecha, tipo, alcance, motivo, hora_fin_estimada, estado,
+             creada_por, resuelta_por, resuelta_en, observacion_admin, viaje_id)
+          VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          RETURNING *, fecha::text AS fecha
+        `, [req.user.empleadorId, emp.id, f, tipo, tipo === 'evento' ? alcance : null, motivo,
+            hora_fin_estimada || null, aprobada ? 'aprobada' : 'pendiente', req.user.id,
+            aprobada ? req.user.id : null, aprobada ? new Date() : null,
+            aprobada ? (propia ? 'Aprobada automáticamente (dueño)' : 'Cargada por administración') : null, viaje.id]);
+        meses.set(f.slice(0, 7), f);
+        creadas.push({ ...je, nombre: emp.nombre, apellido: emp.apellido, usuario_id: emp.usuario_id, propia });
       }
-      const { rows: [je] } = await client.query(`
-        INSERT INTO public.jornadas_especiales
-          (empleador_id, empleado_id, fecha, tipo, alcance, motivo, hora_fin_estimada, estado,
-           creada_por, resuelta_por, resuelta_en, observacion_admin)
-        VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING *, fecha::text AS fecha
-      `, [req.user.empleadorId, emp.id, fecha, tipo, tipo === 'evento' ? alcance : null, motivo,
-          hora_fin_estimada || null, aprobada ? 'aprobada' : 'pendiente', req.user.id,
-          aprobada ? req.user.id : null, aprobada ? new Date() : null,
-          aprobada ? (propia ? 'Aprobada automáticamente (dueño)' : 'Cargada por administración') : null]);
-      if (aprobada) await recalcular(client, emp.id, fecha);
-      creadas.push({ ...je, nombre: emp.nombre, apellido: emp.apellido, usuario_id: emp.usuario_id, propia });
+      // El banco de horas se recalcula por mes completo: una vez por mes alcanza.
+      if (aprobada) for (const f of meses.values()) await recalcular(client, emp.id, f);
     }
 
     // Etapa 2: establecimientos elegidos → visita programada para ese día.
@@ -233,20 +273,24 @@ router.post('/', auth, async (req, res) => {
     await client.query('COMMIT');
     creadas.forEach(c => { if (!c.destinos) c.destinos = null; });
 
-    for (const je of creadas) {
+    // Un aviso por empleado (no uno por día).
+    for (const a of asignaciones) {
+      const je = creadas.find(c => c.empleado_id === a.empleado_id);
+      if (!je) continue;
       try {
         const nombre = `${je.nombre} ${je.apellido}`.trim();
+        const cuando = a.desde === a.hasta ? `el ${fechaTxt(a.desde)}` : `del ${fechaTxt(a.desde)} al ${fechaTxt(a.hasta)}`;
         const dest = je.destinos ? ` · Visita: ${je.destinos.join(', ')}` : '';
         if (je.estado === 'pendiente') {
           await push.pushAdmins(req.user.empleadorId, 'Jornada especial para aprobar',
-            `${nombre}: ${nombreTipo(je)} el ${fechaTxt(je.fecha)} — ${je.motivo}${dest}`);
+            `${nombre}: ${nombreTipo(je)} ${cuando} — ${je.motivo}${dest}`);
         } else if (!je.propia) {
           await push.pushUsuario(je.usuario_id, 'Jornada especial cargada',
-            `${nombreTipo(je)} el ${fechaTxt(je.fecha)} — ${je.motivo}${dest}. Fichá con los botones de la jornada especial.`);
+            `${nombreTipo(je)} ${cuando} — ${je.motivo}${dest}. Fichá con los botones de la jornada especial; los gastos se cargan desde el mismo cartel.`);
         }
       } catch (e) { console.error('[JE] push alta:', e.message); }
     }
-    res.json({ ok: true, jornadas: creadas });
+    res.json({ ok: true, viaje_id: viaje.id, jornadas: creadas });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[JE] alta:', err.message);
