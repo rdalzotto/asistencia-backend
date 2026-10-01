@@ -8088,7 +8088,7 @@ function renderJornadaEspecial() {
         <span class="badge ${cls}">${txt}</span>
       </div>
       <div style="font-size:13px;color:var(--text2);margin-top:4px">${escHtml(je.motivo)}${je.hora_fin_estimada ? ' · fin estimado ' + je.hora_fin_estimada : ''}</div>
-      ${je.destinos ? '<div style="font-size:13px;color:var(--text2);margin-top:4px">📍 Visita programada: ' + je.destinos.map(escHtml).join(', ') + '</div>' : ''}
+      ${je.destinos ? '<div style="font-size:13px;color:var(--text2);margin-top:4px">📍 Visita programada: ' + je.destinos.map(escHtml).join(', ') + (je.visita_id ? ` · <a href="#" onclick="editarVisita(${je.visita_id});return false">Ver / editar la visita</a>` : '') + '</div>' : ''}
       ${je.estado === 'pendiente' ? '<div style="font-size:12px;color:var(--orange);margin-top:4px">Podés fichar igual; las horas cuentan cuando la apruebe un administrador.</div>' : ''}
       ${notaEvento}
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${botones || '<span style="font-size:12px;color:var(--text3)">Usá REGISTRAR para el próximo fichaje.</span>'}</div>
@@ -8134,12 +8134,44 @@ async function abrirModalJornadaEspecial(modoAdmin) {
     try {
       const emps = await api('/config/empleados');
       document.getElementById('je-empleados').innerHTML = emps.filter(e => e.activo !== false).map(e => `
-        <div onclick="if (event.target.tagName !== 'INPUT') { const c = this.querySelector('input'); c.checked = !c.checked; }" style="display:flex;gap:8px;align-items:center;cursor:pointer;font-size:14px;color:var(--text1)"><input type="checkbox" class="je-emp" value="${e.id}" style="width:auto"> ${escHtml(e.nombre)} ${escHtml(e.apellido || '')}</div>`).join('');
+        <div onclick="if (event.target.tagName !== 'INPUT') { const c = this.querySelector('input'); c.checked = !c.checked; } cargarVisitasDelDiaJE()" style="display:flex;gap:8px;align-items:center;cursor:pointer;font-size:14px;color:var(--text1)"><input type="checkbox" class="je-emp" value="${e.id}" style="width:auto"> ${escHtml(e.nombre)} ${escHtml(e.apellido || '')}</div>`).join('');
     } catch { document.getElementById('je-empleados').innerHTML = '<span style="color:var(--red)">No se pudo cargar el personal</span>'; }
     cargarJornadasProgramadas();
   }
   actualizarFormJE();
+  cargarVisitasDelDiaJE();
   abrirModal('modal-jornada-especial');
+}
+
+// Visitas ya programadas ese día (con sus recursos) de los empleados
+// elegidos: por defecto se vincula la primera en vez de crear otra.
+async function cargarVisitasDelDiaJE() {
+  const grupo = document.getElementById('je-grupo-visitas');
+  const cont = document.getElementById('je-visitas-existentes');
+  const fecha = document.getElementById('je-fecha').value;
+  const ids = STATE._jeAdmin ? [...document.querySelectorAll('.je-emp:checked')].map(c => c.value) : [];
+  let visitas = [];
+  if (fecha && (!STATE._jeAdmin || ids.length)) {
+    try { visitas = await api('/jornadas-especiales/visitas-del-dia?fecha=' + fecha + (ids.length ? '&empleado_ids=' + ids.join(',') : '')); } catch {}
+  }
+  grupo.style.display = visitas.length ? '' : 'none';
+  cont.innerHTML = visitas.map((v, i) => `
+    <div onclick="this.querySelector('input').checked = true; elegirVisitaJE()" style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;cursor:pointer;text-align:left">
+      <input type="radio" name="je-visita" value="${v.id}" ${i === 0 ? 'checked' : ''} onchange="elegirVisitaJE()" style="width:auto;margin-top:3px">
+      <span style="font-size:13px;color:var(--text1)"><b>Vincular esta visita</b>${v.hora_salida ? ' · sale ' + v.hora_salida : ''}<br>
+        <span style="color:var(--text2)">📍 ${(v.destinos || []).map(escHtml).join(', ') || 'sin destinos'}</span>
+        ${v.recursos ? '<br><span style="color:var(--text2)">🚐 ' + v.recursos.map(escHtml).join(', ') + '</span>' : ''}
+        <br><span style="color:var(--text3);font-size:12px">Organiza ${escHtml(v.org_nombre)} ${escHtml(v.org_apellido || '')}${v.estado === 'pendiente_aprobacion' ? ' · pendiente de aprobación' : ''}</span></span>
+    </div>`).join('') + (visitas.length ? `
+    <div onclick="this.querySelector('input').checked = true; elegirVisitaJE()" style="display:flex;gap:10px;align-items:center;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;cursor:pointer;font-size:13px;color:var(--text1)">
+      <input type="radio" name="je-visita" value="" onchange="elegirVisitaJE()" style="width:auto"> No vincular · programar otra con los establecimientos de abajo
+    </div>` : '');
+  elegirVisitaJE();
+}
+
+function elegirVisitaJE() {
+  const vinculada = !!document.querySelector('input[name="je-visita"]:checked')?.value;
+  document.getElementById('je-grupo-destinos').style.display = vinculada ? 'none' : '';
 }
 
 function filtrarDestinosJE() {
@@ -8177,7 +8209,9 @@ async function guardarJornadaEspecial() {
     hora_fin_estimada: document.getElementById('je-grupo-hora').style.display === 'none' ? null : (document.getElementById('je-hora-fin').value || null),
     motivo: document.getElementById('je-motivo').value.trim(),
     destino_ids: [...document.querySelectorAll('.je-dest:checked')].map(c => parseInt(c.value)),
+    visita_existente_id: parseInt(document.querySelector('input[name="je-visita"]:checked')?.value) || null,
   };
+  if (body.visita_existente_id) body.destino_ids = [];
   if (STATE._jeAdmin) {
     body.empleado_ids = [...document.querySelectorAll('.je-emp:checked')].map(c => parseInt(c.value));
     if (!body.empleado_ids.length) return toast('Elegí al menos un empleado', 'error');
@@ -8187,7 +8221,8 @@ async function guardarJornadaEspecial() {
   btn.disabled = true;
   try {
     await api('/jornadas-especiales', { method: 'POST', body: JSON.stringify(body) });
-    const conVisita = body.destino_ids.length ? ' La visita quedó programada.' : '';
+    const conVisita = body.visita_existente_id ? ' Quedó vinculada a la visita ya programada.'
+      : body.destino_ids.length ? ' La visita quedó programada; si necesitás camioneta o equipos, agregalos desde "Ver / editar la visita".' : '';
     if (STATE._jeAdmin) {
       toast('Jornada especial programada ✓ — se le avisó a cada empleado.' + conVisita, 'success', 6000);
       document.querySelectorAll('.je-dest:checked').forEach(c => { c.checked = false; });
@@ -8465,14 +8500,18 @@ async function eoConfirmarQuedarme() {
     </div>
     <div class="form-group">
       <label>Fecha</label>
-      <input type="date" id="je-fecha" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:15px">
+      <input type="date" id="je-fecha" onchange="cargarVisitasDelDiaJE()" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:15px">
     </div>
     <div class="form-group" id="je-grupo-hora">
       <label>¿A qué hora estimás terminar? (opcional)</label>
       <input type="time" id="je-hora-fin" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:18px">
       <p style="font-size:11px;color:var(--text3);margin-top:4px">Una hora después te recordamos marcar "Terminé"; si no lo marcás, el sistema cierra 4 h después de esa hora. Sin hora, cierra a las 14 h de haber empezado.</p>
     </div>
-    <div class="form-group">
+    <div class="form-group" id="je-grupo-visitas" style="display:none">
+      <label>Ya hay una visita programada ese día</label>
+      <div id="je-visitas-existentes" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+    <div class="form-group" id="je-grupo-destinos">
       <label>Establecimientos a visitar (opcional)</label>
       <input type="text" id="je-dest-buscar" placeholder="Buscar: Don Pastor, Riggio, Villaguay…" oninput="filtrarDestinosJE()" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:14px;margin-bottom:6px">
       <div id="je-destinos" style="max-height:170px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px"></div>

@@ -80,6 +80,40 @@ router.get('/mia', auth, async (req, res) => {
   }
 });
 
+// ─── GET /jornadas-especiales/visitas-del-dia?fecha=&empleado_ids=8,11 ───────
+// Visitas ya programadas ese día (con anticipación, con sus recursos) donde
+// participa alguno de esos empleados — como organizador o acompañante —, para
+// vincularlas a la jornada especial en vez de crear otra. El empleado solo
+// consulta las suyas.
+const VISITA_ACTIVA = `('programada','pendiente_aprobacion','en_curso')`;
+router.get('/visitas-del-dia', auth, async (req, res) => {
+  const fecha = req.query.fecha;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha || '')) return res.json([]);
+  const ids = req.user.rol === 'admin'
+    ? String(req.query.empleado_ids || '').split(',').map(Number).filter(Boolean)
+    : [req.user.empleadoId].filter(Boolean);
+  if (!ids.length) return res.json([]);
+  try {
+    const { rows } = await db.query(`
+      SELECT v.id, v.estado, v.empleado_id, to_char(v.hora_estimada_salida, 'HH24:MI') AS hora_salida,
+             to_char(v.hora_estimada_regreso, 'HH24:MI') AS hora_regreso,
+             e.nombre AS org_nombre, e.apellido AS org_apellido,
+             (SELECT json_agg(vd.cliente_nombre ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) AS destinos,
+             (SELECT json_agg(r.nombre) FROM public.visita_recursos vr JOIN public.recursos r ON r.id = vr.recurso_id WHERE vr.visita_id = v.id) AS recursos,
+             (SELECT json_agg(va.empleado_id) FROM public.visita_acompanantes va WHERE va.visita_id = v.id) AS acompanantes
+      FROM public.visitas v JOIN public.empleados e ON e.id = v.empleado_id
+      WHERE v.empleador_id = $1 AND v.fecha = $2::date AND v.estado IN ${VISITA_ACTIVA}
+        AND (v.empleado_id = ANY($3::int[]) OR EXISTS (
+          SELECT 1 FROM public.visita_acompanantes va WHERE va.visita_id = v.id AND va.empleado_id = ANY($3::int[])))
+      ORDER BY v.hora_estimada_salida NULLS LAST, v.id
+    `, [req.user.empleadorId, fecha, ids]);
+    res.json(rows);
+  } catch (err) {
+    console.error('[JE] visitas-del-dia:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ─── GET /jornadas-especiales?estado=&desde= (admin) ──────────────────────────
 router.get('/', auth, soloAdmin, async (req, res) => {
   const params = [req.user.empleadorId];
@@ -115,6 +149,9 @@ router.post('/', auth, async (req, res) => {
     ? [...new Set(req.body.destino_ids.map(Number).filter(Boolean))] : [];
   if (destinoIds.length && fecha < hoy)
     return res.status(400).json({ error: 'Para días pasados no se programa la visita: sacá los establecimientos.' });
+  const visitaExistenteId = Number(req.body.visita_existente_id) || null;
+  if (visitaExistenteId && destinoIds.length)
+    return res.status(400).json({ error: 'Elegí vincular la visita ya programada o programar una nueva, no las dos.' });
 
   const client = await db.connect();
   try {
@@ -157,7 +194,6 @@ router.post('/', auth, async (req, res) => {
     }
 
     // Etapa 2: establecimientos elegidos → visita programada para ese día.
-    let destinosNombres = [];
     if (destinoIds.length) {
       const { rows: dests } = await client.query(
         'SELECT id, nombre, domicilio, localidad, lat, lng FROM public.destinos_externos WHERE id = ANY($1::int[]) AND empleador_id = $2 AND activo = TRUE',
@@ -173,12 +209,29 @@ router.post('/', auth, async (req, res) => {
         empleadoIds: ids.filter(id => creadas.some(c => c.empleado_id === id)),
         fecha, horaFin: hora_fin_estimada, motivo, destinos: ordenados, esAdmin,
       });
-      await client.query('UPDATE public.jornadas_especiales SET visita_id = $1 WHERE id = ANY($2::int[])', [visitaId, creadas.map(c => c.id)]);
-      creadas.forEach(c => { c.visita_id = visitaId; });
-      destinosNombres = ordenados.map(d => d.nombre);
+      await client.query('UPDATE public.jornadas_especiales SET visita_id = $1, visita_propia = TRUE WHERE id = ANY($2::int[])', [visitaId, creadas.map(c => c.id)]);
+      creadas.forEach(c => { c.visita_id = visitaId; c.destinos = ordenados.map(d => d.nombre); });
+    } else if (visitaExistenteId) {
+      // Visita ya programada con anticipación (con sus recursos): se vincula
+      // a las jornadas de quienes participan en ella; no se crea otra.
+      const { rows: [vis] } = await client.query(`
+        SELECT v.id, v.empleado_id,
+          (SELECT array_agg(va.empleado_id) FROM public.visita_acompanantes va WHERE va.visita_id = v.id) AS acompanantes,
+          (SELECT json_agg(vd.cliente_nombre ORDER BY vd.orden) FROM public.visita_destinos vd WHERE vd.visita_id = v.id) AS destinos
+        FROM public.visitas v
+        WHERE v.id = $1 AND v.empleador_id = $2 AND v.fecha = $3::date AND v.estado IN ${VISITA_ACTIVA}
+      `, [visitaExistenteId, req.user.empleadorId, fecha]);
+      const participantes = vis ? [vis.empleado_id, ...(vis.acompanantes || [])] : [];
+      const vinculadas = creadas.filter(c => participantes.includes(c.empleado_id));
+      if (!vinculadas.length) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Esa visita no es de ese día o no participa ninguno de los empleados elegidos.' });
+      }
+      await client.query('UPDATE public.jornadas_especiales SET visita_id = $1, visita_propia = FALSE WHERE id = ANY($2::int[])', [vis.id, vinculadas.map(c => c.id)]);
+      vinculadas.forEach(c => { c.visita_id = vis.id; c.destinos = vis.destinos; });
     }
     await client.query('COMMIT');
-    creadas.forEach(c => { c.destinos = destinosNombres.length ? destinosNombres : null; });
+    creadas.forEach(c => { if (!c.destinos) c.destinos = null; });
 
     for (const je of creadas) {
       try {
@@ -272,10 +325,11 @@ router.post('/:id/anular', auth, async (req, res) => {
     `, [req.user.id, nota, je.id]);
     await recalcular(client, je.empleado_id, je.fecha);
 
-    // La visita que se programó con ella se cancela si todavía no empezó y
-    // nadie más de ese viaje sigue con su jornada especial vigente.
+    // La visita que CREÓ esta jornada especial se cancela si todavía no empezó
+    // y nadie más de ese viaje sigue con su jornada especial vigente. Una
+    // visita programada con anticipación que solo se vinculó no se toca.
     let visitaCancelada = false;
-    if (je.visita_id) {
+    if (je.visita_id && je.visita_propia) {
       const { rows: [otra] } = await client.query(
         `SELECT 1 FROM public.jornadas_especiales WHERE visita_id = $1 AND id <> $2 AND estado IN ('pendiente','aprobada') LIMIT 1`,
         [je.visita_id, je.id]
