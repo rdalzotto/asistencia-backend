@@ -846,6 +846,25 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="form-group"><label>Km estimados</label><input type="number" id="vis-km-est" placeholder="0" min="0" step="0.1"></div>
       <div class="form-group"><label>Viático estimado $</label><input type="number" id="vis-viatico-est" placeholder="0" min="0"></div>
     </div>
+    <div class="form-group" id="vis-grupo-je">
+      <div onclick="if (event.target.tagName !== 'INPUT') { const c = document.getElementById('vis-es-je'); c.checked = !c.checked; } toggleVisJE()" style="display:flex;gap:10px;align-items:flex-start;border:1px dashed var(--border);border-radius:var(--radius-sm);padding:10px;cursor:pointer;font-size:13px;color:var(--text1)">
+        <input type="checkbox" id="vis-es-je" onchange="toggleVisJE()" style="width:auto;margin-top:2px">
+        <span>⭐ <b>Es una jornada especial</b><br><span style="color:var(--text3);font-size:12px">Viaje largo, sábado/domingo/feriado, evento u horario partido. Ese día no hay preguntas por la hora de salida ni cierre de las 20, y se ficha desde donde esté.</span></span>
+      </div>
+      <div id="vis-je-opciones" style="display:none;margin-top:8px">
+        <select id="vis-je-tipo" onchange="toggleVisJE()" style="width:100%;margin-bottom:6px">
+          <option value="viaje">🚗 Viaje / trabajo en cliente — horas reales</option>
+          <option value="no_habil">📅 Sábado, domingo o feriado — horas reales, extra</option>
+          <option value="evento">🎓 Evento, capacitación o reunión — horas fijas</option>
+          <option value="partida">⏸️ Horario partido — horas reales sin la pausa</option>
+        </select>
+        <select id="vis-je-alcance" style="width:100%;display:none;margin-bottom:6px">
+          <option value="completo">Día completo — cuenta 8 h</option>
+          <option value="medio">Medio día — cuenta 4 h (+ lo fichado en la oficina)</option>
+        </select>
+        <div style="font-size:11px;color:var(--text3)">La hora estimada de regreso de arriba se usa como fin estimado. Los acompañantes quedan incluidos si la programa un administrador.</div>
+      </div>
+    </div>
     <div class="form-group"><label>Observaciones</label><textarea id="vis-obs" placeholder="Notas adicionales..."></textarea></div>
     <input type="hidden" id="vis-edit-id">
     <input type="hidden" id="vis-modo"><!-- 'admin' o 'empleado' -->
@@ -5175,6 +5194,7 @@ async function abrirModalNuevaVisita() {
   document.getElementById('vis-edit-id').value='';
   document.getElementById('vis-modo').value='admin';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
+  resetVisJE(true);
   document.getElementById('vis-fecha').value=fechaLocalHoy();
   document.getElementById('vis-fecha').min=fechaLocalHoy();
   document.getElementById('vis-hora-salida').value=horaLocalAhora();
@@ -5208,6 +5228,7 @@ async function abrirModalNuevaVisitaEmp() {
   document.getElementById('vis-edit-id').value='';
   document.getElementById('vis-modo').value='empleado';
   document.getElementById('modal-visita-titulo').textContent='Programar visita';
+  resetVisJE(true);
   document.getElementById('vis-fecha').value=fechaLocalHoy();
   document.getElementById('vis-fecha').min=fechaLocalHoy();
   document.getElementById('vis-hora-salida').value=horaLocalAhora();
@@ -5419,6 +5440,45 @@ function validarFechaHoraVisita() {
   return !(fecha && fecha < hoy);
 }
 
+// ── "Es una jornada especial" al programar una visita con anticipación ──
+function resetVisJE(visible) {
+  document.getElementById('vis-grupo-je').style.display = visible ? '' : 'none';
+  document.getElementById('vis-es-je').checked = false;
+  document.getElementById('vis-je-tipo').value = 'viaje';
+  document.getElementById('vis-je-alcance').value = 'completo';
+  toggleVisJE();
+}
+
+function toggleVisJE() {
+  const on = document.getElementById('vis-es-je').checked;
+  document.getElementById('vis-je-opciones').style.display = on ? '' : 'none';
+  document.getElementById('vis-je-alcance').style.display = on && document.getElementById('vis-je-tipo').value === 'evento' ? '' : 'none';
+}
+
+// Se crea la jornada especial vinculada a la visita recién programada (con
+// sus recursos). Si falla, la visita queda igual y se avisa.
+async function crearJornadaEspecialDeVisita(visita, modo, empId) {
+  const tipo = document.getElementById('vis-je-tipo').value;
+  const obs = document.getElementById('vis-obs').value.trim();
+  const body = {
+    fecha: String(visita.fecha).slice(0, 10),
+    tipo,
+    alcance: tipo === 'evento' ? document.getElementById('vis-je-alcance').value : null,
+    motivo: ('Visita a ' + (visita.destinos || []).map(d => d.cliente_nombre).join(', ') + (obs ? ' — ' + obs : '')).slice(0, 500),
+    hora_fin_estimada: document.getElementById('vis-hora-regreso').value || null,
+    visita_existente_id: visita.id,
+  };
+  if (modo === 'admin') body.empleado_ids = [visita.empleado_id || empId, ...visAcompanantes.map(a => a.empleado_id)].filter(Boolean).map(Number);
+  try {
+    await api('/jornadas-especiales', { method: 'POST', body: JSON.stringify(body) });
+    toast(modo === 'admin'
+      ? '⭐ Jornada especial cargada y aprobada para el día de la visita.'
+      : '⭐ Jornada especial cargada — queda pendiente de aprobación. Tus acompañantes la cargan desde su app (o el administrador).', 'success', 8000);
+  } catch(e) {
+    toast('La visita quedó programada, pero la jornada especial no: ' + (e.message || 'error'), 'error', 10000);
+  }
+}
+
 async function guardarVisita() {
   const btn = document.getElementById('btn-guardar-visita');
   if (btn.disabled) return; // Evita doble envío por doble-click o doble-tap
@@ -5466,6 +5526,7 @@ async function guardarVisita() {
       } else {
         toast(modo==='empleado'?'Visita programada ✓ — el admin recibe un aviso informativo':'Visita programada ✓','success');
       }
+      if (document.getElementById('vis-es-je').checked) await crearJornadaEspecialDeVisita(nueva, modo, empId);
     }
     cerrarModal('modal-nueva-visita'); visDestinos=[]; visAcompanantes=[];
     if (STATE.rol==='admin') await cargarVisitasAdmin(); else await cargarMisVisitas();
@@ -5743,6 +5804,7 @@ async function editarVisita(id) {
     document.getElementById('vis-edit-id').value = id;
     document.getElementById('vis-modo').value = STATE.rol==='admin' ? 'admin' : 'empleado';
     document.getElementById('modal-visita-titulo').textContent = 'Editar visita';
+    resetVisJE(false);
     document.getElementById('vis-fecha').value = String(v.fecha).slice(0,10);
     document.getElementById('vis-fecha').min = fechaLocalHoy();
     document.getElementById('vis-fecha').style.borderColor = '';
