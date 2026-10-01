@@ -41,6 +41,7 @@ app.use('/api/extintores',     require('./routes/extintores'));
 app.use('/api/email',          require('./routes/email'));
 app.use('/api/crm',            require('./routes/crm'));
 app.use('/api/planillas',      require('./routes/planillas'));
+app.use('/api/jornadas-especiales', require('./routes/jornadasEspeciales'));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
@@ -174,6 +175,12 @@ async function cronJornadaInteligente() {
           WHERE ult.tipo IN ('ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota')
             AND (ult.hora AT TIME ZONE 'America/Argentina/Buenos_Aires')::time
                 < COALESCE(jpd.hora_egreso, jc.hora_egreso)::time
+        )
+        -- Con jornada especial vigente no se pregunta por la hora de salida
+        -- (tiene su propio recordatorio, paso 9).
+        AND NOT EXISTS (
+          SELECT 1 FROM public.jornadas_especiales je
+          WHERE je.empleado_id = e.id AND je.fecha = CURRENT_DATE AND je.estado IN ('pendiente','aprobada')
         )
         AND NOT EXISTS (
           SELECT 1 FROM public.consultas_egreso ce
@@ -318,6 +325,11 @@ async function cronJornadaInteligente() {
           ORDER BY m.empleado_id, m.hora DESC
         ) u
         WHERE u.ultimo_tipo NOT IN ('egreso','fin_jornada_remota')
+          -- La jornada especial tiene su propio cierre de seguridad (paso 9).
+          AND NOT EXISTS (
+            SELECT 1 FROM public.jornadas_especiales je
+            WHERE je.empleado_id = u.empleado_id AND je.fecha = CURRENT_DATE AND je.estado IN ('pendiente','aprobada')
+          )
       `);
 
       for (const row of rezagados) {
@@ -429,6 +441,11 @@ async function cronJornadaInteligente() {
         AND m.es_remoto = FALSE
         AND m.aviso_extension_oficina_en IS NULL
         AND e.activo = TRUE
+        -- En jornada especial pasar las 8 hs es lo esperable: no se avisa.
+        AND NOT EXISTS (
+          SELECT 1 FROM public.jornadas_especiales je
+          WHERE je.empleado_id = m.empleado_id AND je.fecha = CURRENT_DATE AND je.estado IN ('pendiente','aprobada')
+        )
         AND NOT EXISTS (
           SELECT 1 FROM public.movimientos m2
           WHERE m2.empleado_id = m.empleado_id AND m2.fecha = m.fecha
@@ -520,6 +537,66 @@ async function cronJornadaInteligente() {
   // recordatorios del certificado. Fuera del try de arriba: si un paso de
   // cierre falla, estos avisos igual corren (y al revés).
   await require('./services/avisosAusenciaCron').pasosAvisosAusencia({ hoyStr, minAhora });
+
+  // ── 9. Jornada especial: recordatorio y cierre de seguridad propios ──────
+  await cronJornadaEspecial();
+}
+
+// Reemplaza, para quien tiene jornada especial vigente hoy, a la pregunta de
+// la hora de salida y al cierre de las 20:00: recordatorio al empleado a la
+// hora estimada de fin + 1 h, y cierre a la hora estimada + 4 h (sin hora
+// estimada: 14 h desde que empezó), nunca después de las 23:55.
+// jornadaService.horariosJornadaEspecial. 01/10/2026.
+async function cronJornadaEspecial() {
+  try {
+    const { rows } = await db.query(`
+      SELECT je.id, je.empleado_id, je.empleador_id, je.fecha::text AS fecha, je.tipo,
+             to_char(je.hora_fin_estimada, 'HH24:MI') AS hora_fin_estimada, je.recordatorio_enviado_en,
+             e.nombre, e.apellido, e.usuario_id, ult.tipo AS ultimo_tipo, ape.hora AS apertura
+      FROM public.jornadas_especiales je
+      JOIN public.empleados e ON e.id = je.empleado_id
+      JOIN LATERAL (
+        SELECT m.tipo FROM public.movimientos m
+        WHERE m.empleado_id = je.empleado_id AND m.fecha = je.fecha AND m.tipo <> 'trabajo_feriado'
+        ORDER BY m.hora DESC LIMIT 1
+      ) ult ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT m.hora FROM public.movimientos m
+        WHERE m.empleado_id = je.empleado_id AND m.fecha = je.fecha
+          AND m.tipo IN ('ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota')
+        ORDER BY m.hora ASC LIMIT 1
+      ) ape ON TRUE
+      WHERE je.fecha = CURRENT_DATE AND je.estado IN ('pendiente','aprobada')
+        AND ult.tipo NOT IN ('egreso','fin_jornada_remota')
+    `);
+    const ahora = new Date();
+    for (const r of rows) {
+      try {
+        const nombre = `${r.nombre || ''} ${r.apellido || ''}`.trim();
+        const { recordatorio, cierre } = require('./services/jornadaService').horariosJornadaEspecial({
+          fecha: r.fecha, horaFinEstimada: r.hora_fin_estimada, apertura: r.apertura,
+        });
+        if (ahora >= cierre) {
+          const tipoCierre = r.ultimo_tipo === 'inicio_jornada_remota' ? 'fin_jornada_remota' : 'egreso';
+          await registrarEgresoAuto(r.empleado_id, r.empleador_id, 'jornada_especial_tope', tipoCierre);
+          await push.pushAdmins(r.empleador_id, 'Jornada especial cerrada por el sistema',
+            `${nombre} no marcó "Terminé". Si terminó más tarde, corregí la hora desde 📝 Fichaje.`);
+          await push.pushUsuario(r.usuario_id, 'Jornada cerrada por el sistema',
+            'No marcaste "Terminé". Si terminaste más tarde, avisale al administrador para que corrija la hora.');
+          console.log(`[CRON] Cierre de seguridad de jornada especial: ${nombre}`);
+        } else if (recordatorio && ahora >= recordatorio && !r.recordatorio_enviado_en) {
+          await db.query('UPDATE public.jornadas_especiales SET recordatorio_enviado_en = NOW() WHERE id = $1', [r.id]);
+          await push.pushUsuario(r.usuario_id, '¿Ya terminaste?',
+            `Tu jornada especial tenía fin estimado a las ${r.hora_fin_estimada}. Cuando termines, marcá "Terminé".`);
+          console.log(`[CRON] Recordatorio de jornada especial: ${nombre}`);
+        }
+      } catch (errFila) {
+        console.error(`[CRON] Error en jornada especial id=${r.id}:`, errFila.message);
+      }
+    }
+  } catch (err) {
+    if (err.code !== '42P01') console.error('[CRON] Error en jornada especial:', err.message);
+  }
 }
 
 function iniciarCronCierre() {

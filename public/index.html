@@ -252,6 +252,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       </button>
       <div class="badge badge-gray" id="badge-estado-actual">Sin registros hoy</div>
       <div id="banner-alerta-jornada" style="display:none;border-radius:var(--radius-sm);padding:12px 16px;margin-top:12px;text-align:center;border:1px solid transparent;"></div>
+      <!-- Jornada especial (viaje, día no hábil, evento, horario partido) -->
+      <div id="card-jornada-especial" style="margin-top:12px"></div>
       <div id="btn-olvide-salida" style="display:none;margin-top:6px">
         <button onclick="abrirSalidaJustificada('manual')" style="background:none;border:none;color:var(--text3);font-size:12px;text-decoration:underline;cursor:pointer;padding:4px">¿Olvidaste registrar la salida?</button>
       </div>
@@ -368,6 +370,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <div class="section" id="tab-pendientes">
       <!-- Siempre visible, aunque no haya nada pendiente ("Todo validado" oculta las sub-pestañas). -->
       <button class="btn btn-secondary" style="margin-bottom:12px" onclick="abrirModalAusenciaAdmin()">+ Registrar ausencia de un empleado</button>
+      <button class="btn btn-secondary" style="margin-bottom:12px" onclick="abrirModalJornadaEspecial(true)">⭐ Programar jornada especial</button>
       <div id="pend-todo-al-dia" class="card" style="display:none;text-align:center;padding:32px 16px">
         <div style="font-size:32px;margin-bottom:8px">🎉</div>
         <div style="font-size:15px;font-weight:600">Todo validado</div>
@@ -380,6 +383,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="tab" id="tab-pend-visitas-btn" onclick="tabPendientes('visitas',this)">Visitas</button>
         <button class="tab" id="tab-pend-gps-btn" onclick="tabPendientes('gps',this)">Fichajes GPS</button>
         <button class="tab" id="tab-pend-compensatorio-btn" onclick="tabPendientes('compensatorio',this)">Compensatorio</button>
+        <button class="tab" id="tab-pend-especiales-btn" onclick="tabPendientes('especiales',this)">⭐ Especiales</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section">
@@ -391,6 +395,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div id="pend-visitas" class="section"><div id="lista-visitas-pend"></div></div>
       <div id="pend-gps" class="section"><div id="lista-gps-pend"></div></div>
       <div id="pend-compensatorio" class="section"><div id="lista-compensatorio-pend"></div></div>
+      <div id="pend-especiales" class="section"><div id="lista-especiales-pend"></div></div>
     </div>
 
     <!-- RECURSOS ADMIN -->
@@ -1605,6 +1610,7 @@ async function cargarDashboardEmpleado() {
   try {
     const movs = await api('/movimientos/hoy');
     renderMovimientosHoy(movs);
+    await cargarJornadaEspecialHoy();
     iniciarAlertas(movs);
     const bh = await api('/licencias/banco-horas');
     if (bh.length) renderBancoHoras(bh[0]);
@@ -2083,6 +2089,13 @@ async function sincronizarMovimientosPendientes() {
 async function confirmarMovimiento() {
   const tipo = document.getElementById('reg-tipo').value;
 
+  // Jornada especial: se ficha desde donde esté, sin preguntar oficina/
+  // externo/remoto (el servidor no rechaza por radio GPS ese día).
+  if (jeVigenteHoy() && TIPOS_FICHAJE_JE.includes(tipo)) {
+    await enviarMovimientoDirecto(tipo);
+    return;
+  }
+
   // Sin GPS al arrancar la jornada: no asumimos "oficina" por descarte.
   // Preguntamos explícitamente adónde va a trabajar antes de mandar nada —
   // rediseño de fichaje sin GPS de oficina (26/08/2026), Parte A.
@@ -2327,6 +2340,9 @@ function limpiarAlertaTimers() {
 async function iniciarAlertas(movimientos) {
   limpiarAlertaTimers();
   if (!movimientos || !movimientos.length) return;
+  // Jornada especial: sin recordatorios por hora de salida ni cierres de la
+  // app (el servidor tiene su propio recordatorio y cierre de seguridad).
+  if (jeVigenteHoy()) return;
   const ultimo = movimientos[movimientos.length - 1].tipo;
   const jornadaActiva = ['ingreso','regreso_almuerzo','regreso_externo','inicio_jornada_remota'].includes(ultimo);
   if (!jornadaActiva) return;
@@ -2922,7 +2938,9 @@ async function cargarDashboardAdmin() {
       const cp = await api('/licencias/compensatorio/pendientes');
       compensatorioPend = cp.length;
     } catch {}
-    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+(data.pendientes_vacacion?.length||0)+visitasPend+compensatorioPend;
+    let especialesPend = 0;
+    try { especialesPend = (await api('/jornadas-especiales?estado=pendiente')).length; } catch {}
+    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+(data.pendientes_vacacion?.length||0)+visitasPend+compensatorioPend+especialesPend;
     document.getElementById('dash-presentes').textContent = presentes;
     document.getElementById('dash-externos').textContent = externos;
     document.getElementById('dash-ausentes').textContent = ausentes;
@@ -3045,12 +3063,12 @@ async function cargarEmpleadosAdmin() {
 // "Solicitudes" sin importar dónde estuviera realmente lo pendiente (esa era
 // la causa real de "la campanita no lleva a ningún lado": todo el volumen
 // estaba en Fichajes GPS, que ni siquiera tenía pestaña propia hasta ahora).
-let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0, compensatorio: 0 };
+let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0, compensatorio: 0, especiales: 0 };
 
 // Orden de prioridad para el salto directo. GPS primero porque hoy concentra
 // el 100% del volumen real; el resto en orden visual de las pestañas, para
 // cuando en el futuro haya pendientes repartidos en varias categorías a la vez.
-const ORDEN_TABS_PENDIENTES = ['gps', 'solicitudes', 'ausencias', 'vacaciones', 'visitas', 'compensatorio'];
+const ORDEN_TABS_PENDIENTES = ['gps', 'especiales', 'solicitudes', 'ausencias', 'vacaciones', 'visitas', 'compensatorio'];
 
 // Único punto de decisión de navegación: se llama tanto al entrar a Pendientes
 // (recién tocada la campanita) como después de resolver cualquier ítem. Si la
@@ -3153,6 +3171,7 @@ async function cargarPendientesAdmin() {
     await cargarVisitasPendientesAdmin();
     await cargarFichajesGpsPendientesAdmin();
     await cargarCompensatorioPendientesAdmin();
+    await cargarJornadasEspecialesPendAdmin();
     navegarPendientesSegunDatos();
   } catch(e) {
     console.error('[PENDIENTES]', e);
@@ -3905,6 +3924,7 @@ function tabPendientes(id, el) {
   if (id === 'visitas') cargarVisitasPendientesAdmin();
   if (id === 'gps') cargarFichajesGpsPendientesAdmin();
   if (id === 'compensatorio') cargarCompensatorioPendientesAdmin();
+  if (id === 'especiales') cargarJornadasEspecialesPendAdmin();
 }
 </script>
 
@@ -8001,6 +8021,220 @@ async function confirmarFichajeManual() {
   finally { btn.disabled = false; }
 }
 
+// ── JORNADA ESPECIAL (01/10/2026) ─────────────────────────────────────────────
+// Viaje / trabajo en cliente, día no hábil, evento o horario partido. Con una
+// vigente, el empleado ficha con 3-4 botones desde donde esté y no hay
+// preguntas por la hora de salida ni cierre de la app.
+const TIPOS_JE = {
+  viaje:    { icono: '🚗', nombre: 'Viaje / trabajo en cliente', ayuda: 'Parte en la oficina y parte afuera, o todo el día afuera. Cuentan las horas reales; lo que pase de 8 es extra.' },
+  no_habil: { icono: '📅', nombre: 'Sábado, domingo o feriado', ayuda: 'Urgencia o actividad fuera de los días hábiles. Cuentan las horas reales, como extra. Siempre la aprueba un administrador.' },
+  evento:   { icono: '🎓', nombre: 'Evento, capacitación o reunión', ayuda: 'Congreso, curso o reunión de seguridad autorizada. Cuenta 8 h el día completo o 4 h medio día, dure lo que dure.' },
+  partida:  { icono: '⏸️', nombre: 'Horario partido', ayuda: 'Salís y volvés más tarde para un trabajo (ej. mediciones de 17 a 20). Cuentan las horas reales, sin la pausa.' },
+};
+const TIPOS_FICHAJE_JE = ['ingreso','egreso','salida_almuerzo','regreso_almuerzo','salida_externa','regreso_externo'];
+const BOTONES_JE = { ingreso: '▶ Empezar', salida_almuerzo: '⏸ Pausa', regreso_almuerzo: '▶ Retomar', regreso_externo: '▶ Volví', egreso: '⏹ Terminé', fin_jornada_remota: '⏹ Terminé' };
+const ESTADOS_JE = { pendiente: ['badge-orange', 'Pendiente de aprobación'], aprobada: ['badge-green', 'Aprobada'], rechazada: ['badge-red', 'Rechazada'] };
+
+function jeVigenteHoy() {
+  const je = STATE.jornadaEspecial;
+  return je && ['pendiente', 'aprobada'].includes(je.estado) ? je : null;
+}
+
+function fechaHoyAR() {
+  const a = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' }));
+  return a.getFullYear() + '-' + String(a.getMonth()+1).padStart(2,'0') + '-' + String(a.getDate()).padStart(2,'0');
+}
+
+function nombreJE(je) {
+  const t = TIPOS_JE[je.tipo] || { icono: '⭐', nombre: je.tipo };
+  return `${t.icono} ${t.nombre}${je.tipo === 'evento' ? (je.alcance === 'completo' ? ' (día completo)' : ' (medio día)') : ''}`;
+}
+
+async function cargarJornadaEspecialHoy() {
+  if (!STATE.empleadoId) { STATE.jornadaEspecial = null; renderJornadaEspecial(); return; }
+  try { STATE.jornadaEspecial = await api('/jornadas-especiales/mia'); }
+  catch { STATE.jornadaEspecial = null; }
+  renderJornadaEspecial();
+}
+
+function renderJornadaEspecial() {
+  const cont = document.getElementById('card-jornada-especial');
+  if (!cont) return;
+  if (!STATE.empleadoId) { cont.innerHTML = ''; return; }
+  const je = STATE.jornadaEspecial;
+  if (!je || je.estado === 'anulada') {
+    cont.innerHTML = `<button onclick="abrirModalJornadaEspecial(false)" style="background:none;border:1px dashed var(--border);color:var(--text2);font-size:13px;border-radius:var(--radius-sm);padding:8px 12px;cursor:pointer;width:100%">⭐ ¿Hoy no es un día normal? Viaje, sábado, evento, horario partido…</button>`;
+    return;
+  }
+  if (je.estado === 'rechazada') {
+    cont.innerHTML = `<div style="border:1px solid var(--red);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px;color:var(--red);text-align:left">Tu jornada especial de hoy (${nombreJE(je)}) fue rechazada${je.observacion_admin ? ': ' + escHtml(je.observacion_admin) : ''}. Ese día no suma horas — hablalo con el administrador.</div>`;
+    return;
+  }
+  const [cls, txt] = ESTADOS_JE[je.estado] || ['badge-gray', je.estado];
+  const permitidos = tiposPermitidosAhora().filter(t => BOTONES_JE[t]);
+  const botones = permitidos.map(t =>
+    `<button class="btn ${t === 'egreso' || t === 'fin_jornada_remota' ? 'btn-danger' : 'btn-primary'}" style="flex:1;min-width:110px;padding:10px" onclick="ficharJE('${t}')">${BOTONES_JE[t]}</button>`
+  ).join('');
+  const notaEvento = je.tipo === 'evento' && je.alcance === 'completo'
+    ? '<div style="font-size:12px;color:var(--text3);margin-top:6px">Cuenta 8 h fijas. Fichar es opcional.</div>' : '';
+  cont.innerHTML = `
+    <div style="border:1px solid var(--accent);border-radius:var(--radius-sm);padding:12px;text-align:left">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:600;font-size:14px">⭐ ${nombreJE(je)}</div>
+        <span class="badge ${cls}">${txt}</span>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-top:4px">${escHtml(je.motivo)}${je.hora_fin_estimada ? ' · fin estimado ' + je.hora_fin_estimada : ''}</div>
+      ${je.estado === 'pendiente' ? '<div style="font-size:12px;color:var(--orange);margin-top:4px">Podés fichar igual; las horas cuentan cuando la apruebe un administrador.</div>' : ''}
+      ${notaEvento}
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">${botones || '<span style="font-size:12px;color:var(--text3)">Usá REGISTRAR para el próximo fichaje.</span>'}</div>
+      ${je.estado === 'pendiente' ? `<button onclick="anularJornadaEspecial(${je.id}, false)" style="background:none;border:none;color:var(--text3);font-size:12px;text-decoration:underline;cursor:pointer;padding:6px 0 0">Anular esta jornada especial</button>` : ''}
+    </div>`;
+}
+
+async function ficharJE(tipo) {
+  await abrirModalRegistro();
+  const sel = document.getElementById('reg-tipo');
+  sel.value = tipo;
+  cambiarTipoMovimiento();
+}
+
+async function abrirModalJornadaEspecial(modoAdmin) {
+  STATE._jeAdmin = !!modoAdmin;
+  const hoy = fechaHoyAR();
+  document.getElementById('je-titulo').textContent = modoAdmin ? '⭐ Programar jornada especial' : '⭐ Jornada especial';
+  document.getElementById('je-tipos').innerHTML = Object.entries(TIPOS_JE).map(([k, t], i) => `
+    <div onclick="this.querySelector('input').checked = true; actualizarFormJE()" style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;cursor:pointer;text-align:left">
+      <input type="radio" name="je-tipo" value="${k}" ${i === 0 ? 'checked' : ''} onchange="actualizarFormJE()" style="width:auto;margin-top:3px">
+      <span><span style="font-weight:600;font-size:14px;color:var(--text1)">${t.icono} ${t.nombre}</span><br><span style="font-size:12px;color:var(--text3)">${t.ayuda}</span></span>
+    </div>`).join('');
+  const fecha = document.getElementById('je-fecha');
+  fecha.value = hoy;
+  fecha.min = modoAdmin ? '' : hoy;
+  document.getElementById('je-hora-fin').value = '';
+  document.getElementById('je-motivo').value = '';
+  document.getElementById('je-alcance').value = 'completo';
+  document.getElementById('je-grupo-empleados').style.display = modoAdmin ? '' : 'none';
+  document.getElementById('je-grupo-programadas').style.display = modoAdmin ? '' : 'none';
+  document.getElementById('btn-guardar-je').textContent = modoAdmin ? 'Programar' : 'Cargar';
+  if (modoAdmin) {
+    try {
+      const emps = await api('/config/empleados');
+      document.getElementById('je-empleados').innerHTML = emps.filter(e => e.activo !== false).map(e => `
+        <div onclick="if (event.target.tagName !== 'INPUT') { const c = this.querySelector('input'); c.checked = !c.checked; }" style="display:flex;gap:8px;align-items:center;cursor:pointer;font-size:14px;color:var(--text1)"><input type="checkbox" class="je-emp" value="${e.id}" style="width:auto"> ${escHtml(e.nombre)} ${escHtml(e.apellido || '')}</div>`).join('');
+    } catch { document.getElementById('je-empleados').innerHTML = '<span style="color:var(--red)">No se pudo cargar el personal</span>'; }
+    cargarJornadasProgramadas();
+  }
+  actualizarFormJE();
+  abrirModal('modal-jornada-especial');
+}
+
+function actualizarFormJE() {
+  const tipo = document.querySelector('input[name="je-tipo"]:checked')?.value;
+  const esEvento = tipo === 'evento';
+  document.getElementById('je-grupo-alcance').style.display = esEvento ? '' : 'none';
+  const completo = esEvento && document.getElementById('je-alcance').value === 'completo';
+  document.getElementById('je-grupo-hora').style.display = completo ? 'none' : '';
+  document.getElementById('je-ayuda').textContent = STATE._jeAdmin
+    ? 'Programada por administración queda aprobada. Se le avisa a cada empleado.'
+    : 'Queda pendiente hasta que la apruebe un administrador (le llega un aviso). Mientras tanto podés fichar con los botones de la jornada especial, desde donde estés.';
+}
+
+async function guardarJornadaEspecial() {
+  const tipo = document.querySelector('input[name="je-tipo"]:checked')?.value;
+  const body = {
+    tipo,
+    alcance: tipo === 'evento' ? document.getElementById('je-alcance').value : null,
+    fecha: document.getElementById('je-fecha').value,
+    hora_fin_estimada: document.getElementById('je-grupo-hora').style.display === 'none' ? null : (document.getElementById('je-hora-fin').value || null),
+    motivo: document.getElementById('je-motivo').value.trim(),
+  };
+  if (STATE._jeAdmin) {
+    body.empleado_ids = [...document.querySelectorAll('.je-emp:checked')].map(c => parseInt(c.value));
+    if (!body.empleado_ids.length) return toast('Elegí al menos un empleado', 'error');
+  }
+  if (body.motivo.length < 5) return toast('Escribí el motivo', 'error');
+  const btn = document.getElementById('btn-guardar-je');
+  btn.disabled = true;
+  try {
+    await api('/jornadas-especiales', { method: 'POST', body: JSON.stringify(body) });
+    if (STATE._jeAdmin) {
+      toast('Jornada especial programada ✓ — se le avisó a cada empleado', 'success');
+      document.getElementById('je-motivo').value = '';
+      document.querySelectorAll('.je-emp:checked').forEach(c => { c.checked = false; });
+      cargarJornadasProgramadas();
+      if (typeof cargarPendientesAdmin === 'function') cargarPendientesAdmin();
+    } else {
+      cerrarModal('modal-jornada-especial');
+      toast(body.fecha === fechaHoyAR()
+        ? 'Jornada especial cargada ✓ — ya podés fichar con sus botones. Las horas cuentan cuando la apruebe un administrador.'
+        : 'Jornada especial cargada ✓ — queda pendiente de aprobación.', 'success', 8000);
+      cargarDashboardEmpleado();
+    }
+  } catch(e) { toast(e.message || 'No se pudo cargar', 'error', 8000); }
+  finally { btn.disabled = false; }
+}
+
+async function anularJornadaEspecial(id, desdeAdmin) {
+  if (!confirm('¿Anular esta jornada especial? El día vuelve a contarse como un día normal.')) return;
+  try {
+    await api(`/jornadas-especiales/${id}/anular`, { method: 'POST', body: JSON.stringify({}) });
+    toast('Jornada especial anulada', 'success');
+    if (desdeAdmin) { cargarJornadasProgramadas(); cargarJornadasEspecialesPendAdmin(); }
+    else cargarDashboardEmpleado();
+  } catch(e) { toast(e.message || 'No se pudo anular', 'error', 8000); }
+}
+
+async function cargarJornadasProgramadas() {
+  const cont = document.getElementById('je-programadas');
+  if (!cont) return;
+  try {
+    const lista = (await api('/jornadas-especiales?desde=' + fechaHoyAR())).filter(j => ['pendiente','aprobada'].includes(j.estado));
+    cont.innerHTML = lista.length ? lista.map(j => `
+      <div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <div><b>${String(j.fecha).split('-').reverse().join('/')}</b> · ${escHtml(j.nombre)} ${escHtml(j.apellido || '')}<br>
+          <span style="color:var(--text2)">${nombreJE(j)} — ${escHtml(j.motivo)}</span>
+          ${j.estado === 'pendiente' ? ' <span style="color:var(--orange)">(pendiente)</span>' : ''}</div>
+        <button class="btn btn-sm btn-secondary" style="padding:2px 8px;font-size:11px" onclick="anularJornadaEspecial(${j.id}, true)">Anular</button>
+      </div>`).join('') : '<p style="color:var(--text3);font-size:13px">No hay jornadas especiales programadas.</p>';
+  } catch { cont.innerHTML = '<p style="color:var(--red);font-size:13px">No se pudo cargar la lista</p>'; }
+}
+
+async function cargarJornadasEspecialesPendAdmin() {
+  const cont = document.getElementById('lista-especiales-pend');
+  if (!cont) return;
+  try {
+    const lista = await api('/jornadas-especiales?estado=pendiente');
+    PENDIENTES_COUNTS.especiales = lista.length;
+    const btn = document.getElementById('tab-pend-especiales-btn');
+    if (btn) btn.textContent = '⭐ Especiales' + (lista.length ? ' (' + lista.length + ')' : '');
+    cont.innerHTML = lista.length ? lista.map(j => `
+      <div class="card" style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600">${escHtml(j.nombre)} ${escHtml(j.apellido || '')}</div>
+        <div style="font-size:13px;color:var(--text2);margin:6px 0">${nombreJE(j)} · ${String(j.fecha).split('-').reverse().join('/')}${j.hora_fin_estimada ? ' · fin estimado ' + j.hora_fin_estimada : ''}</div>
+        <div style="font-size:12px;color:var(--text3)">${escHtml(j.motivo)}</div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-success" onclick="resolverJornadaEspecial(${j.id}, true)">✓ Aprobar</button>
+          <button class="btn btn-sm btn-danger" onclick="resolverJornadaEspecial(${j.id}, false)">✗ Rechazar</button>
+          <button class="btn btn-sm btn-secondary" onclick="anularJornadaEspecial(${j.id}, true)">Anular (día normal)</button>
+        </div>
+      </div>`).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin jornadas especiales pendientes</p>';
+  } catch { cont.innerHTML = '<p style="color:var(--red);text-align:center;font-size:13px">Error cargando</p>'; }
+}
+
+async function resolverJornadaEspecial(id, aprobado) {
+  let observacion = null;
+  if (!aprobado) {
+    observacion = prompt('Rechazada, ese día NO suma horas. (Si querés que cuente como un día normal, cancelá y usá "Anular".)\n\nMotivo del rechazo:');
+    if (observacion === null) return;
+  }
+  try {
+    await api(`/jornadas-especiales/${id}/resolver`, { method: 'POST', body: JSON.stringify({ aprobado, observacion }) });
+    toast(aprobado ? 'Jornada especial aprobada ✓' : 'Jornada especial rechazada', aprobado ? 'success' : 'info');
+    await cargarJornadasEspecialesPendAdmin();
+    navegarPendientesSegunDatos();
+  } catch(e) { toast(e.message || 'No se pudo resolver', 'error', 8000); }
+}
+
 // ── CONSULTA DE EGRESO ────────────────────────────────────────────────────────
 let _ceHoraEgresoTurno = null;
 
@@ -8171,6 +8405,51 @@ async function eoConfirmarQuedarme() {
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-fichaje-manual')">Cancelar</button>
       <button class="btn btn-primary" style="flex:1" id="btn-confirmar-fm" onclick="confirmarFichajeManual()">Cargar fichaje</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODAL JORNADA ESPECIAL (empleado y admin) ────────────────────────── -->
+<div class="modal-overlay" id="modal-jornada-especial" style="z-index:600">
+  <div class="modal" style="max-width:460px;max-height:90vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="je-titulo">⭐ Jornada especial</div>
+    <div class="form-group" id="je-grupo-empleados" style="display:none">
+      <label>Para quién</label>
+      <div id="je-empleados" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+    <div class="form-group">
+      <label>¿Qué tipo de día es?</label>
+      <div id="je-tipos" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div class="form-group" id="je-grupo-alcance" style="display:none">
+      <label>Duración del evento</label>
+      <select id="je-alcance" onchange="actualizarFormJE()" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:15px">
+        <option value="completo">Día completo — cuenta 8 h</option>
+        <option value="medio">Medio día — cuenta 4 h (+ lo que fiches en la oficina)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Fecha</label>
+      <input type="date" id="je-fecha" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:15px">
+    </div>
+    <div class="form-group" id="je-grupo-hora">
+      <label>¿A qué hora estimás terminar? (opcional)</label>
+      <input type="time" id="je-hora-fin" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:18px">
+      <p style="font-size:11px;color:var(--text3);margin-top:4px">Una hora después te recordamos marcar "Terminé"; si no lo marcás, el sistema cierra 4 h después de esa hora. Sin hora, cierra a las 14 h de haber empezado.</p>
+    </div>
+    <div class="form-group">
+      <label>Motivo</label>
+      <textarea id="je-motivo" rows="2" placeholder="Ej.: viaje a Federal, mediciones en la estancia La Esperanza" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:14px"></textarea>
+    </div>
+    <p id="je-ayuda" style="font-size:12px;color:var(--text3);margin-bottom:16px"></p>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-jornada-especial')">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1" id="btn-guardar-je" onclick="guardarJornadaEspecial()">Cargar</button>
+    </div>
+    <div id="je-grupo-programadas" style="display:none;margin-top:20px">
+      <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px">Programadas de hoy en adelante</div>
+      <div id="je-programadas"></div>
     </div>
   </div>
 </div>

@@ -159,7 +159,19 @@ function calcularTardanza(horaIngreso, jornadaConfig, convenio) {
 // contarAbierta=true: si la jornada sigue abierta (no fichó egreso todavía),
 // suma también el tramo abierto hasta el momento actual. Útil para mostrarle
 // al técnico "cuántas horas llevás" antes de que cierre el día.
+// Con jornada especial: pendiente o rechazada → el día no suma hasta que el
+// admin la apruebe; evento aprobado → horas fijas (horasEventoDelDia).
 async function calcularHorasJornada(empleadoId, fecha, client, contarAbierta = false) {
+  const je = await jornadaEspecialDelDia(empleadoId, fecha, client);
+  if (je && je.estado !== 'aprobada') return 0;
+  if (je && je.tipo === 'evento') {
+    if (je.alcance === 'completo') return horasEventoDelDia('completo');
+    return horasEventoDelDia('medio', await calcularHorasFichadas(empleadoId, fecha, client, contarAbierta));
+  }
+  return calcularHorasFichadas(empleadoId, fecha, client, contarAbierta);
+}
+
+async function calcularHorasFichadas(empleadoId, fecha, client, contarAbierta = false) {
   const queryFn = client ? client.query.bind(client) : db.query.bind(db);
 
   // Si el día tiene algún fichaje sin validar por el admin —ya sea de oficina
@@ -402,6 +414,77 @@ async function actualizarBancoHoras(empleadoId, fecha, client) {
   `, [empleadoId, anio, mes, horasConvenio, horasTrabajadas, horasExtra, horasAusencia]);
 }
 
+// ─── Jornada especial (01/10/2026) ───────────────────────────────────────────
+// Día que no es de oficina normal: viaje/cliente, día no hábil, evento o
+// horario partido. Mientras haya una vigente (pendiente o aprobada) no hay
+// pregunta de egreso, ni aviso de 8 hs, ni cierre de las 20:00, ni rechazo
+// por radio GPS; tiene su propio recordatorio y cierre de seguridad.
+const TIPOS_JORNADA_ESPECIAL = {
+  viaje:    'Viaje / trabajo en cliente',
+  no_habil: 'Día no hábil (sábado, domingo o feriado)',
+  evento:   'Evento, capacitación o reunión',
+  partida:  'Horario partido (vuelve más tarde)',
+};
+const HORAS_EVENTO = { completo: 8, medio: 4 };
+
+// Devuelve null si se puede cargar, o el motivo (texto) si no.
+// hoy y fecha: 'YYYY-MM-DD'. El empleado carga de hoy a 30 días; el admin
+// también puede cargar hacia atrás (hasta 62 días) para regularizar.
+function validarJornadaEspecial({ tipo, alcance, motivo, fecha, hoy, esAdmin }) {
+  if (!TIPOS_JORNADA_ESPECIAL[tipo]) return 'Elegí el tipo de jornada especial.';
+  if (tipo === 'evento' && !HORAS_EVENTO[alcance]) return 'Indicá si el evento es de día completo o medio día.';
+  if (String(motivo || '').trim().length < 5) return 'Escribí el motivo (queda registrado).';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha || '')) return 'Fecha inválida.';
+  const dias = Math.round((Date.parse(fecha) - Date.parse(hoy)) / 86400000);
+  if (dias > (esAdmin ? 60 : 30)) return `Se puede cargar hasta ${esAdmin ? 60 : 30} días adelante.`;
+  if (dias < (esAdmin ? -62 : 0)) return esAdmin ? 'Solo se puede regularizar hasta 2 meses atrás.' : 'No se puede cargar una jornada especial de días anteriores — pedíselo al administrador.';
+  return null;
+}
+
+// Horas que cuenta un día de evento aprobado: fijas, dure lo que dure. Medio
+// día suma además lo fichado (ej. evento a la mañana y oficina a la tarde).
+function horasEventoDelDia(alcance, horasFichadas) {
+  if (alcance === 'completo') return HORAS_EVENTO.completo;
+  return Math.round((HORAS_EVENTO.medio + Number(horasFichadas || 0)) * 100) / 100;
+}
+
+// Cuándo se le recuerda y cuándo se cierra sola una jornada especial que
+// quedó abierta: hora estimada de fin + 1 h (recordatorio) y + 4 h (cierre);
+// sin hora estimada, 14 h desde que empezó. Nunca pasa de las 23:55 de ese
+// día (el cierre automático se guarda con la fecha del día).
+// fecha 'YYYY-MM-DD', horaFinEstimada 'HH:MM[:SS]' o null, apertura: Date.
+function horariosJornadaEspecial({ fecha, horaFinEstimada, apertura }) {
+  const tope = new Date(`${fecha}T23:55:00-03:00`);
+  let recordatorio = null;
+  let cierre;
+  if (horaFinEstimada) {
+    const fin = new Date(`${fecha}T${String(horaFinEstimada).slice(0, 5)}:00-03:00`);
+    recordatorio = new Date(Math.min(fin.getTime() + 3600000, tope.getTime()));
+    cierre = new Date(fin.getTime() + 4 * 3600000);
+  } else {
+    cierre = apertura ? new Date(new Date(apertura).getTime() + 14 * 3600000) : tope;
+  }
+  if (cierre > tope) cierre = tope;
+  return { recordatorio, cierre };
+}
+
+// Jornada especial de ese empleado y día (la última no anulada), o null.
+// Si la tabla todavía no existe en la base, no rompe el fichaje.
+async function jornadaEspecialDelDia(empleadoId, fecha, client) {
+  const queryFn = client ? client.query.bind(client) : db.query.bind(db);
+  try {
+    const { rows: [je] } = await queryFn(`
+      SELECT * FROM public.jornadas_especiales
+      WHERE empleado_id = $1 AND fecha = $2::date AND estado <> 'anulada'
+      ORDER BY (estado IN ('pendiente','aprobada')) DESC, id DESC LIMIT 1
+    `, [empleadoId, fecha]);
+    return je || null;
+  } catch (err) {
+    if (err.code === '42P01') return null; // tabla todavía no creada
+    throw err;
+  }
+}
+
 // ─── Días hábiles del mes hasta un día dado (sin base de datos) ─────────────
 // Cuenta del día 1 al día `hastaDia` inclusive los días de la semana
 // laborables (1=lun…7=dom) que no son feriado (feriados: Set de 'YYYY-MM-DD').
@@ -608,6 +691,12 @@ module.exports = {
   validarFichajeManual,
   contarDiasHabiles,
   balanceALaFecha,
+  TIPOS_JORNADA_ESPECIAL,
+  HORAS_EVENTO,
+  validarJornadaEspecial,
+  horasEventoDelDia,
+  horariosJornadaEspecial,
+  jornadaEspecialDelDia,
   obtenerUltimoMovimientoHoy,
   jornadaActivaHoy,
   jornadaActivaEnFecha,

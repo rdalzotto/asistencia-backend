@@ -122,6 +122,16 @@ router.post('/registrar', auth, async (req, res) => {
       });
     }
 
+    // ─ Jornada especial vigente ese día (viaje, día no hábil, evento,
+    // horario partido): los fichajes de oficina se aceptan desde cualquier
+    // lugar (el GPS queda solo como registro), sin bloqueo de horario ni
+    // tardanza. Que cuenten o no lo decide la aprobación de la jornada
+    // especial (calcularHorasJornada), no cada fichaje. 01/10/2026. ─
+    const jeDia = await jornada.jornadaEspecialDelDia(empleadoId, hoy, client);
+    const jeVigente = jeDia && ['pendiente', 'aprobada'].includes(jeDia.estado) ? jeDia : null;
+    const fichajeEnJE = !!jeVigente &&
+      ['ingreso', 'egreso', 'salida_almuerzo', 'regreso_almuerzo', 'salida_externa', 'regreso_externo'].includes(tipo);
+
     // ─ Normalizar lat/lng: tratamos undefined, null y string vacío como "sin GPS" (NULL real en la base,
     // nunca NaN). parseFloat(null) da NaN en JS, por eso antes quedaba guardado "NaN" en vez de NULL. ─
     const latNum = (lat !== undefined && lat !== null && lat !== '') ? parseFloat(lat) : NaN;
@@ -138,7 +148,7 @@ router.post('/registrar', auth, async (req, res) => {
     // Rogelio el 10/09/2026 — "domicilio" sigue con este chequeo sin cambios. ─
     const MENSAJE_BLOQUEO_HORARIO = 'Este horario está fuera de su jornada normal. Avisá a tu administrador para que te autorice si es necesario, o programá una visita y pedile al administrador que te habilite.';
     const hhmmMov = horaMov.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
-    if (!tieneGps && jornada.horaEnVentanaExcepcional(hhmmMov) && ['ingreso', 'inicio_jornada_remota'].includes(tipo) && contextoRemotoVal !== 'externo') {
+    if (!jeVigente && !tieneGps && jornada.horaEnVentanaExcepcional(hhmmMov) && ['ingreso', 'inicio_jornada_remota'].includes(tipo) && contextoRemotoVal !== 'externo') {
       const autorizado = await jornada.tieneVisitaAutorizadaHoy(empleadoId, client);
       if (!autorizado) {
         await client.query('ROLLBACK');
@@ -206,6 +216,23 @@ router.post('/registrar', auth, async (req, res) => {
             observacionAuto = `Volvió a la oficina fuera del radio permitido (${distanciaM}m) — pendiente de validación del admin`;
           }
         }
+      }
+    } else if (fichajeEnJE) {
+      // Jornada especial: no se rechaza por radio. Se guarda la distancia a
+      // la oficina como dato (gps_valido NULL = no aplica).
+      gpsValido = null;
+      observacionAuto = `Jornada especial #${jeVigente.id} (${jornada.TIPOS_JORNADA_ESPECIAL[jeVigente.tipo]})`;
+      if (tieneGps) {
+        const { rows: [emp] } = await client.query(
+          'SELECT oficina_lat, oficina_lng, oficina_radio_m FROM public.empleadores WHERE id = $1',
+          [req.user.empleadorId]
+        );
+        if (emp && emp.oficina_lat != null && emp.oficina_lng != null) {
+          distanciaM = Math.round(calcularDistancia(latVal, lngVal, parseFloat(emp.oficina_lat), parseFloat(emp.oficina_lng)));
+          salidaFueraRadioVal = distanciaM > (parseInt(emp.oficina_radio_m) || 300);
+        }
+      } else {
+        observacionAuto += ' — sin señal GPS';
       }
     } else if (!es_remoto && ['ingreso','egreso','salida_almuerzo','regreso_almuerzo'].includes(tipo)) {
       if (!tieneGps) {
@@ -319,7 +346,7 @@ router.post('/registrar', auth, async (req, res) => {
     let esTardanza    = false;
     let minutosTardanza = 0;
 
-    if (tipo === 'ingreso' && !es_remoto) {
+    if (tipo === 'ingreso' && !es_remoto && !jeVigente) {
       const jc   = await jornada.getJornadaConfig(empleadoId);
       const { rows: [conv] } = await client.query(`
         SELECT c.* FROM public.convenios c
@@ -341,7 +368,7 @@ router.post('/registrar', auth, async (req, res) => {
     // criterio anterior: pendiente de validación manual. Un acompañante
     // "otro_cliente" NO alcanza por sí solo — necesita además su propia
     // visita cargada (Caso 1), tal cual pedía el spec. ─
-    let validadoVal = (es_remoto && !esVueltaDeExterno) ? false : gpsValido;
+    let validadoVal = fichajeEnJE ? true : (es_remoto && !esVueltaDeExterno) ? false : gpsValido;
     let acompananteRow = null;
     if (tipo === 'inicio_jornada_remota' && contextoRemotoVal === 'externo') {
       if (acompanante_id) {
@@ -418,7 +445,7 @@ router.post('/registrar', auth, async (req, res) => {
         consentimiento_extra, consentimiento_hora,
         validado, hash_sha256, observacion_admin,
         contexto_remoto, km_estimados,
-        salida_fuera_radio
+        salida_fuera_radio, jornada_especial_id
       ) VALUES (
         $1,$2,$3,($26::timestamptz)::date,$26::timestamptz,
         $4,$5,$6,$7,
@@ -430,7 +457,7 @@ router.post('/registrar', auth, async (req, res) => {
         $19, CASE WHEN $19 THEN $26::timestamptz ELSE NULL END,
         $20,$21,$22,
         $23,$24,
-        $25
+        $25,$27
       ) RETURNING *
     `, [
       empleadoId, req.user.empleadorId, tipo,
@@ -453,6 +480,7 @@ router.post('/registrar', auth, async (req, res) => {
       kmEstimados,
       salidaFueraRadioVal,
       horaMovISO,
+      fichajeEnJE ? jeVigente.id : null,
     ]);
 
     // ─ "Volver a la oficina" continúa la jornada: el fin_jornada_remota de

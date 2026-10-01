@@ -46,6 +46,9 @@ async function avisarSinIngreso({ hoyStr, minAhora }) {
                         AND v.estado IN ('pendiente','aprobada') AND $1::date BETWEEN v.fecha_inicio AND v.fecha_fin)
       AND NOT EXISTS (SELECT 1 FROM public.compensaciones c WHERE c.empleado_id = e.id AND c.fecha = $1::date)
       AND NOT EXISTS (SELECT 1 FROM public.avisos_sin_ingreso s WHERE s.empleado_id = e.id AND s.fecha = $1::date)
+      -- Jornada especial (evento, viaje…): puede no fichar a la hora de entrada.
+      AND NOT EXISTS (SELECT 1 FROM public.jornadas_especiales je WHERE je.empleado_id = e.id
+                        AND je.fecha = $1::date AND je.estado IN ('pendiente','aprobada'))
   `, [hoyStr, diaSemana]);
 
   let enviados = 0;

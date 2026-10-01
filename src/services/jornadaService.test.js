@@ -71,3 +71,54 @@ test('saldo a la fecha: sin convenio cargado no inventa horas', () => {
   const r = j.balanceALaFecha({ horasConvenio: 0, horasTrabajadas: 5, anio: 2026, mes: 10, dia: 20, diasLaborables: LUN_A_SAB, feriados: FER_OCT });
   assert.deepEqual(r, { esperadas: 0, balance: 5 });
 });
+
+// ── Jornada especial ─────────────────────────────────────────────────────────
+const JE = { tipo: 'viaje', motivo: 'Viaje a Federal', fecha: '2026-10-01', hoy: '2026-10-01', esAdmin: false };
+
+test('jornada especial: datos válidos', () => {
+  assert.equal(j.validarJornadaEspecial(JE), null);
+  assert.equal(j.validarJornadaEspecial({ ...JE, tipo: 'evento', alcance: 'medio' }), null);
+  assert.equal(j.validarJornadaEspecial({ ...JE, fecha: '2026-10-31' }), null); // 30 días
+});
+
+test('jornada especial: datos que faltan o no corresponden', () => {
+  assert.match(j.validarJornadaEspecial({ ...JE, tipo: 'paseo' }), /tipo/);
+  assert.match(j.validarJornadaEspecial({ ...JE, tipo: 'evento' }), /completo o medio/);
+  assert.match(j.validarJornadaEspecial({ ...JE, motivo: 'x' }), /motivo/);
+  assert.match(j.validarJornadaEspecial({ ...JE, fecha: '01/10/2026' }), /Fecha/);
+});
+
+test('jornada especial: el empleado no carga días pasados ni a más de 30 días; el admin sí regulariza', () => {
+  assert.match(j.validarJornadaEspecial({ ...JE, fecha: '2026-09-30' }), /días anteriores/);
+  assert.match(j.validarJornadaEspecial({ ...JE, fecha: '2026-11-01' }), /30 días/);
+  assert.equal(j.validarJornadaEspecial({ ...JE, fecha: '2026-09-30', esAdmin: true }), null);
+  assert.match(j.validarJornadaEspecial({ ...JE, fecha: '2026-07-01', esAdmin: true }), /2 meses/);
+  assert.equal(j.validarJornadaEspecial({ ...JE, fecha: '2026-11-30', esAdmin: true }), null);
+});
+
+test('evento: 8 hs fijas el día completo; medio día = 4 + lo fichado', () => {
+  assert.equal(j.horasEventoDelDia('completo', 11), 8);
+  assert.equal(j.horasEventoDelDia('medio', 0), 4);
+  assert.equal(j.horasEventoDelDia('medio', 3.5), 7.5);
+});
+
+test('cierre de seguridad: hora estimada + 1 h recordatorio y + 4 h cierre', () => {
+  const r = j.horariosJornadaEspecial({ fecha: '2026-10-01', horaFinEstimada: '18:30', apertura: new Date('2026-10-01T07:30:00-03:00') });
+  assert.equal(r.recordatorio.toISOString(), new Date('2026-10-01T19:30:00-03:00').toISOString());
+  assert.equal(r.cierre.toISOString(), new Date('2026-10-01T22:30:00-03:00').toISOString());
+});
+
+test('cierre de seguridad: nunca pasa de las 23:55 del día', () => {
+  const r = j.horariosJornadaEspecial({ fecha: '2026-10-01', horaFinEstimada: '21:00', apertura: null });
+  assert.equal(r.cierre.toISOString(), new Date('2026-10-01T23:55:00-03:00').toISOString());
+  const r2 = j.horariosJornadaEspecial({ fecha: '2026-10-01', horaFinEstimada: '23:30', apertura: null });
+  assert.equal(r2.recordatorio.toISOString(), new Date('2026-10-01T23:55:00-03:00').toISOString());
+});
+
+test('cierre de seguridad sin hora estimada: 14 h desde que empezó (sin recordatorio)', () => {
+  const r = j.horariosJornadaEspecial({ fecha: '2026-10-03', horaFinEstimada: null, apertura: new Date('2026-10-03T06:00:00-03:00') });
+  assert.equal(r.recordatorio, null);
+  assert.equal(r.cierre.toISOString(), new Date('2026-10-03T20:00:00-03:00').toISOString());
+  const tarde = j.horariosJornadaEspecial({ fecha: '2026-10-03', horaFinEstimada: null, apertura: new Date('2026-10-03T13:00:00-03:00') });
+  assert.equal(tarde.cierre.toISOString(), new Date('2026-10-03T23:55:00-03:00').toISOString());
+});
