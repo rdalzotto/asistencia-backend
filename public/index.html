@@ -7918,13 +7918,32 @@ function abrirFichajeManual(empleadoId, nombre) {
   const fechaEl = document.getElementById('fm-fecha');
   fechaEl.value = fechaStr;
   fechaEl.max = fechaStr;
-  document.getElementById('fm-hora').value = '';
   document.getElementById('fm-motivo').value = '';
   abrirModal('modal-fichaje-manual');
   cargarFichajesDelDiaManual();
 }
 
+// Dos modos del mismo modal: cargar un fichaje que faltó, o corregir la hora
+// de un cierre automático del sistema (id del movimiento en fm-corrige-id).
+function modoFichajeManual(corrige) {
+  document.getElementById('fm-corrige-id').value = corrige ? corrige.id : '';
+  document.getElementById('fm-grupo-tipo').style.display = corrige ? 'none' : '';
+  const aviso = document.getElementById('fm-aviso-corrige');
+  aviso.style.display = corrige ? 'block' : 'none';
+  aviso.textContent = corrige ? `Corregir la hora del cierre automático de las ${corrige.hora}` : '';
+  document.getElementById('fm-label-hora').textContent = corrige ? 'Hora real de salida' : 'Hora';
+  document.getElementById('fm-hora').value = corrige ? corrige.hora : '';
+  document.getElementById('fm-motivo').placeholder = corrige
+    ? 'Ej.: volvieron de Federal a las 20:30, el sistema cerró a las 20:00'
+    : 'Ej.: volvió a las 17 para mediciones y la app no le dejó fichar';
+  document.getElementById('fm-ayuda').textContent = corrige
+    ? 'Solo cambia la hora de un cierre que hizo el sistema. Queda registrada la hora original, quién la cambió y por qué, y se le avisa al empleado.'
+    : 'Tiene que encajar con los fichajes de ese día. Queda registrado quién lo cargó y por qué, y se le avisa al empleado.';
+  document.getElementById('btn-confirmar-fm').textContent = corrige ? 'Corregir hora' : 'Cargar fichaje';
+}
+
 async function cargarFichajesDelDiaManual() {
+  modoFichajeManual(null);
   const empleadoId = document.getElementById('fm-empleado-id').value;
   const fecha = document.getElementById('fm-fecha').value;
   const cont = document.getElementById('fm-dia');
@@ -7936,8 +7955,12 @@ async function cargarFichajesDelDiaManual() {
     cont.innerHTML = movs.length
       ? movs.map(m => {
           const h = new Date(m.hora).toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'America/Argentina/Buenos_Aires' });
-          const auto = (m.cierre_automatico || m.salida_automatica) ? ' <span style="color:var(--orange)">(automático)</span>' : '';
-          return `<div>${h} · ${NOMBRES_FICHAJE[m.tipo] || m.tipo}${auto}</div>`;
+          const esAuto = m.cierre_automatico || m.salida_automatica;
+          const auto = esAuto ? ' <span style="color:var(--orange)">(automático)</span>' : '';
+          const corregir = esAuto && ['egreso','fin_jornada_remota'].includes(m.tipo)
+            ? ` <button class="btn btn-sm btn-secondary" style="padding:1px 8px;font-size:11px" onclick="modoFichajeManual({id:${m.id},hora:'${h}'})">✏️ Corregir hora</button>`
+            : '';
+          return `<div style="margin:2px 0">${h} · ${NOMBRES_FICHAJE[m.tipo] || m.tipo}${auto}${corregir}</div>`;
         }).join('')
       : '<span style="color:var(--text3)">Sin fichajes ese día</span>';
   } catch(e) { cont.innerHTML = '<span style="color:var(--red)">No se pudieron leer los fichajes de ese día</span>'; }
@@ -7951,15 +7974,23 @@ async function confirmarFichajeManual() {
   const motivo = document.getElementById('fm-motivo').value.trim();
   if (!fecha || !hora) return toast('Completá fecha y hora', 'error');
   if (motivo.length < 5) return toast('Escribí el motivo (queda registrado)', 'error');
+  const corrigeId = document.getElementById('fm-corrige-id').value;
   const btn = document.getElementById('btn-confirmar-fm');
   btn.disabled = true;
   try {
-    await api('/movimientos/fichaje-manual-admin', {
-      method: 'POST',
-      body: JSON.stringify({ empleado_id, fecha, hora, tipo, motivo })
-    });
+    if (corrigeId) {
+      await api(`/movimientos/corregir-cierre-automatico/${corrigeId}`, {
+        method: 'POST',
+        body: JSON.stringify({ hora, motivo })
+      });
+    } else {
+      await api('/movimientos/fichaje-manual-admin', {
+        method: 'POST',
+        body: JSON.stringify({ empleado_id, fecha, hora, tipo, motivo })
+      });
+    }
     cerrarModal('modal-fichaje-manual');
-    toast('Fichaje cargado ✓ — se le avisó al empleado', 'success');
+    toast((corrigeId ? 'Hora corregida ✓' : 'Fichaje cargado ✓') + ' — se le avisó al empleado', 'success');
     cargarDashboardAdmin();
   } catch(e) { toast(e.message || 'Error al cargar el fichaje', 'error', 8000); }
   finally { btn.disabled = false; }
@@ -8110,7 +8141,9 @@ async function eoConfirmarQuedarme() {
       <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Fichajes de ese día</div>
       <div id="fm-dia"></div>
     </div>
-    <div class="form-group">
+    <input type="hidden" id="fm-corrige-id">
+    <div id="fm-aviso-corrige" style="display:none;font-size:13px;color:var(--orange);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:12px"></div>
+    <div class="form-group" id="fm-grupo-tipo">
       <label>Fichaje que faltó</label>
       <select id="fm-tipo" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:15px">
         <option value="regreso_almuerzo">↩ Regreso almuerzo</option>
@@ -8122,14 +8155,14 @@ async function eoConfirmarQuedarme() {
       </select>
     </div>
     <div class="form-group">
-      <label>Hora</label>
+      <label id="fm-label-hora">Hora</label>
       <input type="time" id="fm-hora" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:18px">
     </div>
     <div class="form-group">
       <label>Motivo</label>
       <textarea id="fm-motivo" rows="2" placeholder="Ej.: volvió a las 17 para mediciones y la app no le dejó fichar" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg3);color:var(--text1);font-size:14px"></textarea>
     </div>
-    <p style="font-size:12px;color:var(--text3);margin-bottom:16px">Tiene que encajar con los fichajes de ese día. Queda registrado quién lo cargó y por qué, y se le avisa al empleado.</p>
+    <p id="fm-ayuda" style="font-size:12px;color:var(--text3);margin-bottom:16px">Tiene que encajar con los fichajes de ese día. Queda registrado quién lo cargó y por qué, y se le avisa al empleado.</p>
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary" style="flex:1" onclick="cerrarModal('modal-fichaje-manual')">Cancelar</button>
       <button class="btn btn-primary" style="flex:1" id="btn-confirmar-fm" onclick="confirmarFichajeManual()">Cargar fichaje</button>

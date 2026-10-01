@@ -991,6 +991,97 @@ router.post('/fichaje-manual-admin', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// ─── POST /movimientos/corregir-cierre-automatico/:id ─────────────────────────
+// El admin corrige la hora de un cierre que hizo el SISTEMA (cierre de las
+// 20:00, de la app, etc.), nunca de uno que fichó el empleado. Ej.: volvieron
+// de viaje a las 20:30 y el sistema los cerró a las 20:00. { hora 'HH:MM',
+// motivo }. La hora original, quién la cambió y por qué quedan escritos en
+// observacion_admin; el hash queda como sello del registro original.
+// Decisión de Rogelio 01/10/2026.
+router.post('/corregir-cierre-automatico/:id', auth, soloAdmin, async (req, res) => {
+  const { hora } = req.body;
+  const motivo = String(req.body.motivo || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(hora || ''))
+    return res.status(400).json({ error: 'Indicá la hora real de salida.' });
+  if (motivo.length < 5)
+    return res.status(400).json({ error: 'Escribí el motivo de la corrección (queda registrado).' });
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [mov] } = await client.query(`
+      SELECT m.*, m.fecha::text AS fecha_txt, e.usuario_id,
+        to_char(m.hora AT TIME ZONE 'America/Argentina/Buenos_Aires', 'HH24:MI:SS') AS hora_original
+      FROM public.movimientos m
+      JOIN public.empleados e ON e.id = m.empleado_id
+      WHERE m.id = $1 AND m.empleador_id = $2
+      FOR UPDATE OF m
+    `, [req.params.id, req.user.empleadorId]);
+    if (!mov) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Fichaje no encontrado' }); }
+    if (!['egreso', 'fin_jornada_remota'].includes(mov.tipo) || !(mov.cierre_automatico || mov.salida_automatica)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Solo se puede corregir la hora de un cierre automático del sistema.' });
+    }
+    if (mov.usuario_id === req.user.id && !esDueno(req.user)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'No podés corregir tus propios fichajes — tiene que hacerlo otro administrador.' });
+    }
+
+    const horaISO = `${mov.fecha_txt}T${hora}:00-03:00`;
+    if (new Date(horaISO).getTime() > Date.now()) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No se puede poner una hora a futuro.' });
+    }
+    // Tiene que quedar entre el fichaje anterior y el siguiente de ese día.
+    const { rows: [vec] } = await client.query(`
+      SELECT
+        (SELECT MAX(hora) FROM public.movimientos
+          WHERE empleado_id = $1 AND fecha = $2 AND id <> $3 AND tipo <> 'trabajo_feriado' AND hora <= $4) AS antes,
+        (SELECT MIN(hora) FROM public.movimientos
+          WHERE empleado_id = $1 AND fecha = $2 AND id <> $3 AND tipo <> 'trabajo_feriado' AND hora > $4) AS despues
+    `, [mov.empleado_id, mov.fecha_txt, mov.id, mov.hora]);
+    const nueva = new Date(horaISO);
+    const hhmm = (d) => new Date(d).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
+    if (vec.antes && nueva <= new Date(vec.antes)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `La hora tiene que ser posterior al fichaje anterior (${hhmm(vec.antes)}).` });
+    }
+    if (vec.despues && nueva >= new Date(vec.despues)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `La hora tiene que ser anterior al fichaje siguiente (${hhmm(vec.despues)}).` });
+    }
+
+    const { rows: [quien] } = await client.query('SELECT email FROM public.usuarios WHERE id = $1', [req.user.id]);
+    const nota = `Hora del cierre automático corregida de ${mov.hora_original} a ${hora} por ${quien?.email || 'admin #' + req.user.id}: ${motivo}`;
+    const { rows: [act] } = await client.query(`
+      UPDATE public.movimientos SET
+        hora = $1,
+        observacion_admin = CASE WHEN observacion_admin IS NULL OR observacion_admin = '' THEN $2
+                                 ELSE observacion_admin || ' | ' || $2 END,
+        validado_por = $3, validado_en = NOW()
+      WHERE id = $4
+      RETURNING *
+    `, [horaISO, nota, req.user.id, mov.id]);
+
+    await jornada.actualizarBancoHoras(mov.empleado_id, mov.fecha_txt, client);
+    await client.query('COMMIT');
+
+    try {
+      const fechaTxt = mov.fecha_txt.split('-').reverse().join('/');
+      await push.pushUsuario(mov.usuario_id, 'Hora de salida corregida',
+        `Tu salida del ${fechaTxt} pasó de ${mov.hora_original.slice(0, 5)} a ${hora}. Motivo: ${motivo}`);
+    } catch (e) { console.error('[MOV] corregir-cierre push:', e.message); }
+
+    res.json({ ok: true, movimiento: act });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[MOV] corregir-cierre-automatico error:', err.message);
+    res.status(500).json({ error: 'Error interno: ' + err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ─── GET /movimientos/consulta-egreso-pendiente ───────────────────────────────
 router.get('/consulta-egreso-pendiente', auth, async (req, res) => {
   const empleadoId = req.user.empleadoId;
