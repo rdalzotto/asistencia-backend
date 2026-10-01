@@ -2,8 +2,9 @@
 // Un viaje se crea al cargar una jornada especial (routes/jornadasEspeciales.js)
 // y agrupa los días de cada participante. Cada participante carga sus gastos
 // desde el teléfono (también sin señal: uuid_cliente evita duplicados);
-// Andrea (admin) registra los adelantos y revisa los gastos. Los comprobantes
-// se guardan en la base y se sirven solo con sesión (no hay enlaces públicos).
+// Andrea (admin) registra los adelantos y revisa los gastos. Los que viajan ven
+// el viaje completo (transparencia). Los comprobantes se guardan en la base y se
+// sirven solo con sesión a quienes ven el viaje (no hay enlaces públicos).
 // Reglas puras en services/viajesService.js (con tests).
 
 const router = require('express').Router();
@@ -49,9 +50,11 @@ async function participantes(viajeId) {
 
 async function detalle(req, v) {
   const parts = await participantes(v.id);
-  const soloMio = req.user.rol !== 'admin';
-  const filtro = soloMio ? ' AND x.empleado_id = $2' : '';
-  const params = soloMio ? [v.id, req.user.empleadoId] : [v.id];
+  // Transparencia (decisión de Rogelio 01/10/2026): todos los que viajan ven
+  // el viaje completo — gastos, adelantos y saldos de cada uno —, no solo lo
+  // suyo. Registrar adelantos y revisar sigue siendo del admin (Andrea).
+  const filtro = '';
+  const params = [v.id];
   const { rows: gastos } = await db.query(`
     SELECT x.id, x.empleado_id, e.nombre || ' ' || COALESCE(e.apellido, '') AS nombre, x.fecha::text AS fecha,
            x.categoria, x.monto, x.descripcion, x.sin_comprobante, (x.comprobante IS NOT NULL) AS tiene_comprobante,
@@ -72,7 +75,7 @@ async function detalle(req, v) {
     [v.id]
   );
   const resumen = svc.resumenViaje({
-    participantes: soloMio ? parts.filter(p => p.empleado_id === req.user.empleadoId) : parts,
+    participantes: parts,
     gastos, adelantos, vehiculos,
   });
   return { viaje: v, participantes: parts, gastos, adelantos, vehiculos, resumen };
@@ -122,7 +125,7 @@ router.get('/', auth, soloAdmin, async (req, res) => {
   }
 });
 
-// ─── GET /viajes/:id — detalle (el empleado ve solo sus gastos y adelantos) ──
+// ─── GET /viajes/:id — detalle completo (admin y todos los que viajan) ───────
 router.get('/:id', auth, async (req, res) => {
   try {
     const v = await viajeVisible(req, req.params.id);
@@ -190,7 +193,6 @@ router.get('/:id/gastos/:gid/comprobante', auth, async (req, res) => {
       [req.params.gid, v.id]
     );
     if (!g || !g.comprobante) return res.status(404).json({ error: 'Comprobante no encontrado' });
-    if (req.user.rol !== 'admin' && g.empleado_id !== req.user.empleadoId) return res.status(404).json({ error: 'Comprobante no encontrado' });
     res.set({
       'Content-Type': g.comprobante_mime,
       'Content-Disposition': `inline; filename="comprobante-${req.params.gid}${g.comprobante_mime === 'application/pdf' ? '.pdf' : '.jpg'}"`,

@@ -1,6 +1,7 @@
 // viajes.js — Viajes: gastos con comprobante, km y adelantos (02/10/2026).
-// Pantalla compartida por el empleado (ve y carga lo suyo) y el admin (ve
-// todo, registra adelantos, revisa gastos, exporta a Excel). Los gastos se
+// Todos los que viajan ven el viaje completo (transparencia, decisión de
+// Rogelio 01/10); cada uno carga y anula lo suyo. El admin además registra
+// adelantos y revisa gastos. Excel para todos. Los gastos se
 // pueden cargar sin señal: quedan en ARStorage ('gasto_pendiente_') con un
 // uuid y se envían solos al volver la conexión (el servidor no duplica).
 // Usa de index.html: api, API, STATE, toast, escHtml, abrirModal, cerrarModal,
@@ -30,6 +31,12 @@
     if ($('modal-viaje')) return;
     const div = document.createElement('div');
     div.innerHTML = `
+      <style>
+        #modal-viaje input:not([type=checkbox]):not([type=file]), #modal-viaje select {
+          background: var(--bg3); color: var(--text1); border: 1px solid var(--border);
+          border-radius: var(--radius-sm); padding: 8px; font-size: 14px; box-sizing: border-box; min-width: 0;
+        }
+      </style>
       <div class="modal-overlay" id="modal-viaje" style="z-index:650">
         <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
           <div class="modal-handle"></div>
@@ -94,25 +101,24 @@
       </div>
 
       <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px;margin-bottom:12px;font-size:13px">
-        ${admin ? `
+        ${!admin && mio ? `
+          <div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+            <b>Vos:</b> gastos ${pesos(mio.gastos)} · adelanto ${pesos(mio.adelantos)} ·
+            ${mio.saldo === 0 ? 'saldo $0' : mio.saldo > 0 ? `<span style="color:var(--orange)">tenés que devolver ${pesos(mio.saldo)}</span>` : `<span style="color:var(--green)">se te debe ${pesos(-mio.saldo)}</span>`}
+          </div>` : ''}
           <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px">
             <b>Total gastos ${pesos(resumen.total)}</b><span>Adelantos ${pesos(resumen.total_adelantos)}</span><span>🚗 ${resumen.km} km</span>
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:var(--text3)"><td style="padding:4px 6px">Persona</td><td style="text-align:right;padding:4px 6px">Gastos</td><td style="text-align:right;padding:4px 6px">Adelantos</td><td style="text-align:right;padding:4px 6px">Saldo</td></tr>
             ${resumen.por_persona.map(persona).join('')}</table>
           <div style="font-size:12px;color:var(--text2);margin-top:6px">${Object.entries(resumen.por_categoria).map(([k, m]) => (CATEGORIAS[k] || k) + ' ' + pesos(m)).join(' · ') || 'Sin gastos todavía'}</div>
-          <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Viajes.excel()">📥 Excel</button>`
-        : `
-          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
-            <span>Mis gastos <b>${pesos(mio?.gastos)}</b></span><span>Adelanto ${pesos(mio?.adelantos)}</span><span>🚗 ${resumen.km} km</span>
-          </div>
-          <div style="margin-top:4px">${!mio || mio.saldo === 0 ? 'Saldo $0' : mio.saldo > 0 ? `<span style="color:var(--orange)">Tenés que devolver ${pesos(mio.saldo)}</span>` : `<span style="color:var(--green)">Se te debe ${pesos(-mio.saldo)}</span>`}</div>`}
+          <button class="btn btn-sm btn-secondary" style="margin-top:8px" onclick="Viajes.excel()">📥 Excel</button>
       </div>
 
       <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="Viajes.formGasto()">💸 Cargar gasto</button>
       <div id="viaje-form-gasto"></div>
 
-      <div style="font-size:13px;font-weight:600;color:var(--text2);margin:12px 0 6px">Gastos${admin ? '' : ' (los míos)'}</div>
+      <div style="font-size:13px;font-weight:600;color:var(--text2);margin:12px 0 6px">Gastos del viaje</div>
       ${pend.map(p => `<div style="font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);color:var(--orange)">⏳ ${fecha(p.body.fecha)} · ${CATEGORIAS[p.body.categoria]} ${pesos(p.body.monto)} — sin enviar (falta señal)</div>`).join('')}
       ${gastos.length ? gastos.map(g => filaGasto(g, admin)).join('') : (pend.length ? '' : '<p style="color:var(--text3);font-size:13px">Todavía no hay gastos cargados.</p>')}
 
@@ -129,21 +135,21 @@
         </div>
         <input type="text" id="ad-nota" placeholder="Nota (opcional)" style="width:100%;margin-top:6px">
         <button class="btn btn-sm btn-secondary" style="margin-top:6px" onclick="Viajes.guardarAdelanto()">+ Registrar adelanto</button>` : (adelantos.length ? `
-        <div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 6px">Adelantos recibidos</div>
-        ${adelantos.map(a => `<div style="font-size:13px;padding:4px 0">${fecha(a.fecha)} · <b>${pesos(a.monto)}</b> (${a.medio})${a.nota ? ' — ' + escHtml(a.nota) : ''}</div>`).join('')}` : '')}
+        <div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 6px">Adelantos (los registra administración)</div>
+        ${adelantos.map(a => `<div style="font-size:13px;padding:4px 0">${fecha(a.fecha)} · ${escHtml(a.nombre.trim())} · <b>${pesos(a.monto)}</b> (${a.medio})${a.nota ? ' — ' + escHtml(a.nota) : ''}</div>`).join('')}` : '')}
 
       <div style="font-size:13px;font-weight:600;color:var(--text2);margin:16px 0 6px">🚗 Kilómetros</div>
-      ${vehiculos.map(x => `<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:6px">
-          <input type="text" value="${escHtml(x.vehiculo)}" id="veh-n-${x.id}">
-          <input type="number" value="${x.odometro_salida ?? ''}" placeholder="Salida" id="veh-s-${x.id}">
-          <input type="number" value="${x.odometro_llegada ?? ''}" placeholder="Llegada" id="veh-l-${x.id}">
+      ${vehiculos.map(x => `<div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center;margin-bottom:6px">
+          <input style="width:100%;min-width:0" type="text" value="${escHtml(x.vehiculo)}" id="veh-n-${x.id}">
+          <input style="width:100%;min-width:0" type="number" value="${x.odometro_salida ?? ''}" placeholder="Salida" id="veh-s-${x.id}">
+          <input style="width:100%;min-width:0" type="number" value="${x.odometro_llegada ?? ''}" placeholder="Llegada" id="veh-l-${x.id}">
           <button class="btn btn-sm btn-secondary" style="padding:4px 8px" onclick="Viajes.guardarVehiculo(${x.id})">✓</button>
         </div>
         <div style="font-size:11px;color:var(--text3);margin:-2px 0 8px">${x.odometro_salida != null && x.odometro_llegada != null ? (Number(x.odometro_llegada) - Number(x.odometro_salida)).toFixed(1) + ' km recorridos' : 'Cargá el odómetro al volver'}</div>`).join('')}
-      <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center">
-        <input type="text" id="veh-n-nuevo" placeholder="Vehículo (ej. Hilux AB123CD)">
-        <input type="number" id="veh-s-nuevo" placeholder="Odómetro salida">
-        <input type="number" id="veh-l-nuevo" placeholder="Llegada">
+      <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:6px;align-items:center">
+        <input style="width:100%;min-width:0" type="text" id="veh-n-nuevo" placeholder="Vehículo (ej. Hilux AB123CD)">
+        <input style="width:100%;min-width:0" type="number" id="veh-s-nuevo" placeholder="Odómetro salida">
+        <input style="width:100%;min-width:0" type="number" id="veh-l-nuevo" placeholder="Llegada">
         <button class="btn btn-sm btn-secondary" style="padding:4px 8px" onclick="Viajes.guardarVehiculo()">+</button>
       </div>`;
   }
@@ -153,7 +159,7 @@
     const propio = g.empleado_id === STATE.empleadoId;
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
       <div style="display:flex;justify-content:space-between;gap:6px;align-items:center;flex-wrap:wrap">
-        <span>${fecha(g.fecha)} · ${CATEGORIAS[g.categoria] || g.categoria} · <b>${pesos(g.monto)}</b>${admin ? ' · ' + escHtml(g.nombre.trim()) : ''}</span>
+        <span>${fecha(g.fecha)} · ${CATEGORIAS[g.categoria] || g.categoria} · <b>${pesos(g.monto)}</b> · ${escHtml(g.nombre.trim())}</span>
         <span class="badge ${cls}">${txt}</span>
       </div>
       ${g.descripcion ? `<div style="color:var(--text2)">${escHtml(g.descripcion)}</div>` : ''}
