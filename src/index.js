@@ -43,6 +43,7 @@ app.use('/api/crm',            require('./routes/crm'));
 app.use('/api/planillas',      require('./routes/planillas'));
 app.use('/api/jornadas-especiales', require('./routes/jornadasEspeciales'));
 app.use('/api/viajes',         require('./routes/viajes'));
+app.use('/api/integracion/v1', require('./routes/integracion')); // solo lectura, para el CRM
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
