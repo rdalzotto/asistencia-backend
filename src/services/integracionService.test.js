@@ -51,3 +51,10 @@ test('nombre completo', () => {
   assert.equal(s.nombreCompleto({ id: 8, nombre: 'Roberto', apellido: 'Pereyra' }), 'Roberto Pereyra');
   assert.equal(s.nombreCompleto({ id: 9, nombre: null, apellido: null }), 'Empleado 9');
 });
+
+test("fecha ISO desde DATE de Postgres", () => {
+  assert.equal(s.fechaISO(new Date("2011-03-01T00:00:00Z")), "2011-03-01");
+  assert.equal(s.fechaISO("2016-07-15"), "2016-07-15");
+  assert.equal(s.fechaISO(null), null);
+  assert.equal(s.fechaISO("basura"), null);
+});

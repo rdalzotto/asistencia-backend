@@ -14,8 +14,8 @@ Errores: 401 (token faltante o inválido), 400 (datos), 500.
 
 | Método | Ruta | Qué devuelve |
 |---|---|---|
-| GET | `/empleados` | Personal **activo** del empleador: `id`, `nombre` (nombre y apellido), `legajo`, `categoria`, `sector`. Sin DNI, CUIL, domicilio ni salario. |
-| GET | `/resumen-mensual?periodo=AAAA-MM` | `visitasCompletadas` (visitas con estado `completada`, por fecha de la visita) y `horasTrabajadas` (suma de `banco_horas.horas_trabajadas` del mes), en total y `porEmpleado`. Antes del arranque limpio (`empleadores.fecha_inicio_registros`) devuelve `archivado: true` y los valores en `null`. |
+| GET | `/empleados` | Personal **activo** del empleador: `id`, `nombre` (nombre y apellido), `legajo`, `categoria`, `sector`, `fechaIngreso` (para la antigüedad del fondo compartido). Sin DNI, CUIL, domicilio ni salario. |
+| GET | `/resumen-mensual?periodo=AAAA-MM` | `visitasCompletadas` (visitas con estado `completada`, por fecha de la visita), `visitasProgramadas` (todas menos canceladas, rechazadas y pendientes de aprobación), `kmRecorridos` (km reales de las completadas, o los estimados si no se cargaron) y `horasTrabajadas` (suma de `banco_horas.horas_trabajadas` del mes), en total y `porEmpleado`. Antes del arranque limpio (`empleadores.fecha_inicio_registros`) devuelve `archivado: true` y los valores en `null`. |
 
 Reglas:
 - No escribe nada en la base.

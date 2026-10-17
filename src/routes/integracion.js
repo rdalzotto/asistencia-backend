@@ -17,13 +17,13 @@ router.use((req, res, next) => {
 });
 
 // ─── GET /api/integracion/v1/empleados ───────────────────────────────────────
-// Personal activo, para elegir quién ocupa cada puesto del organigrama.
-// Sin datos sensibles (DNI, CUIL, domicilio, salario): solo lo que se ve en
-// un organigrama.
+// Personal activo, para elegir quién ocupa cada puesto del organigrama y para
+// la antigüedad del fondo compartido. Sin datos sensibles (DNI, CUIL,
+// domicilio, salario).
 router.get('/empleados', async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT id, nombre, apellido, legajo, categoria, sector
+      `SELECT id, nombre, apellido, legajo, categoria, sector, fecha_ingreso
        FROM public.empleados WHERE empleador_id = $1 AND activo = TRUE
        ORDER BY apellido NULLS LAST, nombre NULLS LAST, id`,
       [req.empleadorId]
@@ -35,6 +35,7 @@ router.get('/empleados', async (req, res) => {
         legajo: e.legajo || null,
         categoria: e.categoria || null,
         sector: e.sector || null,
+        fechaIngreso: s.fechaISO(e.fecha_ingreso),
       })),
     });
   } catch (err) {
@@ -44,9 +45,11 @@ router.get('/empleados', async (req, res) => {
 });
 
 // ─── GET /api/integracion/v1/resumen-mensual?periodo=AAAA-MM ─────────────────
-// Visitas completadas (por fecha de la visita) y horas trabajadas (banco de
-// horas del mes), en total y por empleado. Antes del arranque limpio
-// devuelve archivado=true y los valores en null.
+// Visitas completadas y programadas (por fecha de la visita), km recorridos
+// en las completadas (km reales o, si no se cargaron, los estimados) y horas
+// trabajadas (banco de horas del mes), en total y por empleado. Programadas =
+// todas menos canceladas, rechazadas y pendientes de aprobación. Antes del
+// arranque limpio devuelve archivado=true y los valores en null.
 router.get('/resumen-mensual', async (req, res) => {
   const periodo = s.leerPeriodo(req.query.periodo);
   if (!periodo) return res.status(400).json({ error: 'periodo inválido (AAAA-MM)' });
@@ -54,12 +57,19 @@ router.get('/resumen-mensual', async (req, res) => {
     const { rows: [emp] } = await db.query('SELECT * FROM public.empleadores WHERE id = $1', [req.empleadorId]);
     if (!emp) return res.status(404).json({ error: 'Empleador inexistente' });
     if (s.periodoArchivado(periodo, emp.fecha_inicio_registros)) {
-      return res.json({ periodo: req.query.periodo, archivado: true, visitasCompletadas: null, horasTrabajadas: null, porEmpleado: [] });
+      return res.json({
+        periodo: req.query.periodo, archivado: true,
+        visitasCompletadas: null, visitasProgramadas: null, kmRecorridos: null, horasTrabajadas: null, porEmpleado: [],
+      });
     }
     const [{ rows: visitas }, { rows: horas }] = await Promise.all([
       db.query(
-        `SELECT empleado_id, COUNT(*)::int AS n FROM public.visitas
-         WHERE empleador_id = $1 AND estado = 'completada' AND fecha >= $2 AND fecha < $3
+        `SELECT empleado_id,
+                COUNT(*) FILTER (WHERE estado = 'completada')::int AS completadas,
+                COUNT(*) FILTER (WHERE estado NOT IN ('cancelada','rechazada','pendiente_aprobacion'))::int AS programadas,
+                COALESCE(SUM(COALESCE(km_reales, km_estimados, 0)) FILTER (WHERE estado = 'completada'), 0)::float AS km
+         FROM public.visitas
+         WHERE empleador_id = $1 AND fecha >= $2 AND fecha < $3
          GROUP BY empleado_id`,
         [req.empleadorId, periodo.desde, periodo.hasta]
       ),
@@ -71,16 +81,26 @@ router.get('/resumen-mensual', async (req, res) => {
     ]);
     const porEmpleado = new Map();
     const fila = id => {
-      if (!porEmpleado.has(id)) porEmpleado.set(id, { empleadoId: id, visitasCompletadas: 0, horasTrabajadas: 0 });
+      if (!porEmpleado.has(id)) {
+        porEmpleado.set(id, { empleadoId: id, visitasCompletadas: 0, visitasProgramadas: 0, kmRecorridos: 0, horasTrabajadas: 0 });
+      }
       return porEmpleado.get(id);
     };
-    for (const v of visitas) if (v.empleado_id) fila(v.empleado_id).visitasCompletadas = v.n;
+    for (const v of visitas) {
+      if (!v.empleado_id) continue;
+      const e = fila(v.empleado_id);
+      e.visitasCompletadas = v.completadas;
+      e.visitasProgramadas = v.programadas;
+      e.kmRecorridos = Math.round(Number(v.km) * 10) / 10;
+    }
     for (const h of horas) fila(h.empleado_id).horasTrabajadas = Math.round(Number(h.horas_trabajadas || 0) * 10) / 10;
     const lista = [...porEmpleado.values()];
     res.json({
       periodo: req.query.periodo,
       archivado: false,
-      visitasCompletadas: visitas.reduce((a, v) => a + v.n, 0),
+      visitasCompletadas: visitas.reduce((a, v) => a + v.completadas, 0),
+      visitasProgramadas: visitas.reduce((a, v) => a + v.programadas, 0),
+      kmRecorridos: Math.round(visitas.reduce((a, v) => a + Number(v.km), 0) * 10) / 10,
       horasTrabajadas: Math.round(lista.reduce((a, e) => a + e.horasTrabajadas, 0) * 10) / 10,
       porEmpleado: lista,
     });

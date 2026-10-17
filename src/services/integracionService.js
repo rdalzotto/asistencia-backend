@@ -49,4 +49,12 @@ function nombreCompleto(e) {
   return `${e.nombre || ''} ${e.apellido || ''}`.trim() || `Empleado ${e.id}`;
 }
 
-module.exports = { config, tokenValido, tokenDeHeader, leerPeriodo, periodoArchivado, nombreCompleto };
+// DATE de Postgres (Date o texto) → "AAAA-MM-DD", o null.
+function fechaISO(f) {
+  if (!f) return null;
+  if (f instanceof Date) return Number.isNaN(f.getTime()) ? null : f.toISOString().slice(0, 10);
+  const m = String(f).match(/^\d{4}-\d{2}-\d{2}/);
+  return m ? m[0] : null;
+}
+
+module.exports = { config, tokenValido, tokenDeHeader, leerPeriodo, periodoArchivado, nombreCompleto, fechaISO };
