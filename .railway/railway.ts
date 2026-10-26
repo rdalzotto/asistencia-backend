@@ -4,7 +4,7 @@ import { defineRailway, image, postgres, project, service } from "railway/iac";
 // proyecto (asistencia-backend, Postgres) se sigue manejando desde Railway.
 export const partial = "respaldos";
 
-// Respaldo semanal de la base en Backblaze B2, igual que el del CRM
+// Respaldo diario de la base en Backblaze B2, igual que el del CRM
 // (crm-exit/.railway/railway.ts). Bucket privado con Object Lock de 90 dias;
 // la clave B2 solo puede escribir y la cargo Rogelio como Shared Variables del
 // proyecto (B2_KEY_ID, B2_APPLICATION_KEY). Imagen oficial de Postgres de la
@@ -24,11 +24,14 @@ export default defineRailway((ctx) => {
   const Postgres = postgres("Postgres", { region: "iad" });
   Postgres.networking = { privateNetworkEndpoint: "postgres" };
 
-  // Lunes 6:30 de Argentina (9:30 UTC), media hora después del CRM.
+  // Todos los dias a las 21:00 de Argentina (0:00 UTC), elegido por Rogelio
+  // desde el panel de Railway el 26/10. Ojo: `config plan` muestra "crear
+  // service respaldos" porque Railway clasifica como base de datos a todo
+  // servicio con imagen de Postgres; no aplicar ese cambio sin revisarlo.
   const respaldos = service("respaldos", {
     source: image("postgres:18-alpine"),
     start: `sh -c '${RESPALDO_INICIO}'`,
-    deploy: { cronSchedule: "30 9 * * 1", restartPolicyType: "NEVER" },
+    deploy: { cronSchedule: "0 0 * * *", restartPolicyType: "NEVER" },
     env: {
       B2_BUCKET: "exit-sa-respaldos-2026-1",
       B2_ENDPOINT: "https://s3.us-east-005.backblazeb2.com",
