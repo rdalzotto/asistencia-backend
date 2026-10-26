@@ -1,26 +1,26 @@
 /**
  * emailService.js
- * AsistenciaAR — Servicio de envío de email y upload a Supabase Storage
+ * AsistenciaAR — Servicio de envío de email
  *
  * Flujo:
- *  1. El frontend sube el PDF como base64 a POST /api/email/enviar
- *  2. Este servicio sube el PDF a Supabase Storage (bucket "informes")
- *  3. Envía el email desde la cuenta SMTP del técnico logueado
- *  4. Registra el envío en la tabla email_envios
+ *  1. El frontend manda el PDF como base64 a POST /api/email/enviar
+ *  2. Este servicio envía el email con el PDF adjunto
+ *  3. Registra el envío en la tabla email_envios (base de Railway)
+ *
+ * Cuenta que envía (26/10/2026): avisos@exitsa.com.ar, con el nombre del
+ * técnico en el remitente y "responder a" su casilla, así las respuestas del
+ * cliente le llegan a él. Mientras SMTP_USER_AVISOS / SMTP_PASS_AVISOS no
+ * estén cargadas, sigue saliendo desde la casilla del técnico como antes.
+ * El PDF ya no se sube a Supabase: va adjunto y se puede volver a generar
+ * desde la constancia.
  */
 
 'use strict';
 
 const nodemailer = require('nodemailer');
-const { createClient } = require('@supabase/supabase-js');
+// db se carga al registrar: al requerirlo se conecta (y los tests no tienen base).
 
-// ─── Cliente Supabase (service key para Storage) ──────────────────────────────
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
-
-// ─── Mapa de cuentas SMTP por email del técnico ───────────────────────────────
+// ─── Cuentas personales (transición: se borran al cargar avisos@) ─────────────
 const SMTP_ACCOUNTS = {
   'rdalzotto@exitsa.com.ar': {
     user: process.env.SMTP_USER_ROGELIO,
@@ -41,14 +41,30 @@ const SMTP_ACCOUNTS = {
 };
 
 /**
- * Crea un transporter nodemailer para la cuenta del técnico.
- * @param {string} emailTecnico - Email del técnico logueado
+ * Cuenta con la que sale el email del técnico.
+ * @param {string} emailTecnico - Email corporativo del técnico logueado
+ * @param {object} env - Variables de entorno (process.env)
+ * @returns {{ user, pass, remitente, responderA, cuenta } | null}
  */
-function crearTransporter(emailTecnico) {
-  const cuenta = SMTP_ACCOUNTS[emailTecnico];
-  if (!cuenta || !cuenta.user || !cuenta.pass) {
-    throw new Error(`No hay configuración SMTP para: ${emailTecnico}`);
+function cuentaEnvio(emailTecnico, env = process.env) {
+  if (env.SMTP_USER_AVISOS && env.SMTP_PASS_AVISOS) {
+    return {
+      cuenta: 'avisos',
+      user: env.SMTP_USER_AVISOS,
+      pass: env.SMTP_PASS_AVISOS,
+      remitente: env.SMTP_USER_AVISOS,
+      responderA: emailTecnico,
+    };
   }
+  const personal = SMTP_ACCOUNTS[emailTecnico];
+  if (!personal || !personal.user || !personal.pass) return null;
+  return { cuenta: 'personal', user: personal.user, pass: personal.pass, remitente: emailTecnico, responderA: null };
+}
+
+/**
+ * Crea un transporter nodemailer para la cuenta indicada.
+ */
+function crearTransporter(cuenta) {
   return nodemailer.createTransport({
     host: 'mail.exitsa.com.ar',
     port: 465,
@@ -62,29 +78,8 @@ function crearTransporter(emailTecnico) {
 }
 
 /**
- * Sube el PDF a Supabase Storage.
- * @param {Buffer} pdfBuffer - Contenido del PDF
- * @param {string} nombreArchivo - Nombre del archivo (sin path)
- * @returns {string} URL pública del archivo subido
- */
-async function subirPdfStorage(pdfBuffer, nombreArchivo) {
-  const filePath = `informes/${Date.now()}_${nombreArchivo}`;
-
-  const { error } = await supabase.storage
-    .from('informes')
-    .upload(filePath, pdfBuffer, {
-      contentType: 'application/pdf',
-      upsert: false,
-    });
-
-  if (error) throw new Error(`Error Storage: ${error.message}`);
-
-  const { data } = supabase.storage.from('informes').getPublicUrl(filePath);
-  return data.publicUrl;
-}
-
-/**
- * Registra el envío en la tabla email_envios.
+ * Registra el envío en la tabla email_envios. Si falla el registro no se
+ * corta el envío (solo queda en el log).
  */
 async function registrarEnvio({
   empleadoId,
@@ -93,34 +88,32 @@ async function registrarEnvio({
   asunto,
   tipo,
   referenciaId,
-  urlArchivo,
   estado,
   errorMsg,
 }) {
-  await supabase.from('email_envios').insert({
-    empleado_id: empleadoId,
-    empleador_id: empleadorId,
-    destinatario,
-    asunto,
-    tipo,
-    referencia_id: referenciaId,
-    url_archivo: urlArchivo,
-    estado,
-    error_mensaje: errorMsg || null,
-    enviado_en: estado === 'enviado' ? new Date().toISOString() : null,
-  });
+  try {
+    const db = require('../db');
+    await db.query(`
+      INSERT INTO public.email_envios
+        (empleado_id, empleador_id, destinatario, asunto, tipo, referencia_id, url_archivo, estado, error_mensaje, enviado_en)
+      VALUES ($1,$2,$3,$4,$5,$6,NULL,$7,$8,$9)
+    `, [empleadoId, empleadorId, destinatario, asunto, tipo, referenciaId, estado, errorMsg || null,
+        estado === 'enviado' ? new Date() : null]);
+  } catch (err) {
+    console.error('[emailService] No se pudo registrar el envío:', err.message);
+  }
 }
 
 /**
- * Función principal: sube el PDF y envía el email.
+ * Función principal: envía el email con el PDF adjunto.
  *
  * @param {object} params
  * @param {string} params.pdfBase64       - PDF codificado en base64
  * @param {string} params.nombreArchivo   - Nombre del archivo adjunto
- * @param {string} params.destinatario    - Email del cliente
+ * @param {string[]} params.destinatarios - Emails del cliente
  * @param {string} params.asunto          - Asunto del email
  * @param {string} params.cuerpoHtml      - Cuerpo del email en HTML
- * @param {string} params.emailTecnico    - Email del técnico (remitente)
+ * @param {string} params.emailTecnico    - Email del técnico
  * @param {string} params.nombreTecnico   - Nombre del técnico (para firma)
  * @param {number} params.empleadoId      - ID del empleado
  * @param {number} params.empleadorId     - empleador_id (siempre 1 para EXIT)
@@ -149,23 +142,12 @@ async function enviarInforme(params) {
   if (!listaDestinatarios.length) throw new Error('Sin destinatarios');
 
   const pdfBuffer = Buffer.from(pdfBase64, 'base64');
-  let urlArchivo = null;
+  const registro = { empleadoId, empleadorId, destinatario: listaDestinatarios.join(', '), asunto, tipo, referenciaId };
 
-  // 1. Subir a Storage
   try {
-    urlArchivo = await subirPdfStorage(pdfBuffer, nombreArchivo);
-  } catch (err) {
-    console.error('[emailService] Error subiendo a Storage:', err.message);
-    await registrarEnvio({
-      empleadoId, empleadorId, destinatario: listaDestinatarios.join(', '), asunto, tipo, referenciaId,
-      urlArchivo: null, estado: 'error', errorMsg: `Storage: ${err.message}`,
-    });
-    throw err;
-  }
-
-  // 2. Enviar email
-  try {
-    const transporter = crearTransporter(emailTecnico);
+    const cuenta = cuentaEnvio(emailTecnico);
+    if (!cuenta) throw new Error(`No hay configuración SMTP para: ${emailTecnico}`);
+    const transporter = crearTransporter(cuenta);
 
     const firmaHtml = `
       <br><br>
@@ -179,7 +161,8 @@ async function enviarInforme(params) {
     `;
 
     await transporter.sendMail({
-      from: `"${nombreTecnico} — EXIT S.A." <${emailTecnico}>`,
+      from: `"${nombreTecnico} — EXIT S.A." <${cuenta.remitente}>`,
+      replyTo: cuenta.responderA || undefined,
       to: listaDestinatarios.join(', '),
       subject: asunto,
       html: cuerpoHtml + firmaHtml,
@@ -192,20 +175,13 @@ async function enviarInforme(params) {
       ],
     });
 
-    await registrarEnvio({
-      empleadoId, empleadorId, destinatario: listaDestinatarios.join(', '), asunto, tipo, referenciaId,
-      urlArchivo, estado: 'enviado', errorMsg: null,
-    });
-
-    return { ok: true, urlArchivo };
+    await registrarEnvio({ ...registro, estado: 'enviado', errorMsg: null });
+    return { ok: true, urlArchivo: null };
   } catch (err) {
     console.error('[emailService] Error enviando email:', err.message);
-    await registrarEnvio({
-      empleadoId, empleadorId, destinatario: listaDestinatarios.join(', '), asunto, tipo, referenciaId,
-      urlArchivo, estado: 'error', errorMsg: `SMTP: ${err.message}`,
-    });
+    await registrarEnvio({ ...registro, estado: 'error', errorMsg: `SMTP: ${err.message}` });
     throw err;
   }
 }
 
-module.exports = { enviarInforme, subirPdfStorage };
+module.exports = { enviarInforme, cuentaEnvio, crearTransporter };

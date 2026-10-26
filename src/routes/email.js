@@ -7,7 +7,7 @@ const express = require('express');
 const router  = express.Router();
 const jwt     = require('jsonwebtoken');
 const db      = require('../db');
-const { enviarInforme } = require('../services/emailService');
+const { enviarInforme, cuentaEnvio, crearTransporter } = require('../services/emailService');
 
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -76,21 +76,6 @@ router.post('/enviar', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/subir-pdf', requireAuth, async (req, res) => {
-  const { pdfBase64, nombreArchivo } = req.body;
-  if (!pdfBase64)     return res.status(400).json({ error: 'pdfBase64 es requerido' });
-  if (!nombreArchivo) return res.status(400).json({ error: 'nombreArchivo es requerido' });
-  try {
-    const { subirPdfStorage } = require('../services/emailService');
-    const pdfBuffer = Buffer.from(pdfBase64, 'base64');
-    const urlArchivo = await subirPdfStorage(pdfBuffer, nombreArchivo);
-    res.json({ ok: true, urlArchivo });
-  } catch (err) {
-    console.error('[POST /api/email/subir-pdf]', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 router.get('/historial', requireAuth, async (req, res) => {
   const { tipo, referenciaId } = req.query;
   try {
@@ -123,44 +108,20 @@ router.get('/diagnostico', requireAuth, async (req, res) => {
     email_login: req.user.email,
     email_corporativo: emailCorp,
     email_usado_smtp: emailTecnico,
-    supabase_url: !!process.env.SUPABASE_URL,
-    supabase_service_key: !!process.env.SUPABASE_SERVICE_KEY,
     smtp_config: null,
     smtp_test: null,
-    storage_test: null,
   };
 
-  const SMTP_ACCOUNTS = {
-    'rdalzotto@exitsa.com.ar': { user: process.env.SMTP_USER_ROGELIO, pass: process.env.SMTP_PASS_ROGELIO },
-    'wott@exitsa.com.ar':      { user: process.env.SMTP_USER_WALTER,  pass: process.env.SMTP_PASS_WALTER  },
-    'rpereyra@exitsa.com.ar':  { user: process.env.SMTP_USER_ROBERTO, pass: process.env.SMTP_PASS_ROBERTO },
-    'info@exitsa.com.ar':      { user: process.env.SMTP_USER_ANDREA,  pass: process.env.SMTP_PASS_ANDREA  },
-  };
-  const cuenta = SMTP_ACCOUNTS[emailTecnico];
-  resultado.smtp_config = cuenta ? { user: cuenta.user, pass_cargado: !!cuenta.pass } : 'NO ENCONTRADA';
+  const cuenta = cuentaEnvio(emailTecnico);
+  resultado.smtp_config = cuenta
+    ? { cuenta: cuenta.cuenta, user: cuenta.user, remitente: cuenta.remitente, responder_a: cuenta.responderA }
+    : 'NO ENCONTRADA';
 
-  if (cuenta && cuenta.user && cuenta.pass) {
+  if (cuenta) {
     try {
-      const nodemailer = require('nodemailer');
-      const t = nodemailer.createTransport({
-        host: 'mail.exitsa.com.ar', port: 465, secure: true,
-        auth: { user: cuenta.user, pass: cuenta.pass },
-        tls: { rejectUnauthorized: false }
-      });
-      await t.verify();
+      await crearTransporter(cuenta).verify();
       resultado.smtp_test = 'OK';
     } catch(e) { resultado.smtp_test = 'ERROR: ' + e.message; }
-  }
-
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
-    try {
-      const { createClient } = require('@supabase/supabase-js');
-      const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-      const { error } = await sb.storage.from('informes').list('', { limit: 1 });
-      resultado.storage_test = error ? 'ERROR: ' + error.message : 'OK';
-    } catch(e) { resultado.storage_test = 'ERROR: ' + e.message; }
-  } else {
-    resultado.storage_test = 'SUPABASE_SERVICE_KEY no cargada';
   }
 
   res.json(resultado);

@@ -1,0 +1,4 @@
+node_modules/
+.env
+# Respaldo local de Supabase Storage (datos personales: no subir)
+respaldo-supabase/

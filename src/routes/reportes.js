@@ -2,6 +2,7 @@ const router  = require('express').Router();
 const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 const push    = require('../services/pushService');
+const jwt     = require('jsonwebtoken');
 
 // ─── GET /reportes/mensual ────────────────────────────────────────────────────
 // Reporte mensual por empleado (detalle día por día + totales)
@@ -399,12 +400,18 @@ router.get('/mensual/firmado', auth, async (req, res) => {
   }
 });
 
-// ─── PDF del reporte firmado (Supabase Storage, bucket "informes") ───────────
+// ─── PDF del reporte firmado (tabla reporte_pdfs, base de Railway) ───────────
 // El PDF lo arma el frontend (mismo generarPDFReporte que la descarga) después
 // de cada firma, así el archivo guardado incluye las firmas que haya en ese
 // momento. Se guarda una versión nueva por firma (no se pisa la anterior) y
-// reportes_mensuales_firmados.pdf_path apunta a la última. Se sirve con URL
-// firmada temporal, no pública — son datos personales del empleado.
+// reportes_mensuales_firmados.pdf_path apunta a la última ("db:<id>"). Se
+// sirve con un enlace temporal de 10 minutos, no público — son datos
+// personales del empleado.
+// Hasta el 26/10/2026 se guardaban en Supabase Storage (pdf_path = ruta del
+// bucket "informes"): scripts/copiar-pdfs-supabase.js los copia a la tabla.
+// Mientras tanto, si el PDF todavía está solo en Supabase se lo sigue
+// sirviendo desde ahí.
+const PREFIJO_DB = 'db:';
 function supabaseStorage() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) return null;
   const { createClient } = require('@supabase/supabase-js');
@@ -420,9 +427,6 @@ router.post('/mensual/pdf', auth, async (req, res) => {
   if (!empleado_id || !anio || !mes || !pdf_base64) return res.status(400).json({ error: 'Datos incompletos' });
   if (!puedeVerReporte(req, empleado_id)) return res.status(403).json({ error: 'No autorizado' });
 
-  const storage = supabaseStorage();
-  if (!storage) return res.status(500).json({ error: 'Storage no configurado' });
-
   try {
     const { rows: [firmado] } = await db.query(`
       SELECT id FROM public.reportes_mensuales_firmados
@@ -433,9 +437,11 @@ router.post('/mensual/pdf', auth, async (req, res) => {
     const buffer = Buffer.from(String(pdf_base64).replace(/^data:application\/pdf[^,]*,/, ''), 'base64');
     if (buffer.slice(0, 4).toString() !== '%PDF') return res.status(400).json({ error: 'Archivo PDF inválido' });
 
-    const path = `reportes-horas/${empleado_id}/${anio}-${String(mes).padStart(2,'0')}_${Date.now()}.pdf`;
-    const { error } = await storage.upload(path, buffer, { contentType: 'application/pdf', upsert: false });
-    if (error) throw new Error(`Storage: ${error.message}`);
+    const { rows: [pdf] } = await db.query(`
+      INSERT INTO public.reporte_pdfs (empleador_id, empleado_id, anio, mes, contenido, tamano_bytes)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id
+    `, [req.user.empleadorId, empleado_id, anio, mes, buffer, buffer.length]);
+    const path = PREFIJO_DB + pdf.id;
 
     await db.query(
       'UPDATE public.reportes_mensuales_firmados SET pdf_path = $1, pdf_generado_en = NOW() WHERE id = $2',
@@ -454,9 +460,6 @@ router.get('/mensual/pdf-url', auth, async (req, res) => {
   if (!eId || !anio || !mes) return res.status(400).json({ error: 'Datos incompletos' });
   if (!puedeVerReporte(req, eId)) return res.status(403).json({ error: 'No autorizado' });
 
-  const storage = supabaseStorage();
-  if (!storage) return res.status(500).json({ error: 'Storage no configurado' });
-
   try {
     const { rows: [firmado] } = await db.query(`
       SELECT * FROM public.reportes_mensuales_firmados
@@ -464,12 +467,47 @@ router.get('/mensual/pdf-url', auth, async (req, res) => {
     `, [eId, anio, mes, req.user.empleadorId]);
     if (!firmado?.pdf_path) return res.status(404).json({ error: 'Todavía no hay PDF firmado guardado' });
 
+    if (firmado.pdf_path.startsWith(PREFIJO_DB)) {
+      const pdfId = firmado.pdf_path.slice(PREFIJO_DB.length);
+      const t = jwt.sign({ uso: 'pdf-reporte', pdfId, empleadorId: req.user.empleadorId }, process.env.JWT_SECRET, { expiresIn: '10m' });
+      return res.json({ url: '/api/reportes/mensual/pdf-archivo?t=' + encodeURIComponent(t) });
+    }
+
+    // PDF guardado antes del 26/10/2026, todavía solo en Supabase.
+    const storage = supabaseStorage();
+    if (!storage) return res.status(404).json({ error: 'El PDF está en el sistema anterior y todavía no se copió' });
     const { data, error } = await storage.createSignedUrl(firmado.pdf_path, 60 * 60);
     if (error) throw new Error(error.message);
     res.json({ url: data.signedUrl });
   } catch (err) {
     console.error('[REP] URL PDF firmado error:', err.message);
     res.status(500).json({ error: 'No se pudo obtener el PDF' });
+  }
+});
+
+// El enlace temporal de /mensual/pdf-url: se abre en una pestaña nueva (sin
+// el token de sesión), por eso lleva su propio permiso firmado de 10 minutos.
+router.get('/mensual/pdf-archivo', async (req, res) => {
+  let datos;
+  try {
+    datos = jwt.verify(String(req.query.t || ''), process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).send('El enlace venció. Volvé a tocar "Ver PDF firmado".');
+  }
+  if (datos.uso !== 'pdf-reporte') return res.status(401).send('Enlace inválido');
+  try {
+    const { rows: [pdf] } = await db.query(
+      'SELECT contenido, empleado_id, anio, mes FROM public.reporte_pdfs WHERE id = $1 AND empleador_id = $2',
+      [datos.pdfId, datos.empleadorId]
+    );
+    if (!pdf) return res.status(404).send('PDF no encontrado');
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `inline; filename="reporte-${pdf.empleado_id}-${pdf.anio}-${String(pdf.mes).padStart(2,'0')}.pdf"`);
+    res.set('Cache-Control', 'private, no-store');
+    res.send(pdf.contenido);
+  } catch (err) {
+    console.error('[REP] Archivo PDF firmado error:', err.message);
+    res.status(500).send('No se pudo obtener el PDF');
   }
 });
 
