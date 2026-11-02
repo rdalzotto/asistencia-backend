@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db     = require('../db');
-const { auth, soloAdmin } = require('../middleware/auth');
+const { auth, soloAdmin, olvidarUsuario } = require('../middleware/auth');
+const push   = require('../services/pushService');
 
 // Helper: obtiene empleadorId del token o lo busca en la base
 async function getEmpleadorId(req) {
@@ -87,11 +88,45 @@ router.patch('/empleador', auth, soloAdmin, async (req, res) => {
 // EMPLEADOS
 // ════════════════════════════════════════════════════════════════
 
+// PATCH /config/empleados/:id/admin — el DUEÑO habilita o quita la
+// administración a una persona (ej. Andrea solo cuando Rogelio no está).
+// Rige en el momento: el servidor lee el rol de la base en cada pedido.
+router.patch('/empleados/:id/admin', auth, soloAdmin, async (req, res) => {
+  const dueno = (process.env.DUENO_EMAIL || '').trim().toLowerCase();
+  if (!dueno || String(req.user.email || '').toLowerCase() !== dueno)
+    return res.status(403).json({ error: 'Solo el dueño puede habilitar o quitar la administración.' });
+  const admin = req.body.admin === true;
+  try {
+    const empleadorId = await getEmpleadorId(req);
+    const { rows: [e] } = await db.query(`
+      SELECT e.id, e.nombre, u.id AS usuario_id, u.email, u.rol
+      FROM public.empleados e JOIN public.usuarios u ON u.id = e.usuario_id
+      WHERE e.id = $1 AND e.empleador_id = $2
+    `, [req.params.id, empleadorId]);
+    if (!e) return res.status(404).json({ error: 'Empleado no encontrado' });
+    if (String(e.email || '').toLowerCase() === dueno)
+      return res.status(400).json({ error: 'No podés quitarte la administración a vos mismo.' });
+    if ((e.rol === 'admin') === admin) return res.json({ ok: true, sin_cambios: true });
+    await db.query('UPDATE public.usuarios SET rol = $1 WHERE id = $2', [admin ? 'admin' : 'empleado', e.usuario_id]);
+    olvidarUsuario(e.usuario_id);
+    console.log(`[CONFIG] ${req.user.email} ${admin ? 'habilitó' : 'quitó'} la administración a usuario ${e.usuario_id}`);
+    await push.avisarUsuario(e.usuario_id, admin
+      ? { tipo: 'rol_admin', titulo: '🔑 Te habilitaron como administrador/a',
+          cuerpo: 'Cerrá y volvé a abrir la app: vas a ver el Panel de administración. Tu jornada sigue en "Mi jornada".' }
+      : { tipo: 'rol_empleado', titulo: '🔑 Terminó tu habilitación como administrador/a',
+          cuerpo: 'Desde ahora la app te muestra solo "Mi jornada".' });
+    res.json({ ok: true, rol: admin ? 'admin' : 'empleado' });
+  } catch (err) {
+    console.error('[CONFIG] cambiar admin:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 router.get('/empleados', auth, soloAdmin, async (req, res) => {
   try {
     const empleadorId = await getEmpleadorId(req);
     const { rows } = await db.query(`
-      SELECT e.*, u.email, u.activo as usuario_activo,
+      SELECT e.*, u.email, u.activo as usuario_activo, u.rol AS usuario_rol,
         jc.modalidad, jc.hora_ingreso, jc.hora_egreso,
         jc.horas_diarias_objetivo,
         public.calcular_dias_vacaciones(e.fecha_ingreso, emp.convenio_id) as dias_vacaciones

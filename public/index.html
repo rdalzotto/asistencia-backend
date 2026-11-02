@@ -1653,6 +1653,13 @@ async function autoLoginInterno() {
     STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
     STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
     STATE.empleadoActivo = !!(me.empleado && me.empleado.activo !== false);
+    STATE.esDueno = !!me.es_dueno;
+    // El rol vale el de la base, no el guardado en el teléfono: el dueño puede
+    // habilitar o quitar la administración en cualquier momento (02/11/2026).
+    if (me.usuario.rol && me.usuario.rol !== rol) {
+      rol = me.usuario.rol; STATE.rol = rol;
+      try { localStorage.setItem('ar_rol', rol); } catch {}
+    }
     irADashboard(rol);
   } catch (e) {
     if (e.status === 401 || e.status === 403) {
@@ -1679,6 +1686,12 @@ async function autoLoginInterno() {
           STATE.apellido = me.empleado ? (me.empleado.apellido || '') : '';
           STATE.cargo = me.empleado ? (me.empleado.cargo || '') : '';
           STATE.matricula = me.empleado ? (me.empleado.matricula || '') : '';
+          STATE.esDueno = !!me.es_dueno;
+          if (me.usuario.rol && me.usuario.rol !== STATE.rol) {
+            STATE.rol = me.usuario.rol;
+            try { localStorage.setItem('ar_rol', STATE.rol); } catch {}
+            irADashboard(STATE.rol);
+          }
         } catch (e2) {
           if (e2.status === 401 || e2.status === 403) {
             console.warn('[SESIÓN] Cerrada por el servidor (reintento). Motivo:', e2.motivo || e2.message);
@@ -3167,9 +3180,11 @@ async function validarRemoto(id, aprobado) {
 
 <script>
 // ── PERSONAL Y PENDIENTES ADMIN ──────────────────────────────────────────────
+let EMPLEADOS_ADMIN = [];
 async function cargarEmpleadosAdmin() {
   try {
     const emps = await api('/config/empleados');
+    EMPLEADOS_ADMIN = emps;
     const cont = document.getElementById('lista-empleados');
     if (!emps.length) { cont.innerHTML = '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Sin empleados aún</p>'; return; }
     cont.innerHTML = emps.map(e => `
@@ -3187,12 +3202,38 @@ async function cargarEmpleadosAdmin() {
               : '<button class="btn btn-sm btn-success" onclick="activarEmpleado('+e.id+')">✓ Activar</button>'
             }
             ${!e.nombre ? '<button class="btn btn-sm btn-secondary" onclick="reenviarInvitacion('+e.id+')">📨 Reenviar invitación</button>' : ''}
+            ${STATE.esDueno && e.activo && e.usuario_id && e.nombre && e.usuario_id !== usuarioIdActual()
+              ? (e.usuario_rol === 'admin'
+                  ? '<button class="btn btn-sm btn-secondary" onclick="cambiarAdmin('+e.id+',false)">🔑 Quitar administración</button>'
+                  : '<button class="btn btn-sm btn-secondary" onclick="cambiarAdmin('+e.id+',true)">🔑 Habilitar como admin</button>')
+              : ''}
           </div>
         </div>
-        <span class="badge ${e.activo?'badge-green':'badge-red'}">${e.activo?'Activo':'Inactivo'}</span>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+          <span class="badge ${e.activo?'badge-green':'badge-red'}">${e.activo?'Activo':'Inactivo'}</span>
+          ${e.usuario_rol === 'admin' ? '<span class="badge badge-blue">🔑 Admin</span>' : ''}
+        </div>
       </div>
     `).join('');
   } catch(e) { console.error(e); }
+}
+
+function usuarioIdActual() {
+  try { return JSON.parse(atob(STATE.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).id; } catch { return null; }
+}
+
+// El dueño habilita o quita la administración (ej. Andrea mientras Rogelio no está).
+async function cambiarAdmin(empleadoId, admin) {
+  const nombre = EMPLEADOS_ADMIN.find(e => e.id === empleadoId)?.nombre || 'esta persona';
+  const msg = admin
+    ? `¿Habilitar a ${nombre} como administrador/a? Va a poder validar, aprobar y corregir fichajes de todos hasta que se lo quites.`
+    : `¿Quitarle la administración a ${nombre}? Va a ver solo "Mi jornada".`;
+  if (!confirm(msg)) return;
+  try {
+    await api('/config/empleados/' + empleadoId + '/admin', { method: 'PATCH', body: JSON.stringify({ admin }) });
+    toast(admin ? `🔑 ${nombre} quedó habilitado/a como admin` : `${nombre} quedó como empleado/a`, 'success', 4000);
+    cargarEmpleadosAdmin();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // Conteos de cada sub-pestaña de Pendientes, usados para decidir a cuál

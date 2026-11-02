@@ -85,7 +85,9 @@ router.get('/me', auth, async (req, res) => {
       );
       empleado = e || null;
     }
-    res.json({ usuario: usr, empleado });
+    // es_dueno: solo el dueño ve el botón para habilitar/quitar la administración.
+    const dueno = (process.env.DUENO_EMAIL || '').trim().toLowerCase();
+    res.json({ usuario: usr, empleado, es_dueno: !!dueno && String(usr?.email || '').toLowerCase() === dueno });
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
   }
