@@ -5,6 +5,7 @@ const push   = require('../services/pushService');
 const multer = require('multer');
 const ausenciasSvc = require('../services/ausenciasService');
 const jornada = require('../services/jornadaService');
+const avisos  = require('../services/avisosEmpleadoService');
 
 // Certificados en memoria (van a la base, no al disco del servidor).
 const subirCertificado = multer({
@@ -60,7 +61,7 @@ router.post('/ausencia', auth, async (req, res) => {
       // La cargó un admin: se le avisa al empleado (y ahí ve si falta el certificado).
       if (emp.usuario_id && emp.usuario_id !== req.user.id) {
         const n = push.notif.ausenciaCargadaPorAdmin(tipoTexto, d.requiereComprobante);
-        await push.pushUsuario(emp.usuario_id, n.titulo, n.cuerpo, { accion: 'ver_ausencias' });
+        await push.avisarUsuario(emp.usuario_id, { tipo: 'ausencia_cargada', ...n, accion: 'ver_ausencias' });
       }
     } else {
       const n = push.notif.ausenciaPendiente(nombre, tipoTexto);
@@ -153,7 +154,7 @@ router.post('/ausencia/:id/pedir-certificado', auth, soloAdmin, async (req, res)
     const { rows: [emp] } = await db.query('SELECT usuario_id FROM public.empleados WHERE id = $1', [aus.empleado_id]);
     if (emp?.usuario_id) {
       const n = push.notif.certificadoObservado(v.motivo);
-      await push.pushUsuario(emp.usuario_id, n.titulo, n.cuerpo, { accion: 'ver_ausencias' });
+      await push.avisarUsuario(emp.usuario_id, { tipo: 'certificado_observado', ...n, accion: 'ver_ausencias' });
     }
     res.json({ ok: true, ausencia: actualizada });
   } catch (err) {
@@ -211,6 +212,7 @@ router.patch('/ausencia/:id', auth, soloAdmin, async (req, res) => {
       WHERE id = $6 AND empleador_id = $7 RETURNING *
     `, [estado, req.user.id, observacion||null, dias_habiles||null, descuenta_sueldo||false, req.params.id, req.user.empleadorId]);
     if (!aus) return res.status(404).json({ error: 'Ausencia no encontrada' });
+    await push.avisarEmpleado(aus.empleado_id, avisos.ausenciaResuelta(aus), req.user.id);
     res.json({ ok: true, ausencia: aus });
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
@@ -439,6 +441,7 @@ router.patch('/vacaciones/:id', auth, soloAdmin, async (req, res) => {
       WHERE id = $3 AND empleador_id = $4 RETURNING *
     `, [estado, req.user.id, req.params.id, req.user.empleadorId]);
     if (!vac) return res.status(404).json({ error: 'No encontrado' });
+    await push.avisarEmpleado(vac.empleado_id, avisos.vacacionesResueltas(vac), req.user.id);
     res.json({ ok: true, vacacion: vac });
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
@@ -604,6 +607,7 @@ router.patch('/compensatorio/:id', auth, soloAdmin, async (req, res) => {
     `, [estado, req.user.id, compensacionId, sol.id]);
 
     await client.query('COMMIT');
+    await push.avisarEmpleado(solActualizada.empleado_id, avisos.compensatorioResuelto(solActualizada), req.user.id);
     res.json({ ok: true, solicitud: solActualizada });
   } catch (err) {
     await client.query('ROLLBACK');

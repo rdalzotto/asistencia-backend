@@ -285,8 +285,8 @@ router.post('/', auth, async (req, res) => {
           await push.pushAdmins(req.user.empleadorId, 'Jornada especial para aprobar',
             `${nombre}: ${nombreTipo(je)} ${cuando} — ${je.motivo}${dest}`);
         } else if (!je.propia) {
-          await push.pushUsuario(je.usuario_id, 'Jornada especial cargada',
-            `${nombreTipo(je)} ${cuando} — ${je.motivo}${dest}. Fichá con los botones de la jornada especial; los gastos se cargan desde el mismo cartel.`);
+          await push.avisarUsuario(je.usuario_id, { tipo: 'jornada_especial_cargada', titulo: 'Jornada especial cargada',
+            cuerpo: `${nombreTipo(je)} ${cuando} — ${je.motivo}${dest}. Fichá con los botones de la jornada especial; los gastos se cargan desde el mismo cartel.` });
         }
       } catch (e) { console.error('[JE] push alta:', e.message); }
     }
@@ -326,8 +326,11 @@ router.post('/:id/resolver', auth, soloAdmin, async (req, res) => {
     await recalcular(client, je.empleado_id, je.fecha);
     await client.query('COMMIT');
     try {
-      await push.pushUsuario(je.usuario_id, aprobado ? 'Jornada especial aprobada' : 'Jornada especial rechazada',
-        `${nombreTipo(je)} del ${fechaTxt(je.fecha)}${observacion ? ' — ' + observacion : ''}`);
+      if (je.usuario_id !== req.user.id)
+        await push.avisarUsuario(je.usuario_id, {
+          tipo: aprobado ? 'jornada_especial_aprobada' : 'jornada_especial_rechazada',
+          titulo: aprobado ? '✅ Jornada especial aprobada' : '❌ Jornada especial rechazada',
+          cuerpo: `${nombreTipo(je)} del ${fechaTxt(je.fecha)}${observacion ? ' — ' + observacion : ''}` });
     } catch (e) { console.error('[JE] push resolver:', e.message); }
     res.json({ ok: true });
   } catch (err) {

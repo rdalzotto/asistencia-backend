@@ -261,6 +261,17 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
     <!-- Certificado que falta subir (o que el admin pidió de nuevo): se va solo al subirlo. -->
     <div id="banner-certificado" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--orange)"></div>
+    <!-- Notificaciones del teléfono apagadas: botón para activarlas (el iPhone solo pide el permiso si se toca un botón). -->
+    <div id="banner-notificaciones" style="display:none;background:rgba(0,150,255,0.10);border:1px solid var(--accent);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px"></div>
+    <!-- Lo que el admin resolvió sobre algo del empleado (validaciones, aprobaciones). Se ve aunque no tenga notificaciones. -->
+    <div class="card" id="card-novedades" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="card-title" style="margin:0">🔔 Novedades <span id="novedades-sin-leer" class="badge badge-orange" style="display:none;margin-left:6px"></span></div>
+        <button class="btn btn-sm btn-secondary" id="btn-novedades-leidas" style="display:none;font-size:12px" onclick="marcarNovedadesLeidas()">Ya las vi</button>
+      </div>
+      <div id="lista-novedades"></div>
+      <button id="btn-novedades-mas" onclick="verTodasNovedades()" style="display:none;background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:6px 0 0">Ver anteriores</button>
+    </div>
     <div id="banner-mov-pendiente" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:var(--orange);text-align:center;cursor:pointer" onclick="sincronizarMovimientosPendientes()"></div>
     <div class="card">
       <div class="card-title">Hoy</div>
@@ -385,6 +396,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="tab" id="tab-pend-gps-btn" onclick="tabPendientes('gps',this)">Fichajes GPS</button>
         <button class="tab" id="tab-pend-compensatorio-btn" onclick="tabPendientes('compensatorio',this)">Compensatorio</button>
         <button class="tab" id="tab-pend-especiales-btn" onclick="tabPendientes('especiales',this)">⭐ Especiales</button>
+        <button class="tab" id="tab-pend-problemas-btn" onclick="tabPendientes('problemas',this)">⚠️ Problemas</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
       <div id="pend-ausencias" class="section">
@@ -397,6 +409,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div id="pend-gps" class="section"><div id="lista-gps-pend"></div></div>
       <div id="pend-compensatorio" class="section"><div id="lista-compensatorio-pend"></div></div>
       <div id="pend-especiales" class="section"><div id="lista-especiales-pend"></div></div>
+      <div id="pend-problemas" class="section"><div id="lista-problemas-pend"></div></div>
     </div>
 
     <!-- RECURSOS ADMIN -->
@@ -1135,6 +1148,28 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 </div>
 
 <!-- PANELES EMPLEADO -->
+<!-- Cartel cuando algo le falla al empleado (reemplaza el mensajito de 3 segundos). -->
+<div class="modal-overlay" id="modal-avisar-problema" style="z-index:3000;align-items:center">
+  <div class="modal" style="border-radius:var(--radius);margin:16px;padding-bottom:24px">
+    <div class="modal-title">⚠️ Algo no funcionó</div>
+    <div id="problema-mensaje" style="background:rgba(255,80,80,0.10);border:1px solid var(--red);border-radius:var(--radius-sm);padding:10px 12px;font-size:13.5px;margin-bottom:12px"></div>
+    <div id="problema-cuerpo">
+      <p style="font-size:14px;font-weight:600;margin-bottom:6px">Avisale a tu empleador para que lo revise.</p>
+      <p style="font-size:12.5px;color:var(--text2);margin-bottom:10px">Con "Avisar ahora" le llega el aviso con este error, la hora y la pantalla donde estabas.</p>
+      <div class="form-group"><label>¿Qué estabas haciendo? (opcional)</label>
+        <textarea id="problema-comentario" rows="2" maxlength="1000" placeholder="Ej: quería fichar la salida"></textarea></div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-primary" id="btn-avisar-problema" onclick="enviarAvisoProblema()">📣 Avisar ahora</button>
+        <button class="btn btn-secondary" onclick="cerrarModal('modal-avisar-problema')">Cerrar</button>
+      </div>
+    </div>
+    <div id="problema-enviado" style="display:none">
+      <p id="problema-enviado-txt" style="font-size:14px;margin-bottom:12px"></p>
+      <button class="btn btn-secondary" style="width:100%" onclick="cerrarModal('modal-avisar-problema')">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="panel-ausencias">
   <div class="modal" style="max-height:90vh">
     <div class="modal-handle"></div>
@@ -1264,12 +1299,27 @@ async function api(path, opts={}) {
     const err = new Error(data.error || 'Error ' + r.status);
     err.status = r.status;
     err.motivo = data.motivo || null;
+    if (r.status !== 401) ULTIMO_ERROR_API = { msg: err.message, path, status: r.status, t: Date.now() };
     throw err;
   }
   return data;
 }
 
+// Último error que devolvió el servidor: si enseguida se muestra como toast
+// de error, es algo que "no le funcionó" al empleado (no un dato mal cargado
+// en un formulario) y se le muestra el cartel "Avisale a tu empleador".
+let ULTIMO_ERROR_API = null;
+
+function esErrorParaAvisar(msg) {
+  const e = ULTIMO_ERROR_API;
+  if (!e || Date.now() - e.t > 3000 || !String(msg).includes(e.msg)) return false;
+  // Solo en la pantalla del empleado (el admin en su panel ve el error común).
+  if (!document.getElementById('screen-empleado')?.classList.contains('active')) return false;
+  return !document.getElementById('modal-avisar-problema').classList.contains('active');
+}
+
 function toast(msg, type='info', dur=3000) {
+  if (type === 'error' && esErrorParaAvisar(msg)) { mostrarAvisoProblema(msg); return; }
   const t = document.getElementById('toast');
   clearTimeout(t._hideTimer);
   t.textContent = msg;
@@ -1414,6 +1464,7 @@ async function irADashboard(rol) {
   try { modo = localStorage.getItem('ar_modo'); } catch {}
   if (rol === 'admin' && !(puedeMiJornada && modo === 'empleado')) {
     mostrarPanelAdmin();
+    setTimeout(() => ejecutarAccionPush(), 1500);
   } else {
     mostrarMiJornada();
   }
@@ -1451,6 +1502,7 @@ function mostrarMiJornada() {
   setTimeout(() => verificarExtensionOficina(), 2000);
   setTimeout(() => ejecutarAccionPush(), 1500);
   setTimeout(() => actualizarBannerCertificado(), 1000);
+  actualizarBannerNotificaciones();
 }
 
 // Acción que llega al tocar una notificación (sw.js): por mensaje con la app
@@ -1462,12 +1514,27 @@ function ejecutarAccionPush(accion) {
     if (!accion) return;
     history.replaceState(null, '', location.pathname);
   }
-  if (!['aviso_sin_ingreso', 'ver_ausencias'].includes(accion)) return;
+  if (accion === 'ver_problemas') {
+    if (STATE.rol !== 'admin') return;
+    if (!document.getElementById('screen-admin').classList.contains('active')) mostrarPanelAdmin();
+    tabAdmin('pendientes', document.querySelector('#nav-admin .nav-item[onclick*="pendientes"]'));
+    setTimeout(() => {
+      const btn = document.getElementById('tab-pend-problemas-btn');
+      tabPendientes('problemas', btn);
+      btn?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }, 800);
+    return;
+  }
+  if (!['aviso_sin_ingreso', 'ver_ausencias', 'ver_novedades'].includes(accion)) return;
   if (!document.getElementById('screen-empleado').classList.contains('active')) {
     if (STATE.rol === 'admin' && STATE.empleadoActivo) mostrarMiJornada(); else return;
   }
   // "¿Todo bien hoy?": directo al formulario del aviso. El resto, a la lista.
   if (accion === 'aviso_sin_ingreso') { abrirModalAusencia(); return; }
+  if (accion === 'ver_novedades') {
+    cargarNovedades().then(() => document.getElementById('card-novedades')?.scrollIntoView({ behavior: 'smooth' }));
+    return;
+  }
   cargarMisAusencias();
   abrirModal('panel-ausencias');
 }
@@ -1628,6 +1695,7 @@ async function guardarOnboarding() {
 <script>
 // ── EMPLEADO DASHBOARD ───────────────────────────────────────────────────────
 async function cargarDashboardEmpleado() {
+  cargarNovedades();
   try {
     const movs = await api('/movimientos/hoy');
     renderMovimientosHoy(movs);
@@ -2965,7 +3033,9 @@ async function cargarDashboardAdmin() {
     } catch {}
     let especialesPend = 0;
     try { especialesPend = (await api('/jornadas-especiales?estado=pendiente')).length; } catch {}
-    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+(data.pendientes_vacacion?.length||0)+visitasPend+compensatorioPend+especialesPend;
+    let problemasPend = 0;
+    try { problemasPend = (await api('/notificaciones/problemas')).length; } catch {}
+    const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+(data.pendientes_vacacion?.length||0)+visitasPend+compensatorioPend+especialesPend+problemasPend;
     document.getElementById('dash-presentes').textContent = presentes;
     document.getElementById('dash-externos').textContent = externos;
     document.getElementById('dash-ausentes').textContent = ausentes;
@@ -3088,12 +3158,12 @@ async function cargarEmpleadosAdmin() {
 // "Solicitudes" sin importar dónde estuviera realmente lo pendiente (esa era
 // la causa real de "la campanita no lleva a ningún lado": todo el volumen
 // estaba en Fichajes GPS, que ni siquiera tenía pestaña propia hasta ahora).
-let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0, compensatorio: 0, especiales: 0 };
+let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0, compensatorio: 0, especiales: 0, problemas: 0 };
 
 // Orden de prioridad para el salto directo. GPS primero porque hoy concentra
 // el 100% del volumen real; el resto en orden visual de las pestañas, para
 // cuando en el futuro haya pendientes repartidos en varias categorías a la vez.
-const ORDEN_TABS_PENDIENTES = ['gps', 'especiales', 'solicitudes', 'ausencias', 'vacaciones', 'visitas', 'compensatorio'];
+const ORDEN_TABS_PENDIENTES = ['gps', 'especiales', 'solicitudes', 'ausencias', 'vacaciones', 'visitas', 'compensatorio', 'problemas'];
 
 // Único punto de decisión de navegación: se llama tanto al entrar a Pendientes
 // (recién tocada la campanita) como después de resolver cualquier ítem. Si la
@@ -3197,6 +3267,7 @@ async function cargarPendientesAdmin() {
     await cargarFichajesGpsPendientesAdmin();
     await cargarCompensatorioPendientesAdmin();
     await cargarJornadasEspecialesPendAdmin();
+    await cargarProblemasPendAdmin();
     navegarPendientesSegunDatos();
   } catch(e) {
     console.error('[PENDIENTES]', e);
@@ -3950,6 +4021,7 @@ function tabPendientes(id, el) {
   if (id === 'gps') cargarFichajesGpsPendientesAdmin();
   if (id === 'compensatorio') cargarCompensatorioPendientesAdmin();
   if (id === 'especiales') cargarJornadasEspecialesPendAdmin();
+  if (id === 'problemas') cargarProblemasPendAdmin();
 }
 </script>
 
@@ -6065,11 +6137,12 @@ async function registrarSW() {
   if (!('serviceWorker' in navigator)) return;
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
-    if ('Notification' in window && Notification.permission==='default') {
-      const perm = await Notification.requestPermission();
-      if (perm==='granted') await suscribirPush(reg);
-    } else if (Notification.permission==='granted') { await suscribirPush(reg); }
+    // El permiso se pide con el botón "Activar notificaciones" (el iPhone
+    // ignora el pedido si no lo dispara un toque). Si ya está dado, se
+    // vuelve a anotar el teléfono en el servidor por si se había dado de baja.
+    if ('Notification' in window && Notification.permission==='granted') await suscribirPush(reg);
   } catch(e) { console.warn('[SW] Error:',e.message); }
+  actualizarBannerNotificaciones();
 }
 
 async function suscribirPush(reg) {
@@ -6078,8 +6151,186 @@ async function suscribirPush(reg) {
     if (!publicKey) return;
     const sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlBase64ToUint8Array(publicKey)});
     await api('/notificaciones/suscribir',{method:'POST',body:JSON.stringify({subscription:sub})});
-  } catch(e) { console.warn('[PUSH]',e.message); }
+    return true;
+  } catch(e) { console.warn('[PUSH]',e.message); return false; }
 }
+
+// ── AVISO "ACTIVAR NOTIFICACIONES" (02/11/2026) ──
+// Andrea y Walter tenían 0 teléfonos anotados: no les llegaba ningún aviso.
+function estadoNotificaciones() {
+  const ua = navigator.userAgent;
+  const esIOS = /iPhone|iPad|iPod/.test(ua) || (ua.includes('Macintosh') && navigator.maxTouchPoints > 1);
+  const instalada = navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window))
+    return esIOS && !instalada ? 'ios_sin_instalar' : 'no_soportado';
+  return Notification.permission; // 'default' | 'granted' | 'denied'
+}
+
+function actualizarBannerNotificaciones() {
+  const b = document.getElementById('banner-notificaciones');
+  if (!b) return;
+  const estado = estadoNotificaciones();
+  let posponer = 0;
+  try { posponer = Number(localStorage.getItem('ar_notif_posponer') || 0); } catch {}
+  if (estado === 'granted' || estado === 'no_soportado' || Date.now() < posponer) { b.style.display = 'none'; return; }
+  const ahoraNo = `<button onclick="posponerBannerNotificaciones()" style="background:none;border:none;color:var(--text3);font-size:12px;text-decoration:underline;cursor:pointer;padding:6px 0 0">Ahora no</button>`;
+  if (estado === 'default') {
+    b.innerHTML = `<div style="font-weight:600;margin-bottom:4px">🔔 Activá las notificaciones</div>
+      <div style="color:var(--text2);margin-bottom:10px">Así te enterás cuando validan tus fichajes, aprueban tus ausencias o te piden algo.</div>
+      <button class="btn btn-primary btn-sm" style="width:100%" onclick="activarNotificaciones()">Activar notificaciones</button>${ahoraNo}`;
+  } else if (estado === 'denied') {
+    b.innerHTML = `<div style="font-weight:600;margin-bottom:4px">🔕 Las notificaciones están bloqueadas</div>
+      <div style="color:var(--text2)">Para recibir los avisos, habilitalas en los ajustes del teléfono (<b>Ajustes → Notificaciones</b>; en Android con Chrome también desde el candado 🔒 al lado de la dirección). Igual vas a ver las novedades acá en la app.</div>${ahoraNo}`;
+  } else { // iPhone sin la app agregada a la pantalla de inicio
+    b.innerHTML = `<div style="font-weight:600;margin-bottom:4px">🔔 Para recibir avisos en el iPhone</div>
+      <div style="color:var(--text2)">Abrí esta página en Safari, tocá <b>Compartir</b> (el cuadrado con la flecha) → <b>Agregar a pantalla de inicio</b>, y entrá desde ese ícono. Ahí te va a aparecer el botón para activarlas.</div>${ahoraNo}`;
+  }
+  b.style.display = 'block';
+}
+
+function posponerBannerNotificaciones() {
+  try { localStorage.setItem('ar_notif_posponer', String(Date.now() + 7 * 24 * 3600 * 1000)); } catch {}
+  document.getElementById('banner-notificaciones').style.display = 'none';
+}
+
+async function activarNotificaciones() {
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+      await navigator.serviceWorker.register('/sw.js');
+      const reg = await navigator.serviceWorker.ready;
+      if (await suscribirPush(reg)) toast('✅ Notificaciones activadas', 'success', 4000);
+      else toast('Se activaron, pero no se pudo anotar el teléfono. Probá de nuevo más tarde.', 'info', 6000);
+    }
+  } catch (e) { console.warn('[PUSH] activar:', e.message); }
+  actualizarBannerNotificaciones();
+}
+
+// ── NOVEDADES DEL EMPLEADO ──
+// Lo que el admin resolvió sobre algo suyo (se guarda en el servidor al validar).
+let NOVEDADES = [], NOVEDADES_TODAS = false;
+
+async function cargarNovedades() {
+  if (!document.getElementById('card-novedades')) return;
+  try {
+    const r = await api('/notificaciones/novedades');
+    NOVEDADES = r.novedades || [];
+    pintarNovedades(r.sin_leer || 0);
+  } catch { /* sin señal: queda lo último que se mostró */ }
+}
+
+function pintarNovedades(sinLeer) {
+  const card = document.getElementById('card-novedades');
+  // Las de los últimos 30 días (las sin leer, siempre).
+  const limite = Date.now() - 30 * 24 * 3600 * 1000;
+  const visibles = NOVEDADES.filter(n => !n.leido_en || new Date(n.creado_en).getTime() > limite);
+  if (!visibles.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const mostrar = NOVEDADES_TODAS ? visibles : visibles.slice(0, Math.max(3, sinLeer));
+  const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  document.getElementById('lista-novedades').innerHTML = mostrar.map(n => `
+    <div style="padding:8px 0;border-top:1px solid var(--border);${n.leido_en ? 'opacity:0.65' : ''}">
+      <div style="font-size:13.5px;font-weight:${n.leido_en ? 500 : 700}">${n.leido_en ? '' : '<span style="color:var(--orange)">● </span>'}${esc(n.titulo)}</div>
+      ${n.cuerpo ? `<div style="font-size:12.5px;color:var(--text2);margin-top:2px">${esc(n.cuerpo)}</div>` : ''}
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">${new Date(n.creado_en).toLocaleString('es-AR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false})}</div>
+    </div>`).join('');
+  const badge = document.getElementById('novedades-sin-leer');
+  badge.textContent = sinLeer === 1 ? '1 nueva' : sinLeer + ' nuevas';
+  badge.style.display = sinLeer ? 'inline-flex' : 'none';
+  document.getElementById('btn-novedades-leidas').style.display = sinLeer ? 'inline-flex' : 'none';
+  document.getElementById('btn-novedades-mas').style.display = !NOVEDADES_TODAS && visibles.length > mostrar.length ? 'inline' : 'none';
+}
+
+function verTodasNovedades() {
+  NOVEDADES_TODAS = true;
+  pintarNovedades(NOVEDADES.filter(n => !n.leido_en).length);
+}
+
+async function marcarNovedadesLeidas() {
+  try {
+    await api('/notificaciones/novedades/leidas', { method: 'POST' });
+    const ahora = new Date().toISOString();
+    NOVEDADES.forEach(n => { if (!n.leido_en) n.leido_en = ahora; });
+    pintarNovedades(0);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ── CARTEL "AVISALE A TU EMPLEADOR" (02/11/2026) ──
+// Reemplaza, en la pantalla del empleado, el mensajito de error de 3 segundos
+// cuando el servidor rechazó algo. Los errores de "sin conexión" no pasan por
+// acá: eso la app lo guarda y lo manda sola cuando vuelve la señal.
+let PROBLEMA_ACTUAL = null;
+
+function mostrarAvisoProblema(msg) {
+  const e = ULTIMO_ERROR_API || {};
+  const modalAbierto = [...document.querySelectorAll('.modal-overlay.active')].map(m => m.id).filter(Boolean).pop();
+  PROBLEMA_ACTUAL = { msg: String(msg), pantalla: modalAbierto || 'inicio', path: e.path, status: e.status };
+  document.getElementById('problema-mensaje').textContent = String(msg);
+  document.getElementById('problema-comentario').value = '';
+  document.getElementById('problema-cuerpo').style.display = 'block';
+  document.getElementById('problema-enviado').style.display = 'none';
+  const btn = document.getElementById('btn-avisar-problema');
+  btn.disabled = false; btn.textContent = '📣 Avisar ahora';
+  abrirModal('modal-avisar-problema');
+}
+
+async function enviarAvisoProblema() {
+  if (!PROBLEMA_ACTUAL) return;
+  const btn = document.getElementById('btn-avisar-problema');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  let texto;
+  try {
+    await api('/notificaciones/problema', { method: 'POST', body: JSON.stringify({
+      mensaje_error: PROBLEMA_ACTUAL.msg,
+      pantalla: PROBLEMA_ACTUAL.pantalla,
+      comentario: document.getElementById('problema-comentario').value,
+      detalle: { ruta: PROBLEMA_ACTUAL.path, estado: PROBLEMA_ACTUAL.status, en_linea: navigator.onLine,
+                 navegador: navigator.userAgent.slice(0, 200), hora_telefono: new Date().toString().slice(0, 33) },
+    }) });
+    PROBLEMA_ACTUAL = null;
+    texto = '✅ Listo, ya le avisamos a tu administrador. Cuando lo revise te va a aparecer en Novedades.';
+  } catch (e) {
+    texto = '❌ No se pudo enviar el aviso (' + e.message + '). Avisale por WhatsApp o por teléfono.';
+  }
+  document.getElementById('problema-cuerpo').style.display = 'none';
+  document.getElementById('problema-enviado').style.display = 'block';
+  document.getElementById('problema-enviado-txt').textContent = texto;
+}
+
+// ── PROBLEMAS REPORTADOS (admin, en Pendientes) ──
+async function cargarProblemasPendAdmin() {
+  const cont = document.getElementById('lista-problemas-pend');
+  if (!cont) return;
+  try {
+    const probs = await api('/notificaciones/problemas');
+    PENDIENTES_COUNTS.problemas = probs.length;
+    const btn = document.getElementById('tab-pend-problemas-btn');
+    if (btn) btn.textContent = '⚠️ Problemas' + (probs.length ? ' (' + probs.length + ')' : '');
+    const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    cont.innerHTML = probs.length ? probs.map(p => `
+      <div class="card" style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:600">${esc(p.nombre)}</div>
+        <div style="font-size:13px;color:var(--red);margin:6px 0">${esc(p.mensaje_error)}</div>
+        ${p.comentario ? `<div style="font-size:13px;color:var(--text2);margin-bottom:4px">"${esc(p.comentario)}"</div>` : ''}
+        <div style="font-size:12px;color:var(--text3)">${new Date(p.creado_en).toLocaleString('es-AR')} · ${esc(p.pantalla || '')}</div>
+        <div class="form-group" style="margin:10px 0 8px"><input id="prob-resp-${p.id}" maxlength="1000" placeholder="Respuesta para ${esc(p.nombre)} (opcional)"></div>
+        <button class="btn btn-sm btn-success" onclick="resolverProblema(${p.id})">✓ Resuelto</button>
+      </div>`).join('')
+      : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">Nadie avisó problemas</p>';
+  } catch (e) { cont.innerHTML = '<p style="color:var(--red);text-align:center;font-size:13px">Error cargando</p>'; }
+}
+
+async function resolverProblema(id) {
+  try {
+    const respuesta = document.getElementById('prob-resp-' + id)?.value || '';
+    await api('/notificaciones/problema/' + id, { method: 'PATCH', body: JSON.stringify({ respuesta }) });
+    toast('Marcado como resuelto. Le llega el aviso al empleado.', 'success');
+    await cargarProblemasPendAdmin();
+    navegarPendientesSegunDatos();
+    cargarDashboardAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 
 function urlBase64ToUint8Array(b64) {
   const pad='='.repeat((4-b64.length%4)%4);

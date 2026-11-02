@@ -13,7 +13,7 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
 // ─── Enviar push a un usuario ─────────────────────────────────────────────────
 async function pushUsuario(usuarioId, titulo, cuerpo, datos = {}) {
   const { rows } = await db.query(
-    'SELECT subscription FROM public.push_subscriptions WHERE usuario_id = $1 AND activo = TRUE',
+    'SELECT id, subscription FROM public.push_subscriptions WHERE usuario_id = $1 AND activo = TRUE',
     [usuarioId]
   );
   const payload = JSON.stringify({ titulo, cuerpo, datos });
@@ -21,15 +21,35 @@ async function pushUsuario(usuarioId, titulo, cuerpo, datos = {}) {
     try {
       await webpush.sendNotification(row.subscription, payload);
     } catch (err) {
-      if (err.statusCode === 410) {
-        // Suscripción expirada — desactivar
+      if (err.statusCode === 410 || err.statusCode === 404) {
+        // Suscripción expirada — desactivar SOLO esa (antes se apagaban todos
+        // los teléfonos del usuario cuando vencía uno).
         await db.query(
-          'UPDATE public.push_subscriptions SET activo = FALSE WHERE usuario_id = $1',
-          [usuarioId]
+          'UPDATE public.push_subscriptions SET activo = FALSE WHERE id = $1',
+          [row.id]
         );
       }
     }
   }
+}
+
+// ─── Avisar al empleado algo que resolvió el admin ───────────────────────────
+// Queda guardado en "Novedades" (lo ve al abrir la app aunque no tenga las
+// notificaciones del teléfono activadas) y además va como push.
+// Nunca hace fallar la acción del admin: si algo falla, solo se anota en el log.
+// aviso = { tipo, titulo, cuerpo, accion? }
+async function avisarUsuario(usuarioId, aviso) {
+  if (!usuarioId || !aviso) return;
+  try {
+    await db.query(`
+      INSERT INTO public.novedades_empleado (empleador_id, usuario_id, tipo, titulo, cuerpo, accion)
+      SELECT empleador_id, id, $2, $3, $4, $5 FROM public.usuarios WHERE id = $1
+    `, [usuarioId, aviso.tipo || 'aviso', aviso.titulo, aviso.cuerpo || null, aviso.accion || null]);
+  } catch (e) { console.error('[NOVEDADES] No se pudo guardar:', e.message); }
+  try {
+    await pushUsuario(usuarioId, aviso.titulo, aviso.cuerpo || '',
+      { accion: aviso.accion || 'ver_novedades' });
+  } catch (e) { console.error('[PUSH] avisarUsuario:', e.message); }
 }
 
 // ─── Enviar push a todos los admins de un empleador ──────────────────────────
@@ -210,4 +230,15 @@ const notif = {
   }),
 };
 
-module.exports = { pushUsuario, pushAdmins, notif };
+// Lo mismo, a partir del empleado. No se avisa a quien hizo la acción
+// (el dueño que valida lo suyo no necesita enterarse por la app).
+async function avisarEmpleado(empleadoId, aviso, quienResolvio = null) {
+  try {
+    const { rows: [emp] } = await db.query(
+      'SELECT usuario_id FROM public.empleados WHERE id = $1', [empleadoId]);
+    if (!emp?.usuario_id || emp.usuario_id === quienResolvio) return;
+    await avisarUsuario(emp.usuario_id, aviso);
+  } catch (e) { console.error('[NOVEDADES] avisarEmpleado:', e.message); }
+}
+
+module.exports = { pushUsuario, pushAdmins, avisarUsuario, avisarEmpleado, notif };

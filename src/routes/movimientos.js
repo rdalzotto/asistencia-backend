@@ -3,6 +3,7 @@ const db      = require('../db');
 const { auth, soloAdmin }   = require('../middleware/auth');
 const jornada = require('../services/jornadaService');
 const push    = require('../services/pushService');
+const avisos  = require('../services/avisosEmpleadoService');
 
 // El dueño de la empresa (variable DUENO_EMAIL en Railway) no pasa por la
 // validación de sus propios fichajes: sus fichajes nacen validados y puede
@@ -840,6 +841,7 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
     }
 
     await client.query('COMMIT');
+    await push.avisarEmpleado(mov.empleado_id, avisos.fichajeValidado(mov, aprobado !== false), req.user.id);
     res.json({ ok: true, movimiento: mov });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -930,6 +932,7 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
     const nombre = `${emp.nombre} ${emp.apellido}`.trim();
     const n = push.notif.egresoVoluntario(nombre, hora);
     await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo + ' (manual)');
+    await push.avisarEmpleado(empleado_id, avisos.egresoManual(fecha, hora), req.user.id);
 
     res.json({ ok: true, movimiento: mov });
   } catch (err) {
@@ -1005,8 +1008,9 @@ router.post('/fichaje-manual-admin', auth, soloAdmin, async (req, res) => {
     // El empleado se entera de lo que se cargó a su nombre.
     try {
       const fechaTxt = fecha.split('-').reverse().join('/');
-      await push.pushUsuario(emp.usuario_id, 'Fichaje cargado por administración',
-        `${jornada.NOMBRES_TIPO[tipo]} del ${fechaTxt} a las ${hora}. Motivo: ${motivo}`);
+      if (emp.usuario_id !== req.user.id)
+        await push.avisarUsuario(emp.usuario_id, { tipo: 'fichaje_cargado', titulo: 'Fichaje cargado por administración',
+          cuerpo: `${jornada.NOMBRES_TIPO[tipo]} del ${fechaTxt} a las ${hora}. Motivo: ${motivo}` });
     } catch (e) { console.error('[MOV] fichaje-manual-admin push:', e.message); }
 
     res.json({ ok: true, movimiento: mov });
@@ -1096,8 +1100,9 @@ router.post('/corregir-cierre-automatico/:id', auth, soloAdmin, async (req, res)
 
     try {
       const fechaTxt = mov.fecha_txt.split('-').reverse().join('/');
-      await push.pushUsuario(mov.usuario_id, 'Hora de salida corregida',
-        `Tu salida del ${fechaTxt} pasó de ${mov.hora_original.slice(0, 5)} a ${hora}. Motivo: ${motivo}`);
+      if (mov.usuario_id !== req.user.id)
+        await push.avisarUsuario(mov.usuario_id, { tipo: 'salida_corregida', titulo: 'Hora de salida corregida',
+          cuerpo: `Tu salida del ${fechaTxt} pasó de ${mov.hora_original.slice(0, 5)} a ${hora}. Motivo: ${motivo}` });
     } catch (e) { console.error('[MOV] corregir-cierre push:', e.message); }
 
     res.json({ ok: true, movimiento: act });

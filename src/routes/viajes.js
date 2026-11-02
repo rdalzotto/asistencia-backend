@@ -276,8 +276,8 @@ router.post('/:id/gastos/:gid/revisar', auth, soloAdmin, async (req, res) => {
     `, [revision, revision === 'observado' ? motivo : null, req.user.id, g.id]);
     if (revision === 'observado') {
       try {
-        await push.pushUsuario(g.usuario_id, 'Gasto observado',
-          `${v.titulo}: ${svc.CATEGORIAS_GASTO[g.categoria]} ${pesos(g.monto)} — ${motivo}`);
+        await push.avisarUsuario(g.usuario_id, { tipo: 'gasto_observado', titulo: 'Gasto observado',
+          cuerpo: `${v.titulo}: ${svc.CATEGORIAS_GASTO[g.categoria]} ${pesos(g.monto)} — ${motivo}` });
       } catch (e) { console.error('[VIAJES] push observado:', e.message); }
     }
     res.json({ ok: true });
@@ -305,7 +305,7 @@ router.post('/:id/adelantos', auth, soloAdmin, async (req, res) => {
     `, [v.id, p.empleado_id, b.fecha, Number(b.monto), medio, String(b.nota || '').trim().slice(0, 300) || null, req.user.id]);
     try {
       if (p.usuario_id !== req.user.id)
-        await push.pushUsuario(p.usuario_id, 'Adelanto registrado', `${v.titulo}: ${pesos(b.monto)} (${medio}). Cargá tus gastos desde el cartel del viaje.`);
+        await push.avisarUsuario(p.usuario_id, { tipo: 'adelanto', titulo: 'Adelanto registrado', cuerpo: `${v.titulo}: ${pesos(b.monto)} (${medio}). Cargá tus gastos desde el cartel del viaje.` });
     } catch (e) { console.error('[VIAJES] push adelanto:', e.message); }
     res.json({ ok: true, id: a.id });
   } catch (err) {

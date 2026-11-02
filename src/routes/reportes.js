@@ -2,6 +2,7 @@ const router  = require('express').Router();
 const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 const push    = require('../services/pushService');
+const avisos  = require('../services/avisosEmpleadoService');
 const jwt     = require('jsonwebtoken');
 
 // ─── GET /reportes/mensual ────────────────────────────────────────────────────
@@ -583,6 +584,7 @@ router.patch('/mensual/objeciones/:id/resolver', auth, soloAdmin, async (req, re
       RETURNING *
     `, [respuesta_admin || null, req.user.id, req.params.id, req.user.empleadorId]);
     if (!obj) return res.status(404).json({ error: 'No encontrada' });
+    await push.avisarEmpleado(obj.empleado_id, avisos.objecionResuelta(obj), req.user.id);
     res.json({ ok: true, objecion: obj });
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
