@@ -543,6 +543,13 @@ async function cronJornadaInteligente() {
   // ── 9. Jornada especial: recordatorio y cierre de seguridad propios ──────
   await cronJornadaEspecial();
 
+  // ── 10b. Agenda (02/11/2026): a las 7:30, a los admins, quién no viene hoy y mañana.
+  try {
+    await require('./services/agendaCron').cronAvisoAgenda({ hoyStr, minAhora });
+  } catch (err) {
+    console.error('[CRON] Paso agenda falló:', err.message);
+  }
+
   // ── 10. Reporte mensual (02/11/2026): "cerró el mes, firmá tu reporte" y
   // recordatorio diario desde el día 4 a quien no firmó (de 9 a 20).
   try {

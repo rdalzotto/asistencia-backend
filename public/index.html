@@ -286,6 +286,19 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div class="card-title">👥 Equipo</div>
       <div id="lista-equipo-estado"><p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Cargando...</p></div>
     </div>
+    <div class="card" id="card-agenda-emp">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">
+          <div class="card-title" style="margin:0">📅 Ausencias del equipo</div>
+          <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+            <button class="btn btn-sm btn-secondary" style="padding:4px 10px" onclick="moverAgenda('emp',-1)" aria-label="Mes anterior">◀</button>
+            <span id="agenda-emp-mes" style="font-size:13px;font-weight:600;min-width:92px;text-align:center"></span>
+            <button class="btn btn-sm btn-secondary" style="padding:4px 10px" onclick="moverAgenda('emp',1)" aria-label="Mes siguiente">▶</button>
+          </div>
+        </div>
+        <div id="agenda-emp-hoy"></div>
+        <div id="agenda-emp-lista"><p style="color:var(--text3);font-size:13px;text-align:center;padding:12px 0">Cargando...</p></div>
+        <p style="font-size:11.5px;color:var(--text3);margin-top:8px">Ves lo tuyo y lo ya aprobado de tus compañeros.</p>
+      </div>
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-val" id="stat-horas-hoy">0h</div><div class="stat-lbl">Horas hoy</div></div>
       <div class="stat-card"><div class="stat-val" id="stat-tardanzas">0</div><div class="stat-lbl">Tardanzas mes</div></div>
@@ -364,13 +377,22 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <div class="stat-card"><div class="stat-val" style="color:var(--red)" id="dash-ausentes">0</div><div class="stat-lbl">Ausentes</div></div>
         <div class="stat-card"><div class="stat-val" style="color:var(--orange)" id="dash-pendientes">0</div><div class="stat-lbl">Pendientes</div></div>
       </div>
+      <div class="card" id="card-agenda-adm">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px">
+          <div class="card-title" style="margin:0">📅 Agenda de ausencias</div>
+          <div style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+            <button class="btn btn-sm btn-secondary" style="padding:4px 10px" onclick="moverAgenda('adm',-1)" aria-label="Mes anterior">◀</button>
+            <span id="agenda-adm-mes" style="font-size:13px;font-weight:600;min-width:92px;text-align:center"></span>
+            <button class="btn btn-sm btn-secondary" style="padding:4px 10px" onclick="moverAgenda('adm',1)" aria-label="Mes siguiente">▶</button>
+          </div>
+        </div>
+        <div id="agenda-adm-hoy"></div>
+        <div id="agenda-adm-lista"><p style="color:var(--text3);font-size:13px;text-align:center;padding:12px 0">Cargando...</p></div>
+        <p style="font-size:11.5px;color:var(--text3);margin-top:8px">Si alguien te pide permiso por WhatsApp o en persona, cargalo en Pendientes con "+ Registrar ausencia de un empleado" así queda acá.</p>
+      </div>
       <div class="card">
         <div class="card-title">Estado del personal — hoy</div>
         <div id="lista-estado-personal"><p style="color:var(--text3);font-size:14px;text-align:center;padding:16px 0">Cargando...</p></div>
-      </div>
-      <div class="card" id="card-vacaciones-mes" style="display:none">
-        <div class="card-title" style="color:var(--accent)">🌴 Vacaciones este mes</div>
-        <div id="lista-vacaciones-mes"></div>
       </div>
       <div class="card" id="card-remotos" style="display:none">
         <div class="card-title" style="color:var(--orange)">⚠ Movimientos pendientes de validar</div>
@@ -1553,6 +1575,13 @@ function ejecutarAccionPush(accion) {
     }, 800);
     return;
   }
+  if (accion === 'ver_agenda') {
+    if (STATE.rol !== 'admin') return;
+    if (!document.getElementById('screen-admin').classList.contains('active')) mostrarPanelAdmin();
+    tabAdmin('dashboard', document.querySelector('#nav-admin .nav-item[onclick*="dashboard"]'));
+    setTimeout(() => document.getElementById('card-agenda-adm')?.scrollIntoView({ block: 'start' }), 800);
+    return;
+  }
   if (accion === 'ver_reportes') {
     if (STATE.rol !== 'admin') return;
     if (!document.getElementById('screen-admin').classList.contains('active')) mostrarPanelAdmin();
@@ -1749,6 +1778,7 @@ async function guardarOnboarding() {
 // ── EMPLEADO DASHBOARD ───────────────────────────────────────────────────────
 async function cargarDashboardEmpleado() {
   cargarNovedades();
+  cargarAgenda('emp');
   cargarBannerReporte();
   try {
     const movs = await api('/movimientos/hoy');
@@ -3140,29 +3170,65 @@ async function cargarDashboardAdmin() {
   } catch(e) { console.error(e); }
 }
 
-async function cargarVacacionesMes() {
+// ── AGENDA DE AUSENCIAS (02/11/2026) ──
+// Admin (Dashboard) y empleado ("Mi jornada"). Mes que se ve, por pantalla.
+const AGENDA_MES = { adm: 0, emp: 0 }; // 0 = mes actual, 1 = siguiente...
+const MESES_AG = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+function moverAgenda(pref, delta) { AGENDA_MES[pref] += delta; cargarAgenda(pref); }
+
+async function cargarAgenda(pref) {
+  const lista = document.getElementById('agenda-' + pref + '-lista');
+  if (!lista) return;
+  const hoyD = new Date();
+  const d = new Date(hoyD.getFullYear(), hoyD.getMonth() + AGENDA_MES[pref], 1);
+  const anio = d.getFullYear(), mes = d.getMonth() + 1;
+  document.getElementById('agenda-' + pref + '-mes').textContent = MESES_AG[mes - 1] + ' ' + anio;
+  const hoy = hoyD.toLocaleDateString('en-CA');
+  const manana = new Date(hoyD.getTime() + 86400000).toLocaleDateString('en-CA');
+  const esc = v => String(v || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const f = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7);
   try {
-    const hoy = new Date();
-    const desde = new Date(hoy.getFullYear(),hoy.getMonth(),1).toISOString().split('T')[0];
-    const hasta = new Date(hoy.getFullYear(),hoy.getMonth()+1,0).toISOString().split('T')[0];
-    const vacs = await api('/licencias/vacaciones?desde='+desde+'&hasta='+hasta);
-    const card = document.getElementById('card-vacaciones-mes');
-    const cont = document.getElementById('lista-vacaciones-mes');
-    if (!vacs||!vacs.length) { card.style.display='none'; return; }
-    card.style.display = 'block';
-    cont.innerHTML = vacs.map(v => `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
-        <div>
-          <div style="font-size:13px;font-weight:600">${v.nombre} ${v.apellido}</div>
-          <div style="font-size:12px;color:var(--text2)">${String(v.fecha_inicio).slice(0,10).split('-').reverse().join('/')} → ${String(v.fecha_fin).slice(0,10).split('-').reverse().join('/')} · ${v.dias_corridos} días</div>
-          ${v.tipo==='vacaciones_admin'?'<div style="font-size:11px;color:var(--accent)">💻 Disponible remoto</div>':''}
+    const { items } = await api(`/licencias/agenda?anio=${anio}&mes=${mes}`);
+    const hasta = i => i.origen === 'compensatorio' ? i.desde : i.hasta;
+    const enDia = dia => items.filter(i => i.desde <= dia && dia <= hasta(i));
+    // "Hoy no vienen / Mañana": solo mirando el mes actual.
+    const cajaHoy = document.getElementById('agenda-' + pref + '-hoy');
+    if (AGENDA_MES[pref] === 0) {
+      const nombres = l => l.map(i => esc(i.nombre.split(' ')[0]) + (i.estado === 'pendiente' ? ' <span style="color:var(--orange)">(sin aprobar)</span>' : '')).join(', ');
+      const h = enDia(hoy), m = enDia(manana);
+      cajaHoy.innerHTML = (h.length || m.length) ? `<div style="background:rgba(255,145,0,0.10);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:8px 12px;margin-bottom:10px;font-size:13px">
+          ${h.length ? `<div><b>Hoy no ${h.length === 1 ? 'viene' : 'vienen'}:</b> ${nombres(h)}</div>` : ''}
+          ${m.length ? `<div><b>Mañana:</b> ${nombres(m)}</div>` : ''}
+        </div>` : '';
+    } else cajaHoy.innerHTML = '';
+    lista.innerHTML = items.length ? items.map(i => {
+      const esHoy = i.desde <= hoy && hoy <= hasta(i);
+      const fechas = i.origen === 'compensatorio'
+        ? `${f(i.desde)} · ${i.dias} ${i.dias === 1 ? 'día' : 'días'}`
+        : (i.desde === i.hasta ? f(i.desde) : `${f(i.desde)} → ${f(i.hasta)} · ${i.dias} días`);
+      const estado = i.estado === 'aprobada'
+        ? '<span style="color:var(--green);font-size:11.5px;font-weight:600">✓ Aprobada</span>'
+        : '<span style="color:var(--orange);font-size:11.5px;font-weight:600">⏳ Sin aprobar</span>';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0 8px ${esHoy ? '8px' : '0'};border-top:1px solid var(--border);${esHoy ? 'border-left:3px solid var(--orange);' : ''}">
+        <div style="min-width:0">
+          <div style="font-size:13.5px;font-weight:600">${esc(i.nombre)}${i.propio && pref === 'emp' ? ' (vos)' : ''}</div>
+          <div style="font-size:12.5px;color:var(--text2)">${esc(i.tipo_texto)}</div>
+          ${i.motivo ? `<div style="font-size:11.5px;color:var(--text3)">${esc(i.motivo)}</div>` : ''}
         </div>
-        <span style="font-size:11px;font-weight:600;color:${v.estado==='aprobada'?'var(--green)':v.estado==='rechazada'?'var(--red)':'var(--orange)'}">
-          ${v.estado==='aprobada'?'✓ Aprobada':v.estado==='rechazada'?'✗ Rechazada':'⏳ Pendiente'}
-        </span>
-      </div>
-    `).join('');
-  } catch { document.getElementById('card-vacaciones-mes').style.display='none'; }
+        <div style="text-align:right;white-space:nowrap">
+          <div style="font-size:13px;font-weight:600">${fechas}</div>
+          ${estado}
+        </div>
+      </div>`;
+    }).join('') : `<p style="color:var(--text3);font-size:13px;text-align:center;padding:12px 0">Nadie pidió ausencias ni vacaciones para ${MESES_AG[mes - 1]}.</p>`;
+  } catch (e) {
+    lista.innerHTML = '<p style="color:var(--red);font-size:13px;text-align:center">No se pudo cargar la agenda</p>';
+  }
+}
+
+async function cargarVacacionesMes() {
+  return cargarAgenda('adm'); // "Vacaciones este mes" pasó a ser la agenda completa
 }
 
 async function validarRemoto(id, aprobado) {

@@ -7,6 +7,8 @@ const ausenciasSvc = require('../services/ausenciasService');
 const jornada = require('../services/jornadaService');
 const avisos  = require('../services/avisosEmpleadoService');
 const firmas  = require('../services/reporteFirmasService');
+const agenda  = require('../services/agendaService');
+const { filasAgenda } = require('../services/agendaCron');
 
 // Certificados en memoria (van a la base, no al disco del servidor).
 const subirCertificado = multer({
@@ -385,6 +387,24 @@ router.get('/vacaciones', auth, async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error('[LIC] Vacaciones error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /licencias/agenda?anio=&mes= — ausencias, vacaciones y compensatorios
+// del mes (pedido de Rogelio 02/11/2026). Admin: todo, con pendientes.
+// Empleado: lo suyo y lo aprobado de los compañeros, sin motivos.
+router.get('/agenda', auth, async (req, res) => {
+  const anio = Number(req.query.anio), mes = Number(req.query.mes);
+  if (!(anio > 2000) || !(mes >= 1 && mes <= 12)) return res.status(400).json({ error: 'Año y mes requeridos' });
+  const desde = `${anio}-${String(mes).padStart(2, '0')}-01`;
+  const hasta = new Date(Date.UTC(anio, mes, 0)).toISOString().slice(0, 10);
+  try {
+    const items = agenda.armarAgenda(await filasAgenda(req.user.empleadorId, desde, hasta),
+      { esAdmin: req.user.rol === 'admin', empleadoIdPropio: req.user.empleadoId });
+    res.json({ anio, mes, items });
+  } catch (err) {
+    console.error('[LIC] agenda:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
