@@ -352,6 +352,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 
     <!-- DASHBOARD -->
     <div class="section active" id="tab-dashboard">
+      <button class="btn btn-secondary" style="margin-bottom:12px" onclick="abrirAvisoEquipo()">📢 Aviso al equipo</button>
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-val" style="color:var(--green)" id="dash-presentes">0</div><div class="stat-lbl">En oficina</div></div>
         <div class="stat-card"><div class="stat-val" style="color:var(--yellow)" id="dash-externos">0</div><div class="stat-lbl">En externo</div></div>
@@ -1148,6 +1149,23 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 </div>
 
 <!-- PANELES EMPLEADO -->
+<!-- Aviso al equipo: el admin manda un mensaje y ve quién lo leyó (02/11/2026). -->
+<div class="modal-overlay" id="modal-aviso-equipo">
+  <div class="modal" style="max-height:90vh">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📢 Aviso al equipo</div>
+    <p style="font-size:12.5px;color:var(--text2);margin-bottom:12px">Le llega a cada uno como notificación y en "Novedades" de la app. Ves quién lo leyó. No es un chat: no pueden responder acá.</p>
+    <div class="form-group"><label>Mensaje</label>
+      <textarea id="aviso-equipo-mensaje" rows="4" maxlength="1000" placeholder="Ej: Mañana viernes entramos a las 8"></textarea></div>
+    <div class="form-group"><label>Para</label>
+      <div id="aviso-equipo-personas" style="display:flex;flex-direction:column;gap:6px;font-size:14px"></div></div>
+    <button class="btn btn-primary" id="btn-aviso-equipo" style="width:100%;margin-bottom:8px" onclick="enviarAvisoEquipo()">Enviar aviso</button>
+    <button class="btn btn-secondary" style="width:100%" onclick="cerrarModal('modal-aviso-equipo')">Cerrar</button>
+    <div style="font-size:13px;font-weight:600;color:var(--text2);margin:20px 0 8px">Avisos enviados</div>
+    <div id="aviso-equipo-historial"></div>
+  </div>
+</div>
+
 <!-- Cartel cuando algo le falla al empleado (reemplaza el mensajito de 3 segundos). -->
 <div class="modal-overlay" id="modal-avisar-problema" style="z-index:3000;align-items:center">
   <div class="modal" style="border-radius:var(--radius);margin:16px;padding-bottom:24px">
@@ -6295,6 +6313,63 @@ async function enviarAvisoProblema() {
   document.getElementById('problema-cuerpo').style.display = 'none';
   document.getElementById('problema-enviado').style.display = 'block';
   document.getElementById('problema-enviado-txt').textContent = texto;
+}
+
+// ── AVISO AL EQUIPO (admin) ──
+async function abrirAvisoEquipo() {
+  document.getElementById('aviso-equipo-mensaje').value = '';
+  document.getElementById('aviso-equipo-personas').innerHTML = '<span style="color:var(--text3)">Cargando...</span>';
+  document.getElementById('aviso-equipo-historial').innerHTML = '';
+  abrirModal('modal-aviso-equipo');
+  await cargarAvisosEquipo(true);
+}
+
+async function cargarAvisosEquipo(marcarPersonas) {
+  const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const hora = d => new Date(d).toLocaleString('es-AR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
+  try {
+    const r = await api('/notificaciones/avisos-equipo');
+    if (marcarPersonas) {
+      let yo = null;
+      try { yo = JSON.parse(atob(STATE.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).id; } catch {}
+      // Todos marcados menos uno mismo (el aviso es para el resto del equipo).
+      document.getElementById('aviso-equipo-personas').innerHTML = r.personas.length ? r.personas.map(p => `
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none;letter-spacing:0;font-size:14px;color:var(--text)">
+          <input type="checkbox" class="aviso-equipo-chk" value="${p.usuario_id}" ${p.usuario_id === yo ? '' : 'checked'} style="width:auto">
+          ${esc(p.nombre)}${p.usuario_id === yo ? ' (vos)' : ''}
+        </label>`).join('')
+        : '<span style="color:var(--text3)">' + (r.falta_migracion ? 'Falta correr el SQL de avisos al equipo.' : 'No hay personas activas.') + '</span>';
+    }
+    document.getElementById('aviso-equipo-historial').innerHTML = r.avisos.length ? r.avisos.map(a => {
+      const leidos = a.destinatarios.filter(d => d.leido_en).length;
+      return `<div class="card" style="margin-bottom:10px;padding:12px">
+        <div style="font-size:13.5px;white-space:pre-wrap">${esc(a.mensaje)}</div>
+        <div style="font-size:11.5px;color:var(--text3);margin:4px 0 8px">${hora(a.creado_en)} · ${esc(a.enviado_por)} · leído por ${leidos} de ${a.destinatarios.length}</div>
+        ${a.destinatarios.map(d => `<div style="font-size:12.5px;display:flex;justify-content:space-between">
+          <span>${esc(d.nombre)}</span>
+          <span style="color:${d.leido_en ? 'var(--green)' : 'var(--text3)'}">${d.leido_en ? '✓ leído ' + hora(d.leido_en) : '⏳ sin leer'}</span>
+        </div>`).join('')}
+      </div>`;
+    }).join('') : '<p style="color:var(--text3);font-size:13px">Todavía no mandaste avisos.</p>';
+  } catch (e) {
+    document.getElementById('aviso-equipo-personas').innerHTML = '<span style="color:var(--red)">Error cargando: ' + esc(e.message) + '</span>';
+  }
+}
+
+async function enviarAvisoEquipo() {
+  const mensaje = document.getElementById('aviso-equipo-mensaje').value.trim();
+  const usuarios = [...document.querySelectorAll('.aviso-equipo-chk:checked')].map(c => Number(c.value));
+  if (!mensaje) return toast('Escribí el mensaje', 'error');
+  if (!usuarios.length) return toast('Elegí al menos una persona', 'error');
+  const btn = document.getElementById('btn-aviso-equipo');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    const r = await api('/notificaciones/aviso-equipo', { method: 'POST', body: JSON.stringify({ mensaje, usuarios }) });
+    toast(`✅ Aviso enviado a ${r.enviados} ${r.enviados === 1 ? 'persona' : 'personas'}`, 'success', 4000);
+    document.getElementById('aviso-equipo-mensaje').value = '';
+    await cargarAvisosEquipo(false);
+  } catch (e) { toast(e.message, 'error', 5000); }
+  finally { btn.disabled = false; btn.textContent = 'Enviar aviso'; }
 }
 
 // ── PROBLEMAS REPORTADOS (admin, en Pendientes) ──

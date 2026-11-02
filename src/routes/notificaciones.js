@@ -270,4 +270,93 @@ router.patch('/problema/:id', auth, soloAdmin, async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════
+// AVISOS AL EQUIPO ("📢 Aviso al equipo", 02/11/2026)
+// El admin manda un mensaje a todos o a algunos: le llega a cada uno como
+// novedad (+ push) y se ve quién lo leyó. No es un chat: no se responde.
+// ════════════════════════════════════════════════════════════════
+
+// Personas que pueden recibir avisos: usuarios activos con empleado activo.
+async function personasDelEquipo(empleadorId) {
+  const { rows } = await db.query(`
+    SELECT u.id AS usuario_id, TRIM(CONCAT(e.nombre, ' ', e.apellido)) AS nombre
+    FROM public.usuarios u JOIN public.empleados e ON e.usuario_id = u.id
+    WHERE u.empleador_id = $1 AND u.activo = TRUE AND e.activo = TRUE
+    ORDER BY e.nombre, e.apellido
+  `, [empleadorId]);
+  return rows;
+}
+
+router.get('/avisos-equipo', auth, soloAdmin, async (req, res) => {
+  try {
+    const personas = await personasDelEquipo(req.user.empleadorId);
+    const { rows: avisos } = await db.query(`
+      SELECT a.id, a.mensaje, a.creado_en,
+        COALESCE(NULLIF(TRIM(CONCAT(ea.nombre, ' ', ea.apellido)), ''), ua.email) AS enviado_por,
+        COALESCE(json_agg(json_build_object(
+          'nombre', TRIM(CONCAT(e.nombre, ' ', e.apellido)), 'leido_en', n.leido_en)
+          ORDER BY e.nombre) FILTER (WHERE n.id IS NOT NULL), '[]') AS destinatarios
+      FROM public.avisos_equipo a
+      JOIN public.usuarios ua ON ua.id = a.creado_por
+      LEFT JOIN public.empleados ea ON ea.usuario_id = a.creado_por
+      LEFT JOIN public.novedades_empleado n ON n.aviso_id = a.id
+      LEFT JOIN public.empleados e ON e.usuario_id = n.usuario_id
+      WHERE a.empleador_id = $1
+      GROUP BY a.id, ua.email, ea.nombre, ea.apellido
+      ORDER BY a.creado_en DESC LIMIT 20
+    `, [req.user.empleadorId]);
+    res.json({ personas, avisos });
+  } catch (err) {
+    if (faltaTabla(err) || err.code === '42703') return res.json({ personas: [], avisos: [], falta_migracion: true });
+    console.error('[AVISO EQUIPO] GET:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.post('/aviso-equipo', auth, soloAdmin, async (req, res) => {
+  const mensaje = recortar(req.body.mensaje, 1000);
+  if (!mensaje) return res.status(400).json({ error: 'Escribí el mensaje' });
+  const elegidos = Array.isArray(req.body.usuarios) ? req.body.usuarios.map(Number) : [];
+  const client = await db.connect();
+  try {
+    // Solo personas del equipo de esta empresa (nunca ids de otra).
+    const equipo = await personasDelEquipo(req.user.empleadorId);
+    const destinos = equipo.filter(p => elegidos.includes(p.usuario_id));
+    if (!destinos.length) return res.status(400).json({ error: 'Elegí al menos una persona' });
+
+    const { rows: [yo] } = await db.query(`
+      SELECT COALESCE(NULLIF(TRIM(CONCAT(e.nombre, ' ', e.apellido)), ''), u.email) AS nombre
+      FROM public.usuarios u LEFT JOIN public.empleados e ON e.usuario_id = u.id WHERE u.id = $1 LIMIT 1
+    `, [req.user.id]);
+    const titulo = `📢 Aviso de ${yo?.nombre || 'administración'}`;
+
+    await client.query('BEGIN');
+    const { rows: [aviso] } = await client.query(`
+      INSERT INTO public.avisos_equipo (empleador_id, creado_por, mensaje) VALUES ($1,$2,$3) RETURNING id
+    `, [req.user.empleadorId, req.user.id, mensaje]);
+    for (const d of destinos) {
+      // Quien lo manda y está en la lista lo recibe ya leído (para que cuente igual).
+      await client.query(`
+        INSERT INTO public.novedades_empleado (empleador_id, usuario_id, tipo, titulo, cuerpo, accion, aviso_id, leido_en)
+        VALUES ($1,$2,'aviso_equipo',$3,$4,'ver_novedades',$5,$6)
+      `, [req.user.empleadorId, d.usuario_id, titulo, mensaje, aviso.id, d.usuario_id === req.user.id ? new Date() : null]);
+    }
+    await client.query('COMMIT');
+
+    for (const d of destinos) {
+      if (d.usuario_id === req.user.id) continue;
+      try { await push.pushUsuario(d.usuario_id, titulo, mensaje, { accion: 'ver_novedades' }); }
+      catch (e) { console.error('[AVISO EQUIPO] push:', e.message); }
+    }
+    res.json({ ok: true, id: aviso.id, enviados: destinos.length });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[AVISO EQUIPO] POST:', err.message);
+    res.status(500).json({ error: faltaTabla(err) || err.code === '42703'
+      ? 'Falta correr el SQL de avisos al equipo.' : 'Error interno' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
