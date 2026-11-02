@@ -97,6 +97,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
 .tabs{display:flex;gap:4px;background:var(--bg3);border-radius:var(--radius-sm);padding:4px;margin-bottom:20px;}
 .tab{flex:1;padding:8px 4px;background:none;border:none;color:var(--text2);font-family:var(--font);font-size:12px;font-weight:600;border-radius:8px;cursor:pointer;transition:all 0.2s;text-align:center;}
 .tab.active{background:var(--bg2);color:var(--text);}
+#tab-pendientes .tabs{overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+#tab-pendientes .tabs::-webkit-scrollbar{display:none;}
+#tab-pendientes .tabs .tab{flex:0 0 auto;padding:8px 10px;white-space:nowrap;}
 .section{display:none;}
 .section.active{display:block;}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:flex-end;justify-content:center;}
@@ -261,6 +264,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     </div>
     <!-- Certificado que falta subir (o que el admin pidió de nuevo): se va solo al subirlo. -->
     <div id="banner-certificado" style="display:none;background:rgba(255,145,0,0.12);border:1px solid var(--orange);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px;color:var(--orange)"></div>
+    <!-- Mes cerrado sin firmar: "Revisá y firmá tu reporte" (02/11/2026). Se va solo al firmar. -->
+    <div id="banner-reporte-mes" style="display:none;background:rgba(0,230,118,0.08);border:1px solid var(--green);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px"></div>
     <!-- Notificaciones del teléfono apagadas: botón para activarlas (el iPhone solo pide el permiso si se toca un botón). -->
     <div id="banner-notificaciones" style="display:none;background:rgba(0,150,255,0.10);border:1px solid var(--accent);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:12px;font-size:13px"></div>
     <!-- Lo que el admin resolvió sobre algo del empleado (validaciones, aprobaciones). Se ve aunque no tenga notificaciones. -->
@@ -397,6 +402,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
         <button class="tab" id="tab-pend-gps-btn" onclick="tabPendientes('gps',this)">Fichajes GPS</button>
         <button class="tab" id="tab-pend-compensatorio-btn" onclick="tabPendientes('compensatorio',this)">Compensatorio</button>
         <button class="tab" id="tab-pend-especiales-btn" onclick="tabPendientes('especiales',this)">⭐ Especiales</button>
+        <button class="tab" id="tab-pend-reportes-btn" onclick="tabPendientes('reportes',this)">📄 Reportes</button>
         <button class="tab" id="tab-pend-problemas-btn" onclick="tabPendientes('problemas',this)">⚠️ Problemas</button>
       </div>
       <div id="pend-solicitudes" class="section active"><div id="lista-solicitudes-pend"></div></div>
@@ -410,6 +416,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
       <div id="pend-gps" class="section"><div id="lista-gps-pend"></div></div>
       <div id="pend-compensatorio" class="section"><div id="lista-compensatorio-pend"></div></div>
       <div id="pend-especiales" class="section"><div id="lista-especiales-pend"></div></div>
+      <div id="pend-reportes" class="section">
+        <div class="form-group" style="margin-bottom:12px"><label>Mes</label><select id="pend-reportes-mes" onchange="cargarReportesPendAdmin()"></select></div>
+        <div id="lista-reportes-pend"></div>
+      </div>
       <div id="pend-problemas" class="section"><div id="lista-problemas-pend"></div></div>
     </div>
 
@@ -1539,16 +1549,28 @@ function ejecutarAccionPush(accion) {
     setTimeout(() => {
       const btn = document.getElementById('tab-pend-problemas-btn');
       tabPendientes('problemas', btn);
-      btn?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (btn) btn.parentElement.scrollLeft = btn.offsetLeft - 16; // solo la fila de pestañas, no la página
     }, 800);
     return;
   }
-  if (!['aviso_sin_ingreso', 'ver_ausencias', 'ver_novedades'].includes(accion)) return;
+  if (accion === 'ver_reportes') {
+    if (STATE.rol !== 'admin') return;
+    if (!document.getElementById('screen-admin').classList.contains('active')) mostrarPanelAdmin();
+    tabAdmin('pendientes', document.querySelector('#nav-admin .nav-item[onclick*="pendientes"]'));
+    setTimeout(() => {
+      const btn = document.getElementById('tab-pend-reportes-btn');
+      tabPendientes('reportes', btn);
+      if (btn) btn.parentElement.scrollLeft = btn.offsetLeft - 16; // solo la fila de pestañas, no la página
+    }, 800);
+    return;
+  }
+  if (!['aviso_sin_ingreso', 'ver_ausencias', 'ver_novedades', 'ver_reporte'].includes(accion)) return;
   if (!document.getElementById('screen-empleado').classList.contains('active')) {
     if (STATE.rol === 'admin' && STATE.empleadoActivo) mostrarMiJornada(); else return;
   }
   // "¿Todo bien hoy?": directo al formulario del aviso. El resto, a la lista.
   if (accion === 'aviso_sin_ingreso') { abrirModalAusencia(); return; }
+  if (accion === 'ver_reporte') { abrirReportePendiente(); return; }
   if (accion === 'ver_novedades') {
     cargarNovedades().then(() => document.getElementById('card-novedades')?.scrollIntoView({ behavior: 'smooth' }));
     return;
@@ -1714,6 +1736,7 @@ async function guardarOnboarding() {
 // ── EMPLEADO DASHBOARD ───────────────────────────────────────────────────────
 async function cargarDashboardEmpleado() {
   cargarNovedades();
+  cargarBannerReporte();
   try {
     const movs = await api('/movimientos/hoy');
     renderMovimientosHoy(movs);
@@ -3053,6 +3076,7 @@ async function cargarDashboardAdmin() {
     try { especialesPend = (await api('/jornadas-especiales?estado=pendiente')).length; } catch {}
     let problemasPend = 0;
     try { problemasPend = (await api('/notificaciones/problemas')).length; } catch {}
+    try { problemasPend += reportesParaRevisar((await api('/reportes/mensual/estado-firmas')).empleados); } catch {}
     const pendTotal = (data.pendientes_remoto?.length||0)+(data.pendientes_solicitud?.length||0)+(data.pendientes_ausencia?.length||0)+(data.pendientes_vacacion?.length||0)+visitasPend+compensatorioPend+especialesPend+problemasPend;
     document.getElementById('dash-presentes').textContent = presentes;
     document.getElementById('dash-externos').textContent = externos;
@@ -3176,12 +3200,12 @@ async function cargarEmpleadosAdmin() {
 // "Solicitudes" sin importar dónde estuviera realmente lo pendiente (esa era
 // la causa real de "la campanita no lleva a ningún lado": todo el volumen
 // estaba en Fichajes GPS, que ni siquiera tenía pestaña propia hasta ahora).
-let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0, compensatorio: 0, especiales: 0, problemas: 0 };
+let PENDIENTES_COUNTS = { solicitudes: 0, ausencias: 0, vacaciones: 0, visitas: 0, gps: 0, compensatorio: 0, especiales: 0, problemas: 0, reportes: 0 };
 
 // Orden de prioridad para el salto directo. GPS primero porque hoy concentra
 // el 100% del volumen real; el resto en orden visual de las pestañas, para
 // cuando en el futuro haya pendientes repartidos en varias categorías a la vez.
-const ORDEN_TABS_PENDIENTES = ['gps', 'especiales', 'solicitudes', 'ausencias', 'vacaciones', 'visitas', 'compensatorio', 'problemas'];
+const ORDEN_TABS_PENDIENTES = ['gps', 'especiales', 'solicitudes', 'ausencias', 'vacaciones', 'visitas', 'compensatorio', 'reportes', 'problemas'];
 
 // Único punto de decisión de navegación: se llama tanto al entrar a Pendientes
 // (recién tocada la campanita) como después de resolver cualquier ítem. Si la
@@ -3196,7 +3220,9 @@ function navegarPendientesSegunDatos() {
 
   if (total === 0) {
     if (todoAlDia) todoAlDia.style.display = 'block';
-    if (tabsWrap) tabsWrap.style.display = 'none';
+    // Las pestañas quedan visibles: en "📄 Reportes" se ve quién no firmó
+    // aunque no haya nada que hacer (02/11/2026).
+    if (tabsWrap) tabsWrap.style.display = '';
     // Se limpia también el estado "active" de los botones (no solo las
     // secciones) — si no, cuando vuelva a aparecer un pendiente en la misma
     // categoría que estaba activa antes de vaciarse, el chequeo de abajo cree
@@ -3286,6 +3312,7 @@ async function cargarPendientesAdmin() {
     await cargarCompensatorioPendientesAdmin();
     await cargarJornadasEspecialesPendAdmin();
     await cargarProblemasPendAdmin();
+    await cargarReportesPendAdmin();
     navegarPendientesSegunDatos();
   } catch(e) {
     console.error('[PENDIENTES]', e);
@@ -3580,6 +3607,8 @@ async function recargarEstadoReporte() {
   REPORTE_STATE.objeciones = objeciones;
   renderFirmasReporte(firmado);
   renderObjecionesReporte(objeciones);
+  if (document.getElementById('screen-admin')?.classList.contains('active')) cargarReportesPendAdmin();
+  else cargarBannerReporte();
 }
 
 function renderReporteMensual(data, esFirmado) {
@@ -4031,6 +4060,8 @@ function tabAdmin(id, el) {
 }
 
 function tabPendientes(id, el) {
+  const todoAlDia = document.getElementById('pend-todo-al-dia');
+  if (todoAlDia) todoAlDia.style.display = 'none';
   document.querySelectorAll('#tab-pendientes .section').forEach(s => s.classList.remove('active'));
   document.getElementById('pend-'+id)?.classList.add('active');
   document.querySelectorAll('#tab-pendientes .tab').forEach(t => t.classList.remove('active'));
@@ -4040,6 +4071,7 @@ function tabPendientes(id, el) {
   if (id === 'compensatorio') cargarCompensatorioPendientesAdmin();
   if (id === 'especiales') cargarJornadasEspecialesPendAdmin();
   if (id === 'problemas') cargarProblemasPendAdmin();
+  if (id === 'reportes') cargarReportesPendAdmin();
 }
 </script>
 
@@ -6370,6 +6402,101 @@ async function enviarAvisoEquipo() {
     await cargarAvisosEquipo(false);
   } catch (e) { toast(e.message, 'error', 5000); }
   finally { btn.disabled = false; btn.textContent = 'Enviar aviso'; }
+}
+
+// ── REPORTE DEL MES CERRADO (02/11/2026) ──
+// Empleado: cartel en "Mi jornada" hasta que firma. Admin: Pendientes → Reportes.
+const MESES_REP = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+let REPORTE_PENDIENTE = null;
+
+async function cargarBannerReporte() {
+  const b = document.getElementById('banner-reporte-mes');
+  if (!b) return;
+  try { REPORTE_PENDIENTE = (await api('/reportes/mensual/mi-pendiente')).pendiente; } catch { return; }
+  const p = REPORTE_PENDIENTE;
+  if (!p) { b.style.display = 'none'; return; }
+  const mes = MESES_REP[p.mes];
+  b.innerHTML = p.estado === 'incoherencia'
+    ? `<div style="font-weight:600;margin-bottom:4px">📄 Reporte de ${mes}: marcaste un error</div>
+       <div style="color:var(--text2);margin-bottom:10px">Tu administrador lo tiene que revisar. Cuando te responda vas a poder firmarlo.</div>
+       <button class="btn btn-secondary btn-sm" style="width:100%" onclick="abrirReportePendiente()">Ver mi reporte de ${mes}</button>`
+    : `<div style="font-weight:600;margin-bottom:4px">📄 Cerró ${mes}: firmá tu reporte de horas</div>
+       <div style="color:var(--text2);margin-bottom:10px">Revisalo día por día. Si ves algún error, tocá "Marcar incoherencia" antes de firmar.</div>
+       <button class="btn btn-primary btn-sm" style="width:100%" onclick="abrirReportePendiente()">Revisar y firmar ${mes}</button>`;
+  b.style.display = 'block';
+}
+
+async function abrirReportePendiente() {
+  if (!REPORTE_PENDIENTE) await cargarBannerReporte();
+  const p = REPORTE_PENDIENTE;
+  if (!p) return toast('No tenés reportes pendientes de firma', 'info');
+  await generarReporteMensual(STATE.empleadoId, p.anio, p.mes);
+}
+
+// Lo que el admin tiene que hacer: responder un error marcado o revisar y firmar.
+function reportesParaRevisar(lista) {
+  return (lista || []).filter(e => e.estado === 'incoherencia' || e.estado === 'firmado_empleado').length;
+}
+
+function llenarMesesReportes() {
+  const sel = document.getElementById('pend-reportes-mes');
+  if (!sel || sel.options.length) return;
+  const hoy = new Date();
+  const opciones = [];
+  for (let i = 1; i <= 3; i++) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+    opciones.push(`<option value="${d.getFullYear()}-${d.getMonth() + 1}">${MESES_REP[d.getMonth() + 1]} ${d.getFullYear()}</option>`);
+  }
+  sel.innerHTML = opciones.join('');
+}
+
+async function cargarReportesPendAdmin() {
+  const cont = document.getElementById('lista-reportes-pend');
+  if (!cont) return;
+  llenarMesesReportes();
+  const [anio, mes] = document.getElementById('pend-reportes-mes').value.split('-');
+  const esc = s => String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const hora = d => new Date(d).toLocaleString('es-AR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false});
+  try {
+    const r = await api(`/reportes/mensual/estado-firmas?anio=${anio}&mes=${mes}`);
+    const n = reportesParaRevisar(r.empleados);
+    // Solo cuenta para la campanita el mes cerrado más reciente.
+    if (document.getElementById('pend-reportes-mes').selectedIndex === 0) PENDIENTES_COUNTS.reportes = n;
+    const btn = document.getElementById('tab-pend-reportes-btn');
+    if (btn) btn.textContent = '📄 Reportes' + (PENDIENTES_COUNTS.reportes ? ' (' + PENDIENTES_COUNTS.reportes + ')' : '');
+    const ESTADOS = {
+      sin_firmar:       ['⏳ Sin firmar', 'var(--text3)'],
+      incoherencia:     ['⚠️ Marcó un error — revisá y respondé', 'var(--orange)'],
+      firmado_empleado: ['✍️ Firmó — falta tu revisión y firma', 'var(--accent)'],
+      cerrado:          ['✅ Cerrado (firmado por los dos)', 'var(--green)'],
+    };
+    cont.innerHTML = r.empleados.length ? r.empleados.map(e => {
+      const [txt, color] = ESTADOS[e.estado] || [e.estado, 'var(--text2)'];
+      const detalle = [
+        e.firmado_empleado_en ? 'firmó ' + hora(e.firmado_empleado_en) : '',
+        e.firmado_admin_en ? 'vos ' + hora(e.firmado_admin_en) : '',
+        e.firmas_anuladas ? `${e.firmas_anuladas} firma${e.firmas_anuladas > 1 ? 's' : ''} anulada${e.firmas_anuladas > 1 ? 's' : ''} por correcciones` : '',
+      ].filter(Boolean).join(' · ');
+      return `<div class="card" style="margin-bottom:10px">
+        <div style="font-size:14px;font-weight:600">${esc(e.nombre)}</div>
+        <div style="font-size:13px;color:${color};margin:4px 0">${txt}</div>
+        ${detalle ? `<div style="font-size:11.5px;color:var(--text3)">${detalle}</div>` : ''}
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-sm btn-primary" onclick="generarReporteMensual(${e.empleado_id}, ${anio}, ${mes})">Abrir reporte</button>
+          ${e.estado === 'sin_firmar' ? `<button class="btn btn-sm btn-secondary" onclick="recordarFirmaReporte(${e.empleado_id}, ${anio}, ${mes}, this)">🔔 Recordarle</button>` : ''}
+        </div>
+      </div>`;
+    }).join('') : '<p style="color:var(--text3);text-align:center;font-size:14px;padding:16px">No hay reportes para este mes</p>';
+    cont.insertAdjacentHTML('beforeend', `<p style="font-size:12px;color:var(--text3);margin-top:8px">Para corregir un error: botón 📝 Fichaje de esa persona en Dashboard → Estado del personal (cargar un fichaje o corregir una hora), o validá lo que esté pendiente. Si el empleado ya había firmado, su firma se anula sola y le llega un aviso para volver a firmar con los datos corregidos.</p>`);
+  } catch (e) { cont.innerHTML = '<p style="color:var(--red);text-align:center;font-size:13px">' + esc(e.message) + '</p>'; }
+}
+
+async function recordarFirmaReporte(empleadoId, anio, mes, btn) {
+  try {
+    btn.disabled = true;
+    await api('/reportes/mensual/recordar', { method: 'POST', body: JSON.stringify({ empleado_id: empleadoId, anio, mes }) });
+    btn.textContent = '✓ Recordado';
+  } catch (e) { btn.disabled = false; toast(e.message, 'error'); }
 }
 
 // ── PROBLEMAS REPORTADOS (admin, en Pendientes) ──

@@ -4,6 +4,7 @@ const { auth, soloAdmin }   = require('../middleware/auth');
 const jornada = require('../services/jornadaService');
 const push    = require('../services/pushService');
 const avisos  = require('../services/avisosEmpleadoService');
+const firmas  = require('../services/reporteFirmasService');
 
 // El dueño de la empresa (variable DUENO_EMAIL en Railway) no pasa por la
 // validación de sus propios fichajes: sus fichajes nacen validados y puede
@@ -842,6 +843,7 @@ router.post('/validar-remoto/:id', auth, soloAdmin, async (req, res) => {
 
     await client.query('COMMIT');
     await push.avisarEmpleado(mov.empleado_id, avisos.fichajeValidado(mov, aprobado !== false), req.user.id);
+    await firmas.revisarFirmasTrasCambio(mov.empleado_id, [mov.fecha], req.user.id, 'Se validó o rechazó un fichaje');
     res.json({ ok: true, movimiento: mov });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -933,6 +935,7 @@ router.post('/egreso-manual-admin', auth, soloAdmin, async (req, res) => {
     const n = push.notif.egresoVoluntario(nombre, hora);
     await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo + ' (manual)');
     await push.avisarEmpleado(empleado_id, avisos.egresoManual(fecha, hora), req.user.id);
+    await firmas.revisarFirmasTrasCambio(empleado_id, [fecha], req.user.id, 'Se cargó una salida a mano');
 
     res.json({ ok: true, movimiento: mov });
   } catch (err) {
@@ -1012,6 +1015,7 @@ router.post('/fichaje-manual-admin', auth, soloAdmin, async (req, res) => {
         await push.avisarUsuario(emp.usuario_id, { tipo: 'fichaje_cargado', titulo: 'Fichaje cargado por administración',
           cuerpo: `${jornada.NOMBRES_TIPO[tipo]} del ${fechaTxt} a las ${hora}. Motivo: ${motivo}` });
     } catch (e) { console.error('[MOV] fichaje-manual-admin push:', e.message); }
+    await firmas.revisarFirmasTrasCambio(empleado_id, [fecha], req.user.id, 'Se cargó un fichaje a mano: ' + motivo);
 
     res.json({ ok: true, movimiento: mov });
   } catch (err) {
@@ -1104,6 +1108,7 @@ router.post('/corregir-cierre-automatico/:id', auth, soloAdmin, async (req, res)
         await push.avisarUsuario(mov.usuario_id, { tipo: 'salida_corregida', titulo: 'Hora de salida corregida',
           cuerpo: `Tu salida del ${fechaTxt} pasó de ${mov.hora_original.slice(0, 5)} a ${hora}. Motivo: ${motivo}` });
     } catch (e) { console.error('[MOV] corregir-cierre push:', e.message); }
+    await firmas.revisarFirmasTrasCambio(mov.empleado_id, [mov.fecha_txt], req.user.id, 'Se corrigió la hora de una salida: ' + motivo);
 
     res.json({ ok: true, movimiento: act });
   } catch (err) {

@@ -542,6 +542,14 @@ async function cronJornadaInteligente() {
 
   // ── 9. Jornada especial: recordatorio y cierre de seguridad propios ──────
   await cronJornadaEspecial();
+
+  // ── 10. Reporte mensual (02/11/2026): "cerró el mes, firmá tu reporte" y
+  // recordatorio diario desde el día 4 a quien no firmó (de 9 a 20).
+  try {
+    await require('./services/reporteFirmasService').cronAvisosReporte({ hoyStr, minAhora });
+  } catch (err) {
+    if (err.code !== '42P01') console.error('[CRON] Paso reporte mensual falló:', err.message);
+  }
 }
 
 // Reemplaza, para quien tiene jornada especial vigente hoy, a la pregunta de

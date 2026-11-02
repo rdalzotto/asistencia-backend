@@ -15,6 +15,7 @@ const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 const jornada = require('../services/jornadaService');
 const push    = require('../services/pushService');
+const firmas  = require('../services/reporteFirmasService');
 const viajesSvc = require('../services/viajesService');
 
 function esDueno(user) {
@@ -290,6 +291,7 @@ router.post('/', auth, async (req, res) => {
         }
       } catch (e) { console.error('[JE] push alta:', e.message); }
     }
+    for (const c of creadas) await firmas.revisarFirmasTrasCambio(c.empleado_id, [c.fecha], req.user.id, 'Se cargó una jornada especial');
     res.json({ ok: true, viaje_id: viaje.id, jornadas: creadas });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -332,6 +334,7 @@ router.post('/:id/resolver', auth, soloAdmin, async (req, res) => {
           titulo: aprobado ? '✅ Jornada especial aprobada' : '❌ Jornada especial rechazada',
           cuerpo: `${nombreTipo(je)} del ${fechaTxt(je.fecha)}${observacion ? ' — ' + observacion : ''}` });
     } catch (e) { console.error('[JE] push resolver:', e.message); }
+    await firmas.revisarFirmasTrasCambio(je.empleado_id, [je.fecha], req.user.id, 'Se resolvió una jornada especial');
     res.json({ ok: true });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

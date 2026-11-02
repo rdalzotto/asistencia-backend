@@ -6,6 +6,7 @@ const multer = require('multer');
 const ausenciasSvc = require('../services/ausenciasService');
 const jornada = require('../services/jornadaService');
 const avisos  = require('../services/avisosEmpleadoService');
+const firmas  = require('../services/reporteFirmasService');
 
 // Certificados en memoria (van a la base, no al disco del servidor).
 const subirCertificado = multer({
@@ -67,6 +68,7 @@ router.post('/ausencia', auth, async (req, res) => {
       const n = push.notif.ausenciaPendiente(nombre, tipoTexto);
       await push.pushAdmins(req.user.empleadorId, n.titulo, n.cuerpo);
     }
+    if (d.empleadoId) await firmas.revisarFirmasTrasCambio(empleadoId, [d.fechaInicio, d.fechaFin], req.user.id, 'Se cargó una ausencia');
     res.json({ ok: true, ausencia: aus });
   } catch (err) {
     console.error('[LIC] Ausencia error:', err.message);
@@ -213,6 +215,7 @@ router.patch('/ausencia/:id', auth, soloAdmin, async (req, res) => {
     `, [estado, req.user.id, observacion||null, dias_habiles||null, descuenta_sueldo||false, req.params.id, req.user.empleadorId]);
     if (!aus) return res.status(404).json({ error: 'Ausencia no encontrada' });
     await push.avisarEmpleado(aus.empleado_id, avisos.ausenciaResuelta(aus), req.user.id);
+    await firmas.revisarFirmasTrasCambio(aus.empleado_id, [aus.fecha_inicio, aus.fecha_fin], req.user.id, 'Se resolvió una ausencia');
     res.json({ ok: true, ausencia: aus });
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
@@ -442,6 +445,7 @@ router.patch('/vacaciones/:id', auth, soloAdmin, async (req, res) => {
     `, [estado, req.user.id, req.params.id, req.user.empleadorId]);
     if (!vac) return res.status(404).json({ error: 'No encontrado' });
     await push.avisarEmpleado(vac.empleado_id, avisos.vacacionesResueltas(vac), req.user.id);
+    await firmas.revisarFirmasTrasCambio(vac.empleado_id, [vac.fecha_inicio, vac.fecha_fin], req.user.id, 'Se resolvieron vacaciones');
     res.json({ ok: true, vacacion: vac });
   } catch (err) { res.status(500).json({ error: 'Error interno' }); }
 });
@@ -608,6 +612,7 @@ router.patch('/compensatorio/:id', auth, soloAdmin, async (req, res) => {
 
     await client.query('COMMIT');
     await push.avisarEmpleado(solActualizada.empleado_id, avisos.compensatorioResuelto(solActualizada), req.user.id);
+    await firmas.revisarFirmasTrasCambio(solActualizada.empleado_id, [solActualizada.fecha_solicitada], req.user.id, 'Se resolvió un compensatorio');
     res.json({ ok: true, solicitud: solActualizada });
   } catch (err) {
     await client.query('ROLLBACK');

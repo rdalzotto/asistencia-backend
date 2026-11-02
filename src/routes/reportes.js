@@ -2,6 +2,8 @@ const router  = require('express').Router();
 const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 const push    = require('../services/pushService');
+const firmasSvc = require('../services/reporteFirmasService');
+const repSvc  = require('../services/reporteMensualService');
 const avisos  = require('../services/avisosEmpleadoService');
 const jwt     = require('jsonwebtoken');
 
@@ -335,7 +337,14 @@ router.post('/mensual/firmar', auth, async (req, res) => {
       WHERE empleado_id = $1 AND anio = $2 AND mes = $3
     `, [empleado_id, anio, mes]);
 
-    let snapshot = existente?.datos_snapshot;
+    // Si lo ya firmado no coincide con los datos de hoy (se corrigió algo y no
+    // se anuló a tiempo), esa firma se anula y se firma sobre los datos nuevos.
+    let fila = existente;
+    if (fila?.datos_snapshot) {
+      const actual = await construirReporteMensual(empleado_id, req.user.empleadorId, anio, mes);
+      if (actual && await firmasSvc.anularSiCambio(fila, actual, 'Los datos cambiaron antes de la nueva firma', req.user.id)) fila = null;
+    }
+    let snapshot = fila?.datos_snapshot;
     if (!snapshot) {
       snapshot = await construirReporteMensual(empleado_id, req.user.empleadorId, anio, mes);
       if (!snapshot) return res.status(404).json({ error: 'Empleado no encontrado' });
@@ -376,9 +385,74 @@ router.post('/mensual/firmar', auth, async (req, res) => {
       `, [empleado_id, req.user.empleadorId, anio, mes, JSON.stringify(snapshot), firma_svg, nombre_apellido, cargo || null, hash]));
     }
 
+    // Avisos: al admin cuando firma el empleado; al empleado cuando el admin cierra.
+    try {
+      if (tipo === 'empleado') {
+        const { rows: [emp] } = await db.query('SELECT nombre, apellido FROM public.empleados WHERE id = $1', [empleado_id]);
+        await push.pushAdmins(req.user.empleadorId, `✍️ ${emp?.nombre || ''} ${emp?.apellido || ''} firmó su reporte`.replace(/\s+/g, ' '),
+          `Reporte de ${repSvc.MESES[mes]} ${anio}: falta tu revisión y firma.`, { accion: 'ver_reportes' });
+      } else if (firmado.firmado_empleado_en) {
+        await push.avisarEmpleado(empleado_id, repSvc.textos.cerrado(Number(anio), Number(mes)), req.user.id);
+      }
+    } catch (e) { console.error('[REP] aviso de firma:', e.message); }
+
     res.json({ ok: true, firmado });
   } catch (err) {
     console.error('[REP] Firmar mensual error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+
+// ─── Firma del mes cerrado: estado, recordatorios y cartel (02/11/2026) ─────
+function periodoPedido(q) {
+  if (q.anio && q.mes) return { anio: Number(q.anio), mes: Number(q.mes) };
+  const hoy = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return repSvc.mesCerradoAnterior(hoy);
+}
+
+// GET /reportes/mensual/mi-pendiente — para el cartel del empleado en "Mi jornada"
+router.get('/mensual/mi-pendiente', auth, async (req, res) => {
+  if (!req.user.empleadoId) return res.json({ pendiente: null });
+  try {
+    const { anio, mes } = periodoPedido({});
+    const { rows: [emp] } = await db.query(`
+      SELECT e.fecha_ingreso, u.email FROM public.empleados e JOIN public.usuarios u ON u.id = e.usuario_id WHERE e.id = $1
+    `, [req.user.empleadoId]);
+    if (!emp || !firmasSvc.correspondeFirmar(emp, anio, mes, await fechaInicioRegistros(req.user.empleadorId)))
+      return res.json({ pendiente: null });
+    const est = await firmasSvc.estadoDe(req.user.empleadoId, anio, mes);
+    res.json({ pendiente: ['sin_firmar', 'incoherencia'].includes(est.estado) ? { anio, mes, ...est } : null });
+  } catch (err) {
+    console.error('[REP] mi-pendiente:', err.message);
+    res.json({ pendiente: null });
+  }
+});
+
+// GET /reportes/mensual/estado-firmas?anio=&mes= — lista del admin (Pendientes → Reportes)
+router.get('/mensual/estado-firmas', auth, soloAdmin, async (req, res) => {
+  try {
+    const { anio, mes } = periodoPedido(req.query);
+    res.json({ anio, mes, empleados: await firmasSvc.estadoDelEquipo(req.user.empleadorId, anio, mes) });
+  } catch (err) {
+    console.error('[REP] estado-firmas:', err.message);
+    res.status(500).json({ error: err.code === '42P01' ? 'Falta correr el SQL de firmas del reporte.' : 'Error interno' });
+  }
+});
+
+// POST /reportes/mensual/recordar — el admin le recuerda a un empleado que firme
+router.post('/mensual/recordar', auth, soloAdmin, async (req, res) => {
+  const { empleado_id, anio, mes } = req.body;
+  if (!empleado_id || !anio || !mes) return res.status(400).json({ error: 'Datos incompletos' });
+  try {
+    const { rows: [emp] } = await db.query('SELECT id FROM public.empleados WHERE id = $1 AND empleador_id = $2', [empleado_id, req.user.empleadorId]);
+    if (!emp) return res.status(404).json({ error: 'Empleado no encontrado' });
+    const est = await firmasSvc.estadoDe(empleado_id, anio, mes);
+    if (est.estado !== 'sin_firmar') return res.status(400).json({ error: 'Ese reporte no está pendiente de firma.' });
+    await push.avisarEmpleado(empleado_id, repSvc.textos.recordadoPorAdmin(Number(anio), Number(mes)), req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[REP] recordar:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -796,4 +870,5 @@ function calcularHorasDesdeMovimientos(movsDia) {
   return Math.round((totalMinutos / 60) * 100) / 100;
 }
 
+router.construirReporteMensual = construirReporteMensual;
 module.exports = router;
