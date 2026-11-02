@@ -3175,6 +3175,25 @@ async function cargarDashboardAdmin() {
 const AGENDA_MES = { adm: 0, emp: 0 }; // 0 = mes actual, 1 = siguiente...
 const MESES_AG = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 
+let AGENDA_ITEMS = {};
+
+// Anular un pedido cargado de más o que ya no va (no se borra: queda registrado).
+async function anularPedidoAgenda(origen, id) {
+  const i = (AGENDA_ITEMS.adm || []).find(x => x.origen === origen && x.id === id);
+  if (!i) return;
+  const cuando = i.desde === i.hasta ? i.desde.split('-').reverse().join('/') : i.desde.split('-').reverse().join('/') + ' al ' + i.hasta.split('-').reverse().join('/');
+  const motivo = prompt(`Anular: ${i.nombre} — ${i.tipo_texto.replace(/^\S+\s/, '')} (${cuando}).
+
+¿Por qué se anula? (ej: cargado dos veces)`);
+  if (motivo === null) return;
+  if (!motivo.trim()) return toast('Escribí por qué se anula', 'error');
+  try {
+    await api('/licencias/agenda/anular', { method: 'POST', body: JSON.stringify({ origen, id, motivo }) });
+    toast('Anulado. Se le avisó a ' + i.nombre.split(' ')[0] + '.', 'success', 4000);
+    cargarAgenda('adm');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 function moverAgenda(pref, delta) { AGENDA_MES[pref] += delta; cargarAgenda(pref); }
 
 async function cargarAgenda(pref) {
@@ -3190,6 +3209,7 @@ async function cargarAgenda(pref) {
   const f = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7);
   try {
     const { items } = await api(`/licencias/agenda?anio=${anio}&mes=${mes}`);
+    AGENDA_ITEMS[pref] = items;
     const hasta = i => i.origen === 'compensatorio' ? i.desde : i.hasta;
     const enDia = dia => items.filter(i => i.desde <= dia && dia <= hasta(i));
     // "Hoy no vienen / Mañana": solo mirando el mes actual.
@@ -3219,6 +3239,7 @@ async function cargarAgenda(pref) {
         <div style="text-align:right;white-space:nowrap">
           <div style="font-size:13px;font-weight:600">${fechas}</div>
           ${estado}
+          ${pref === 'adm' ? `<div><button onclick="anularPedidoAgenda('${i.origen}',${i.id})" style="background:none;border:none;color:var(--text3);font-size:11.5px;text-decoration:underline;cursor:pointer;padding:4px 0 0">✕ Anular</button></div>` : ''}
         </div>
       </div>`;
     }).join('') : `<p style="color:var(--text3);font-size:13px;text-align:center;padding:12px 0">Nadie pidió ausencias ni vacaciones para ${MESES_AG[mes - 1]}.</p>`;

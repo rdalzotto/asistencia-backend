@@ -409,6 +409,69 @@ router.get('/agenda', auth, async (req, res) => {
   }
 });
 
+// POST /licencias/agenda/anular — el admin anula un pedido cargado de más o
+// que ya no va (ej. Walter cargado dos veces). No se borra: queda con estado
+// "anulada" (o "rechazada" si la base no acepta "anulada"), se recalculan las
+// horas del mes y se avisa al empleado (02/11/2026).
+const TABLAS_ANULABLES = {
+  ausencia:      { tabla: 'ausencias', fechas: r => [r.fecha_inicio, r.fecha_fin || r.fecha_inicio], nombre: 'ausencia' },
+  vacaciones:    { tabla: 'vacaciones_tomadas', fechas: r => [r.fecha_inicio, r.fecha_fin], nombre: 'pedido de vacaciones' },
+  compensatorio: { tabla: 'solicitudes_compensatorio', fechas: r => [r.fecha_solicitada], nombre: 'franco compensatorio' },
+};
+router.post('/agenda/anular', auth, soloAdmin, async (req, res) => {
+  const { origen, id } = req.body;
+  const motivo = String(req.body.motivo || '').trim().slice(0, 300);
+  const t = TABLAS_ANULABLES[origen];
+  if (!t || !id) return res.status(400).json({ error: 'Datos incompletos' });
+  if (!motivo) return res.status(400).json({ error: 'Escribí por qué se anula (queda registrado).' });
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [fila] } = await client.query(
+      `SELECT * FROM public.${t.tabla} WHERE id = $1 AND empleador_id = $2 FOR UPDATE`, [id, req.user.empleadorId]);
+    if (!fila) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'No encontrado' }); }
+    if (['anulada', 'rechazada', 'cancelada'].includes(fila.estado)) {
+      await client.query('ROLLBACK'); return res.status(400).json({ error: 'Ya estaba anulado o rechazado.' });
+    }
+    let estado = 'anulada';
+    await client.query('SAVEPOINT anular');
+    try {
+      await client.query(`UPDATE public.${t.tabla} SET estado = 'anulada' WHERE id = $1`, [id]);
+    } catch (e) {
+      if (e.code !== '23514') throw e; // la base no acepta "anulada": queda como rechazada
+      await client.query('ROLLBACK TO SAVEPOINT anular');
+      await client.query(`UPDATE public.${t.tabla} SET estado = 'rechazada' WHERE id = $1`, [id]);
+      estado = 'rechazada';
+    }
+    if (origen === 'ausencia') {
+      await client.query(`UPDATE public.ausencias SET observacion_admin = CONCAT_WS(' / ', observacion_admin, $2::text) WHERE id = $1`,
+        [id, `Anulada por ${req.user.email} el ${new Date().toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}: ${motivo}`]);
+    }
+    // El compensatorio aprobado ya había descontado horas: se saca ese descuento.
+    if (origen === 'compensatorio' && fila.compensacion_id) {
+      await client.query('UPDATE public.solicitudes_compensatorio SET compensacion_id = NULL WHERE id = $1', [id]);
+      await client.query('DELETE FROM public.compensaciones WHERE id = $1', [fila.compensacion_id]);
+    }
+    const fechas = t.fechas(fila);
+    for (const f of new Set(fechas.map(x => (x instanceof Date ? x.toISOString() : String(x)).slice(0, 10))))
+      await jornada.actualizarBancoHoras(fila.empleado_id, f, client);
+    await client.query('COMMIT');
+    console.log(`[LIC] ${req.user.email} anuló ${origen} ${id} (${estado}): ${motivo}`);
+
+    const f0 = avisos.fechaCorta(fechas[0]);
+    await push.avisarEmpleado(fila.empleado_id, { tipo: 'pedido_anulado', accion: 'ver_ausencias',
+      titulo: `🗑️ Se anuló tu ${t.nombre} del ${f0}`, cuerpo: `Motivo: ${motivo}` }, req.user.id);
+    await firmas.revisarFirmasTrasCambio(fila.empleado_id, fechas, req.user.id, `Se anuló un pedido (${t.nombre}): ${motivo}`);
+    res.json({ ok: true, estado });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[LIC] anular:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /licencias/vacaciones — solicitar vacaciones
 router.post('/vacaciones', auth, async (req, res) => {
   const { fecha_inicio, fecha_fin, tipo, motivo, acuerdo_coordinado } = req.body;

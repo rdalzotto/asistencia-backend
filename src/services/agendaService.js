@@ -25,7 +25,7 @@ function diasCorridos(desde, hasta) {
 function armarAgenda(filas, { esAdmin, empleadoIdPropio }) {
   const items = [];
   for (const f of filas) {
-    if (f.estado === 'rechazada' || f.estado === 'cancelada') continue;
+    if (['rechazada', 'cancelada', 'anulada'].includes(f.estado)) continue;
     const propio = Number(f.empleado_id) === Number(empleadoIdPropio);
     if (!esAdmin && !propio && f.estado !== 'aprobada') continue;
     const detalle = esAdmin || propio;
