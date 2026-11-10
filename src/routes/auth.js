@@ -5,65 +5,177 @@ const db      = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 const crypto  = require('crypto');
 
+// ─── Usuario único de EXIT (10/11/2026) ───────────────────────────────────────
+// Cada persona de EXIT entra con el mismo usuario y contraseña en todos los
+// sistemas: los del Sistema de Gestión EXIT (ver services/identidadExit.js).
+// - usuarios.email_exit: el mail de EXIT de esa cuenta (lo carga la Dirección).
+// - usuarios.identidad_exit_en: cuándo pasó al usuario de EXIT. Desde ahí la
+//   contraseña vieja de AsistenciaAR deja de valer.
+// La primera vez que alguien entra con su usuario de antes, la app le avisa
+// que desde ahora usa el de EXIT y le pide elegir su contraseña (o, si ya la
+// tiene, confirmarla). Nada de su historia se pierde: sigue siendo la misma
+// cuenta, con los mismos fichajes, reportes y firmas.
+const identidad = require('../services/identidadExit');
+const SECRETO_PASO = () => `${process.env.JWT_SECRET}:pasar-a-exit`;
+
+async function emitirSesion(usuarioId) {
+  const { rows: [usr] } = await db.query('SELECT * FROM public.usuarios WHERE id = $1', [usuarioId]);
+  await db.query('UPDATE public.usuarios SET ultimo_acceso = NOW() WHERE id = $1', [usr.id]);
+
+  // Un admin también puede ser empleado (Rogelio, Andrea): si tiene un
+  // registro de empleado ACTIVO, el token lleva su empleadoId y la app le
+  // ofrece "Mi jornada" para fichar como cualquier empleado (28/09/2026).
+  const { rows: [emp] } = await db.query(
+    usr.rol === 'empleado'
+      ? 'SELECT * FROM public.empleados WHERE usuario_id = $1'
+      : 'SELECT * FROM public.empleados WHERE usuario_id = $1 AND activo = TRUE',
+    [usr.id]
+  );
+  const empleadoData = emp || null;
+
+  const token = jwt.sign(
+    {
+      id:          usr.id,
+      email:       usr.email,
+      rol:         usr.rol,
+      empleadorId: usr.empleador_id,
+      empleadoId:  empleadoData?.id || null,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+  return {
+    token,
+    rol:         usr.rol,
+    email:       usr.email,
+    empleadoId:  empleadoData?.id || null,
+    empleadorId: usr.empleador_id,
+    onboarding:  empleadoData?.onboarding_completo ?? true,
+    nombre:      empleadoData?.nombre || null,
+  };
+}
+
+/** Deja la cuenta atada al usuario de EXIT: mail de EXIT (si nadie más lo
+ *  usa), la contraseña de EXIT cifrada (para poder fichar aunque el Sistema
+ *  de Gestión no responda) y la fecha del paso. */
+async function vincular(usr, emailExit, password) {
+  const hash = await bcrypt.hash(password, 12);
+  await db.query(
+    `UPDATE public.usuarios
+        SET email = CASE WHEN NOT EXISTS (SELECT 1 FROM public.usuarios o WHERE o.email = $1 AND o.id <> $2) THEN $1 ELSE email END,
+            email_exit = $1,
+            password_hash = $3,
+            identidad_exit_en = COALESCE(identidad_exit_en, NOW())
+      WHERE id = $2`,
+    [emailExit, usr.id, hash]
+  );
+}
+
+async function buscarCuenta(email) {
+  const { rows } = await db.query(
+    `SELECT * FROM public.usuarios
+      WHERE activo = TRUE AND (email = $1 OR email_exit = $1)
+      ORDER BY (email_exit IS NOT DISTINCT FROM $1) DESC, id LIMIT 1`,
+    [email]
+  );
+  return rows[0] || null;
+}
+
+function pedirPaso(usr, persona) {
+  return {
+    pasarAExit: {
+      email: usr.email_exit,
+      nombre: persona.nombre,
+      // elegir: todavía tiene la contraseña temporal → elige la suya.
+      // confirmar: ya tiene contraseña de EXIT → la escribe para confirmar.
+      modo: persona.passwordTemporal ? 'elegir' : 'confirmar',
+      token: jwt.sign({ uid: usr.id, email: usr.email_exit }, SECRETO_PASO(), { expiresIn: '20m' }),
+    },
+  };
+}
+
 // ─── POST /auth/login ─────────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password)
+  const { email: emailCrudo, password } = req.body;
+  if (!emailCrudo || !password)
     return res.status(400).json({ error: 'Email y contraseña requeridos' });
+  const email = String(emailCrudo).toLowerCase().trim();
 
   try {
-    const { rows } = await db.query(
-      'SELECT u.* FROM public.usuarios u WHERE u.email = $1 AND u.activo = TRUE',
-      [email.toLowerCase().trim()]
-    );
-    const usr = rows[0];
-    if (!usr) return res.status(401).json({ error: 'Credenciales inválidas' });
+    const v = await identidad.verificar(email, password, req.ip);
 
-    const ok = await bcrypt.compare(password, usr.password_hash);
-    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
-
-    await db.query(
-      'UPDATE public.usuarios SET ultimo_acceso = NOW() WHERE id = $1',
-      [usr.id]
-    );
-
-    // Un admin también puede ser empleado (Rogelio, Andrea): si tiene un
-    // registro de empleado ACTIVO, el token lleva su empleadoId y la app le
-    // ofrece "Mi jornada" para fichar como cualquier empleado (28/09/2026).
-    let empleadoData = null;
-    {
-      const { rows: [emp] } = await db.query(
-        usr.rol === 'empleado'
-          ? 'SELECT * FROM public.empleados WHERE usuario_id = $1'
-          : 'SELECT * FROM public.empleados WHERE usuario_id = $1 AND activo = TRUE',
-        [usr.id]
-      );
-      empleadoData = emp || null;
+    // 1. Usuario y contraseña de EXIT correctos.
+    if (v.estado === 'ok') {
+      const emailExit = String(v.usuario.email).toLowerCase();
+      const usr = await buscarCuenta(emailExit);
+      if (!usr) return res.status(403).json({ error: 'Tu usuario de EXIT todavía no está habilitado en AsistenciaAR. Avisale a la administración.' });
+      if (v.usuario.passwordTemporal) {
+        // Entró con la contraseña temporal: que elija la suya.
+        return res.json(pedirPaso({ ...usr, email_exit: emailExit }, { nombre: v.usuario.nombre, passwordTemporal: true }));
+      }
+      await vincular(usr, emailExit, password);
+      return res.json(await emitirSesion(usr.id));
     }
 
-    const token = jwt.sign(
-      {
-        id:          usr.id,
-        email:       usr.email,
-        rol:         usr.rol,
-        empleadorId: usr.empleador_id,
-        empleadoId:  empleadoData?.id || null,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '30d' }
-    );
+    // 2. El Sistema de Gestión dijo que no: puede ser su usuario de antes.
+    if (v.estado === 'invalida') {
+      const usr = await buscarCuenta(email);
+      const viejaOk = usr && !usr.identidad_exit_en && (await bcrypt.compare(password, usr.password_hash));
+      if (!viejaOk) {
+        const mensaje = v.mensaje || (usr && usr.identidad_exit_en ? 'Credenciales inválidas. Usá tu usuario y contraseña de EXIT.' : 'Credenciales inválidas');
+        return res.status(401).json({ error: mensaje });
+      }
+      if (usr.email_exit) {
+        const p = await identidad.persona(usr.email_exit).catch(() => null);
+        if (p && p.activo) return res.json(pedirPaso(usr, p));
+      }
+      // Sin usuario de EXIT asignado (o todavía no creado): entra como siempre.
+      return res.json(await emitirSesion(usr.id));
+    }
 
-    res.json({
-      token,
-      rol:        usr.rol,
-      email:      usr.email,
-      empleadoId: empleadoData?.id || null,
-      empleadorId: usr.empleador_id,
-      onboarding: empleadoData?.onboarding_completo ?? true,
-      nombre:     empleadoData?.nombre || null,
-    });
+    // 3. El Sistema de Gestión no responde: se verifica acá, con la última
+    //    contraseña conocida, para que nadie se quede sin fichar.
+    const usr = await buscarCuenta(email);
+    if (!usr || !(await bcrypt.compare(password, usr.password_hash)))
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    return res.json(await emitirSesion(usr.id));
   } catch (err) {
     console.error('[AUTH] Login error:', err.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ─── POST /auth/pasar-a-exit ──────────────────────────────────────────────────
+// Segundo paso del primer ingreso con el usuario de antes: elige (o confirma)
+// su contraseña de EXIT y queda con un solo usuario para todo.
+router.post('/pasar-a-exit', async (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password) return res.status(400).json({ error: 'Datos incompletos' });
+  let paso;
+  try {
+    paso = jwt.verify(token, SECRETO_PASO());
+  } catch {
+    return res.status(401).json({ error: 'Pasó mucho tiempo. Volvé a ingresar con tu usuario de antes.' });
+  }
+  try {
+    const { rows: [usr] } = await db.query('SELECT * FROM public.usuarios WHERE id = $1 AND activo = TRUE', [paso.uid]);
+    if (!usr) return res.status(401).json({ error: 'Cuenta inexistente o inactiva' });
+    const p = await identidad.persona(paso.email).catch(() => null);
+    if (!p || !p.activo) return res.status(503).json({ error: 'No se pudo consultar el Sistema de Gestión EXIT. Probá en unos minutos.' });
+
+    if (p.passwordTemporal) {
+      if (String(password).length < 10) return res.status(400).json({ error: 'La contraseña tiene que tener al menos 10 caracteres' });
+      const r = await identidad.establecerPassword(paso.email, password);
+      if (!r.ok) return res.status(r.status === 400 ? 400 : 502).json({ error: r.error });
+    } else {
+      const v = await identidad.verificar(paso.email, password, req.ip);
+      if (v.estado !== 'ok')
+        return res.status(401).json({ error: v.mensaje || 'Esa no es tu contraseña del Sistema de Gestión EXIT.' });
+    }
+    await vincular(usr, paso.email, password);
+    res.json(await emitirSesion(usr.id));
+  } catch (err) {
+    console.error('[AUTH] Pasar a EXIT:', err.message);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -233,8 +345,11 @@ router.post('/cambiar-password', auth, async (req, res) => {
 
   try {
     const { rows: [usr] } = await db.query(
-      'SELECT password_hash FROM public.usuarios WHERE id = $1', [req.user.id]
+      'SELECT password_hash, identidad_exit_en FROM public.usuarios WHERE id = $1', [req.user.id]
     );
+    // Con el usuario único de EXIT, la contraseña se cambia en un solo lugar.
+    if (usr.identidad_exit_en)
+      return res.status(409).json({ error: 'Tu contraseña es la de EXIT: cambiala en el Sistema de Gestión EXIT y vale para todos los sistemas.' });
     const ok = await bcrypt.compare(password_actual, usr.password_hash);
     if (!ok) return res.status(401).json({ error: 'Contraseña actual incorrecta' });
 

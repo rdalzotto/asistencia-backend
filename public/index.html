@@ -191,10 +191,31 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:1
     <p id="login-sistema-subtitulo">Registro de asistencia, visitas y reserva de recursos</p>
   </div>
   <div class="login-card">
-    <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="tu@email.com" autocomplete="off"></div>
+    <div class="form-group"><label>Usuario de EXIT (email)</label><input type="email" id="login-email" placeholder="nombre@exitsa.com.ar" autocomplete="off"></div>
     <div class="form-group"><label>Contraseña</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="new-password"></div>
     <button class="btn btn-primary" onclick="doLogin()" id="btn-login">Ingresar</button>
-    <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text3)">Si es tu primer acceso, abrí el link que te enviaron por WhatsApp.</p>
+    <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text3)">Usá el mismo usuario y contraseña de EXIT que en el Sistema de Gestión y EXIT Riesgos. Si todavía tenés tu usuario de antes, ingresá con ese y la app te guía.</p>
+  </div>
+</div>
+
+<!-- PASO AL USUARIO ÚNICO DE EXIT (10/11/2026) -->
+<div class="modal-overlay" id="modal-pasar-exit">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Desde hoy, un solo usuario para todo EXIT</div>
+    <p style="margin-bottom:12px">Hola <b id="pasar-exit-nombre"></b>. A partir de ahora entrás a AsistenciaAR, al Sistema de Gestión EXIT y a EXIT Riesgos con el mismo usuario y la misma contraseña:</p>
+    <p style="font-size:18px;font-weight:700;margin-bottom:16px" id="pasar-exit-email"></p>
+    <p style="margin-bottom:12px;color:var(--text2)">Tus fichajes, reportes y firmas quedan como están: no se pierde nada.</p>
+    <div id="pasar-exit-elegir">
+      <p style="margin-bottom:8px">Elegí tu contraseña de EXIT (al menos 10 caracteres). Guardala bien: es la de todos los sistemas.</p>
+      <div class="form-group"><label>Contraseña nueva</label><input type="password" id="pasar-exit-pass" autocomplete="new-password"></div>
+      <div class="form-group"><label>Repetila</label><input type="password" id="pasar-exit-pass2" autocomplete="new-password"></div>
+    </div>
+    <div id="pasar-exit-confirmar" style="display:none">
+      <p style="margin-bottom:8px">Ya tenés contraseña de EXIT: es la que usás en el Sistema de Gestión. Escribila para confirmar.</p>
+      <div class="form-group"><label>Contraseña de EXIT</label><input type="password" id="pasar-exit-actual" autocomplete="current-password"></div>
+    </div>
+    <button class="btn btn-primary" id="btn-pasar-exit" onclick="confirmarPasoExit()">Listo, entrar</button>
   </div>
 </div>
 
@@ -1435,6 +1456,15 @@ async function doLogin() {
   btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
   try {
     const data = await api('/auth/login', {method:'POST', body:JSON.stringify({email, password:pass})});
+    if (data.pasarAExit) { mostrarPasoExit(data.pasarAExit); return; }
+    await entrarConSesion(data);
+  } catch(e) { toast(e.message || 'Error de conexión', 'error'); }
+  finally { btn.innerHTML = 'Ingresar'; btn.disabled = false; }
+}
+
+// Sesión recibida del servidor (login o paso al usuario de EXIT).
+async function entrarConSesion(data) {
+  {
     STATE.token = data.token; STATE.rol = data.rol;
     STATE.empleadoId = data.empleadoId; STATE.empleadorId = data.empleadorId;
     STATE.nombre = data.nombre; STATE.apellido = data.apellido || '';
@@ -1444,8 +1474,45 @@ async function doLogin() {
     try { await ARStorage.set('ar_token_backup', {token: data.token, rol: data.rol}); } catch {}
     if (!data.onboarding) { mostrarScreen('onboarding'); return; }
     irADashboard(data.rol);
+  }
+}
+
+// Primer ingreso con el usuario de antes: pasa al usuario único de EXIT.
+let PASO_EXIT = null;
+function mostrarPasoExit(paso) {
+  PASO_EXIT = paso;
+  document.getElementById('pasar-exit-nombre').textContent = paso.nombre || '';
+  document.getElementById('pasar-exit-email').textContent = paso.email;
+  document.getElementById('pasar-exit-elegir').style.display = paso.modo === 'elegir' ? '' : 'none';
+  document.getElementById('pasar-exit-confirmar').style.display = paso.modo === 'confirmar' ? '' : 'none';
+  ['pasar-exit-pass', 'pasar-exit-pass2', 'pasar-exit-actual'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('modal-pasar-exit').classList.add('active');
+}
+
+async function confirmarPasoExit() {
+  if (!PASO_EXIT) return;
+  let password;
+  if (PASO_EXIT.modo === 'elegir') {
+    password = document.getElementById('pasar-exit-pass').value;
+    const repetida = document.getElementById('pasar-exit-pass2').value;
+    if (password.length < 10) return toast('La contraseña tiene que tener al menos 10 caracteres', 'error');
+    if (password !== repetida) return toast('Las dos contraseñas no coinciden', 'error');
+  } else {
+    password = document.getElementById('pasar-exit-actual').value;
+    if (!password) return toast('Escribí tu contraseña de EXIT', 'error');
+  }
+  const btn = document.getElementById('btn-pasar-exit');
+  btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true;
+  try {
+    const data = await api('/auth/pasar-a-exit', {method:'POST', body:JSON.stringify({token: PASO_EXIT.token, password})});
+    document.getElementById('modal-pasar-exit').classList.remove('active');
+    document.getElementById('login-email').value = PASO_EXIT.email;
+    document.getElementById('login-pass').value = '';
+    toast('Listo: desde ahora entrás con ' + PASO_EXIT.email, 'success', 6000);
+    PASO_EXIT = null;
+    await entrarConSesion(data);
   } catch(e) { toast(e.message || 'Error de conexión', 'error'); }
-  finally { btn.innerHTML = 'Ingresar'; btn.disabled = false; }
+  finally { btn.innerHTML = 'Listo, entrar'; btn.disabled = false; }
 }
 
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
