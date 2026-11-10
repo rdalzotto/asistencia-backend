@@ -18,8 +18,8 @@ ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS identidad_exit_en TIMESTAMPTZ;
 --    Los mails tienen que ser EXACTAMENTE los del Sistema de Gestión EXIT.
 UPDATE usuarios SET email_exit = 'rdalzotto@exitsa.com.ar' WHERE id = 1;
 UPDATE usuarios SET email_exit = 'adiazvidal@exitsa.com.ar' WHERE id = (SELECT usuario_id FROM empleados WHERE id = 9);
-UPDATE usuarios SET email_exit = 'MAIL_DE_ROBERTO@exitsa.com.ar' WHERE id = (SELECT usuario_id FROM empleados WHERE id = 8);
-UPDATE usuarios SET email_exit = 'MAIL_DE_WALTER@exitsa.com.ar' WHERE id = (SELECT usuario_id FROM empleados WHERE id = 11);
+UPDATE usuarios SET email_exit = 'rpereyra@exitsa.com.ar' WHERE id = (SELECT usuario_id FROM empleados WHERE id = 8);
+UPDATE usuarios SET email_exit = 'wott@exitsa.com.ar' WHERE id = (SELECT usuario_id FROM empleados WHERE id = 11);
 
 -- 4) Verificación: Rogelio, Andrea, Roberto y Walter con su mail de EXIT en email_exit
 SELECT u.id, u.email, u.email_exit, u.identidad_exit_en, e.nombre FROM usuarios u LEFT JOIN empleados e ON e.usuario_id = u.id WHERE u.activo ORDER BY u.id;
