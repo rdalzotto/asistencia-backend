@@ -7,6 +7,21 @@ const { auth, soloAdmin } = require('../middleware/auth');
 // El logo del cliente (destino-logo) usa destinos_externos.logo_url, que en la
 // base de producción nunca se creó: todas las consultas que la nombraban
 // fallaban (26/11/2026). Se crea sola si falta, como hace recursos.js.
+// Valoración del riesgo de los desvíos igual a EXIT Riesgos (matriz 5x5,
+// 26/11/2026). El nivel lo recalcula el servidor con la misma regla.
+const Riesgo5x5 = require('../../public/js/riesgo5x5.js');
+for (const sql of [
+  'ALTER TABLE public.constancia_desvios ADD COLUMN IF NOT EXISTS probabilidad INTEGER',
+  'ALTER TABLE public.constancia_desvios ADD COLUMN IF NOT EXISTS severidad_valor INTEGER',
+  'ALTER TABLE public.constancia_desvios ADD COLUMN IF NOT EXISTS puntaje INTEGER',
+  'ALTER TABLE public.constancia_desvios ADD COLUMN IF NOT EXISTS nivel_riesgo TEXT',
+]) db.query(sql).catch((e) => console.error('[CONST] no se pudo asegurar la valoración del desvío:', e.message));
+function riesgoDesvio(d) {
+  const r = Riesgo5x5.evaluar(d.probabilidad, d.severidad_valor);
+  if (!r) return { probabilidad: null, severidad_valor: null, puntaje: null, nivel_riesgo: null, severidad: d.severidad || 'MEDIA' };
+  return { probabilidad: Number(d.probabilidad), severidad_valor: Number(d.severidad_valor), puntaje: r.puntaje, nivel_riesgo: r.nivel.codigo, severidad: Riesgo5x5.severidadAnterior(r.nivel.codigo) };
+}
+
 db.query('ALTER TABLE public.destinos_externos ADD COLUMN IF NOT EXISTS logo_url TEXT')
   .catch((e) => console.error('[CONST] no se pudo asegurar destinos_externos.logo_url:', e.message));
 
@@ -424,8 +439,8 @@ router.post('/:id/desvios', auth, async (req, res) => {
       for (let i = 0; i < desvios.length; i++) {
         const d = desvios[i];
         if (!d.titulo) continue;
-        await db.query(`INSERT INTO public.constancia_desvios (constancia_id, numero, titulo, severidad, estado, normativa_incumplida, descripcion, accion_correctiva, plazo, foto_1, foto_2) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-          [req.params.id, i+1, d.titulo, d.severidad||'MEDIA', d.estado||'pendiente', d.normativa_incumplida||null, d.descripcion||null, d.accion_correctiva||null, d.plazo||null, d.foto_1||null, d.foto_2||null]);
+        await db.query(`INSERT INTO public.constancia_desvios (constancia_id, numero, titulo, severidad, estado, normativa_incumplida, descripcion, accion_correctiva, plazo, foto_1, foto_2, probabilidad, severidad_valor, puntaje, nivel_riesgo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [req.params.id, i+1, d.titulo, riesgoDesvio(d).severidad, d.estado||'pendiente', d.normativa_incumplida||null, d.descripcion||null, d.accion_correctiva||null, d.plazo||null, d.foto_1||null, d.foto_2||null, riesgoDesvio(d).probabilidad, riesgoDesvio(d).severidad_valor, riesgoDesvio(d).puntaje, riesgoDesvio(d).nivel_riesgo]);
       }
     }
     res.json({ ok: true });
@@ -538,8 +553,8 @@ router.post('/:id/guardar-completo', auth, async (req, res) => {
       for (let i=0; i<desvios.length; i++) {
         const d = desvios[i];
         if (!d.titulo) continue;
-        await db.query(`INSERT INTO public.constancia_desvios (constancia_id,numero,titulo,severidad,estado,normativa_incumplida,descripcion,accion_correctiva,plazo,foto_1,foto_2) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-          [req.params.id, i+1, d.titulo, d.severidad||'MEDIA', d.estado||'pendiente', d.normativa_incumplida||null, d.descripcion||null, d.accion_correctiva||null, d.plazo||null, d.foto_1||null, d.foto_2||null]);
+        await db.query(`INSERT INTO public.constancia_desvios (constancia_id,numero,titulo,severidad,estado,normativa_incumplida,descripcion,accion_correctiva,plazo,foto_1,foto_2,probabilidad,severidad_valor,puntaje,nivel_riesgo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          [req.params.id, i+1, d.titulo, riesgoDesvio(d).severidad, d.estado||'pendiente', d.normativa_incumplida||null, d.descripcion||null, d.accion_correctiva||null, d.plazo||null, d.foto_1||null, d.foto_2||null, riesgoDesvio(d).probabilidad, riesgoDesvio(d).severidad_valor, riesgoDesvio(d).puntaje, riesgoDesvio(d).nivel_riesgo]);
       }
     }
     res.json({ ok: true });

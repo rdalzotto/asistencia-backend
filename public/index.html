@@ -16,6 +16,7 @@
 <script src="js/vendor/jspdf.umd.min.js"></script>
 <script src="js/vendor/html2canvas.min.js"></script>
 <script src="js/ar-storage.js"></script>
+<script src="js/riesgo5x5.js"></script>
 <script src="js/planillas.js"></script>
 <script src="js/viajes.js"></script>
 <style>
@@ -7397,7 +7398,7 @@ function renderPasoTipo() {
   ${tipos.map(t=>itemRow(t.id,'tipo_visita','var(--accent)',!!sT.find(s=>s.item_id==t.id),t.texto,`toggleSeleccion('tipo_visita',${t.id},'',this.checked)`)).join('')}
   <button onclick="agregarItemNuevo('tipo_visita')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-bottom:16px">+ Agregar tipo no listado</button>
   <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;text-transform:uppercase">Frentes de trabajo</div>
-  ${frentes.map(f=>{const sel=sF.find(s=>s.item_id==f.id); return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:2px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;flex:1"><input type="checkbox" value="${f.id}" ${sel?'checked':''} onchange="toggleSeleccion('frente_trabajo',${f.id},'',this.checked);renderConstanciaPaso()" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px;flex:1">${f.texto}</span></label>${_botonesItem(f.id,'frente_trabajo',f.texto)}</div>${sel?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select onchange="actualizarFrenteExtra(${f.id},'nivel_riesgo',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"><option value="">Nivel riesgo</option><option value="Bajo riesgo" ${sel.nivel_riesgo==='Bajo riesgo'?'selected':''}>🟢 Bajo</option><option value="Riesgo moderado" ${sel.nivel_riesgo==='Riesgo moderado'?'selected':''}>🟡 Moderado</option><option value="Alto riesgo" ${sel.nivel_riesgo==='Alto riesgo'?'selected':''}>🔴 Alto</option><option value="Riesgo crítico" ${sel.nivel_riesgo==='Riesgo crítico'?'selected':''}>⛔ Crítico</option></select><input type="text" placeholder="Normativa..." value="${sel.normativa_frente||''}" onchange="actualizarFrenteExtra(${f.id},'normativa_frente',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"></div>`:''}</div>`;}).join('')}
+  ${frentes.map(f=>{const sel=sF.find(s=>s.item_id==f.id); return `<div style="background:var(--bg3);border-radius:8px;padding:10px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:2px"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;flex:1"><input type="checkbox" value="${f.id}" ${sel?'checked':''} onchange="toggleSeleccion('frente_trabajo',${f.id},'',this.checked);renderConstanciaPaso()" style="width:16px;height:16px;accent-color:var(--accent)"><span style="font-size:13px;flex:1">${f.texto}</span></label>${_botonesItem(f.id,'frente_trabajo',f.texto)}</div>${sel?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select onchange="actualizarFrenteExtra(${f.id},'nivel_riesgo',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"><option value="">Nivel riesgo</option><option value="Riesgo bajo" ${['Riesgo bajo','Bajo riesgo'].includes(sel.nivel_riesgo)?'selected':''}>🟢 Bajo</option><option value="Riesgo medio" ${['Riesgo medio','Riesgo moderado'].includes(sel.nivel_riesgo)?'selected':''}>🟡 Medio</option><option value="Riesgo alto" ${['Riesgo alto','Alto riesgo'].includes(sel.nivel_riesgo)?'selected':''}>🟠 Alto</option><option value="Riesgo crítico" ${sel.nivel_riesgo==='Riesgo crítico'?'selected':''}>⛔ Crítico</option></select><input type="text" placeholder="Normativa..." value="${sel.normativa_frente||''}" onchange="actualizarFrenteExtra(${f.id},'normativa_frente',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px;font-size:12px"></div>`:''}</div>`;}).join('')}
   <button onclick="agregarItemNuevo('frente_trabajo')" style="background:none;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;width:100%;margin-top:4px">+ Agregar frente no listado</button>`;
 }
 
@@ -7523,17 +7524,22 @@ function renderPasoDesvios() {
 }
 
 function renderFilaDesvio(d,i) {
-  return `<div style="background:var(--bg3);border:1px solid ${d.severidad==='ALTA'?'rgba(255,82,82,0.4)':d.severidad==='MEDIA'?'rgba(255,215,64,0.3)':'var(--border)'};border-radius:8px;padding:12px;margin-bottom:10px">
+  return `<div style="background:var(--bg3);border:1px solid ${colorBordeDesvio(d)};border-radius:8px;padding:12px;margin-bottom:10px">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span style="font-size:13px;font-weight:700">Desvío N° ${i+1}</span><button onclick="quitarDesvio(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">✕</button></div>
   <input type="text" placeholder="Título del desvío" value="${d.titulo||''}" oninput="actualizarDesvio(${i},'titulo',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:13px;margin-bottom:8px">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
-    <select onchange="actualizarDesvio(${i},'severidad',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px"><option value="BAJA" ${d.severidad==='BAJA'?'selected':''}>🟢 Baja</option><option value="MEDIA" ${d.severidad==='MEDIA'?'selected':''}>🟡 Media</option><option value="ALTA" ${d.severidad==='ALTA'?'selected':''}>🔴 Alta</option></select>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:4px">Valoración del riesgo (igual que en EXIT Riesgos)</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px">
+    ${selectRiesgoDesvio(i,'probabilidad',d.probabilidad)}
+    ${selectRiesgoDesvio(i,'severidad_valor',d.severidad_valor)}
+  </div>
+  <div id="riesgo-desvio-${i}" style="margin-bottom:8px">${htmlNivelDesvio(d)}</div>
+  <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">
     <select onchange="actualizarDesvio(${i},'estado',this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px"><option value="pendiente" ${d.estado==='pendiente'?'selected':''}>⏳ Pendiente</option><option value="resuelto_lugar" ${d.estado==='resuelto_lugar'?'selected':''}>✅ Resuelto</option><option value="en_gestion" ${d.estado==='en_gestion'?'selected':''}>🔄 En gestión</option></select>
   </div>
   <input type="text" placeholder="Normativa incumplida" value="${d.normativa_incumplida||''}" oninput="actualizarDesvio(${i},'normativa_incumplida',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;margin-bottom:6px">
   <textarea placeholder="Descripción del desvío..." oninput="actualizarDesvio(${i},'descripcion',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;min-height:60px;resize:vertical;margin-bottom:6px">${d.descripcion||''}</textarea>
   <textarea placeholder="Acción correctiva requerida..." oninput="actualizarDesvio(${i},'accion_correctiva',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;min-height:50px;resize:vertical;margin-bottom:6px">${d.accion_correctiva||''}</textarea>
-  <input type="text" placeholder="Plazo de corrección" value="${d.plazo||''}" oninput="actualizarDesvio(${i},'plazo',this.value)" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;margin-bottom:8px">
+  <input type="text" placeholder="Plazo de corrección" value="${d.plazo||''}" oninput="actualizarDesvio(${i},'plazo',this.value);CONST_STATE.desvios[${i}]._plazoAuto=false" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px;margin-bottom:8px">
   <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Fotos evidencia (máx. 2)</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
     <div>${d.foto_1?`<img src="${d.foto_1}" style="width:100%;height:80px;object-fit:cover;border-radius:6px;margin-bottom:4px">`:''}<label style="display:block;background:var(--bg);border:1px dashed var(--border);border-radius:6px;padding:8px;text-align:center;font-size:11px;color:var(--text2);cursor:pointer">📷 Foto 1<input type="file" accept="image/*" capture="environment" style="display:none" onchange="subirFotoDesvio(${i},1,this)"></label></div>
@@ -7834,9 +7840,72 @@ function quitarItemEquipo(equipoIdx, itemIdx) {
   guardarConstanciaTrasAccion();
 }
 
-function agregarDesvio(){CONST_STATE.desvios.push({titulo:'',severidad:'MEDIA',estado:'pendiente',normativa_incumplida:'',descripcion:'',accion_correctiva:'',plazo:'',foto_1:null,foto_2:null});document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');guardarConstanciaTrasAccion();}
+function agregarDesvio(){CONST_STATE.desvios.push({titulo:'',severidad:'MEDIA',probabilidad:null,severidad_valor:null,puntaje:null,nivel_riesgo:null,estado:'pendiente',normativa_incumplida:'',descripcion:'',accion_correctiva:'',plazo:'',foto_1:null,foto_2:null});document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');guardarConstanciaTrasAccion();}
 function quitarDesvio(i){CONST_STATE.desvios.splice(i,1);document.getElementById('ci-desvios-lista').innerHTML=CONST_STATE.desvios.map((d,i)=>renderFilaDesvio(d,i)).join('');guardarConstanciaTrasAccion();}
 function actualizarDesvio(i,campo,valor){CONST_STATE.desvios[i][campo]=valor;}
+
+// ── Valoración del riesgo del desvío = matriz 5x5 de EXIT Riesgos (26/11/2026) ──
+// El técnico elige probabilidad y severidad (con las descripciones de EXIT
+// Riesgos); el nivel, el puntaje, la acción y el plazo salen solos. La gravedad
+// vieja (BAJA/MEDIA/ALTA) se sigue completando para lo que todavía la usa.
+function selectRiesgoDesvio(i, campo, valor) {
+  const R = window.Riesgo5x5;
+  const escala = campo === 'probabilidad' ? R.PROBABILIDAD : R.SEVERIDAD;
+  const titulo = campo === 'probabilidad' ? 'Probabilidad' : 'Severidad';
+  return `<select onchange="cambiarRiesgoDesvio(${i},'${campo}',this.value)" title="${titulo}" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px;font-size:12px">
+    <option value="">${titulo}…</option>
+    ${escala.map(n => `<option value="${n.valor}" ${Number(valor)===n.valor?'selected':''} title="${escHtml(n.descripcion)}">${n.valor} · ${n.nombre}</option>`).join('')}
+  </select>`;
+}
+function evaluarDesvio(d) { return window.Riesgo5x5 ? window.Riesgo5x5.evaluar(d.probabilidad, d.severidad_valor) : null; }
+function colorBordeDesvio(d) {
+  const r = evaluarDesvio(d);
+  if (r) return r.nivel.fondo;
+  return d.severidad==='ALTA'?'rgba(255,82,82,0.4)':d.severidad==='MEDIA'?'rgba(255,215,64,0.3)':'var(--border)';
+}
+function htmlNivelDesvio(d) {
+  const R = window.Riesgo5x5;
+  const r = evaluarDesvio(d);
+  if (!r) {
+    const ayuda = '<div style="font-size:11px;color:var(--text3)">Elegí probabilidad y severidad: el nivel sale solo, con la misma regla del análisis de riesgos.</div>';
+    return d.severidad && !d.probabilidad ? `<div style="font-size:11px;color:var(--text3)">Gravedad cargada antes: ${escHtml(d.severidad)}.</div>` + ayuda : ayuda;
+  }
+  const p = R.PROBABILIDAD[d.probabilidad - 1], sv = R.SEVERIDAD[d.severidad_valor - 1];
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+    <span style="background:${r.nivel.fondo};color:${r.nivel.texto};font-weight:700;font-size:12px;padding:4px 10px;border-radius:12px">Riesgo ${r.nivel.nombre} · ${d.probabilidad}×${d.severidad_valor} = ${r.puntaje}</span>
+    <span style="font-size:11px;color:var(--text2)">${escHtml(r.nivel.accion)}</span></div>
+    ${r.piso?`<div style="font-size:11px;color:var(--text3);margin-top:3px">${escHtml(r.piso)}</div>`:''}
+    <div style="font-size:11px;color:var(--text3);margin-top:3px">${p?escHtml(p.nombre+': '+p.descripcion):''}<br>${sv?escHtml(sv.nombre+': '+sv.descripcion):''}</div>`;
+}
+// En el PDF: el nivel del desvío con la regla de EXIT Riesgos, o la gravedad
+// vieja si el desvío se cargó antes del 26/11/2026.
+function pdfRiesgoDesvio(dev) {
+  const r = evaluarDesvio(dev);
+  if (!r) return { borde: dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc', html: dev.severidad ? `<div style="font-size:11px;color:#666;margin:3px 0">Gravedad: ${dev.severidad}</div>` : '' };
+  const R = window.Riesgo5x5;
+  return {
+    borde: r.nivel.fondo,
+    html: `<div style="margin:4px 0;font-size:11px"><span style="background:${r.nivel.fondo};color:${r.nivel.texto};font-weight:700;padding:2px 8px;border-radius:10px">Riesgo ${r.nivel.nombre}</span>
+      &nbsp;Probabilidad ${dev.probabilidad} (${R.PROBABILIDAD[dev.probabilidad-1].nombre}) × Severidad ${dev.severidad_valor} (${R.SEVERIDAD[dev.severidad_valor-1].nombre}) = ${r.puntaje}
+      <div style="color:#444;margin-top:2px">${r.nivel.accion}${r.piso?' '+r.piso:''}</div></div>`,
+  };
+}
+
+function cambiarRiesgoDesvio(i, campo, valor) {
+  const d = CONST_STATE.desvios[i];
+  d[campo] = valor ? Number(valor) : null;
+  const r = evaluarDesvio(d);
+  d.puntaje = r ? r.puntaje : null;
+  d.nivel_riesgo = r ? r.nivel.codigo : null;
+  if (r) {
+    d.severidad = window.Riesgo5x5.severidadAnterior(r.nivel.codigo);
+    // Plazo: se sugiere el del nivel si está vacío o si lo había puesto el sistema.
+    if (!d.plazo || d._plazoAuto) { d.plazo = window.Riesgo5x5.plazoSugerido(r.nivel); d._plazoAuto = true; }
+  }
+  const lista = document.getElementById('ci-desvios-lista');
+  if (lista) lista.innerHTML = CONST_STATE.desvios.map((x, k) => renderFilaDesvio(x, k)).join('');
+  guardarConstanciaTrasAccion();
+}
 
 async function subirFotoDesvio(idx,nro,input) {
   const file=input.files[0]; if(!file) return;
@@ -8630,7 +8699,7 @@ function generarHTMLConstancia() {
   const tipos = getTextos('tipo_visita');
   const frentes = (CONST_STATE.selecciones.frente_trabajo||[]).map(s => {
     const item = (CONST_STATE.itemsMenu.frente_trabajo||[]).find(i=>i.id==s.item_id);
-    return (item ? item.texto : s.texto_libre||'') + (s.nivel_riesgo?' ['+s.nivel_riesgo+']':'') + (s.normativa_frente?' — '+s.normativa_frente:'');
+    return (item ? item.texto : s.texto_libre||'') + (s.nivel_riesgo?' [Riesgo '+((window.Riesgo5x5&&window.Riesgo5x5.nivelDeFrente(s.nivel_riesgo))?window.Riesgo5x5.nivelDeFrente(s.nivel_riesgo).nombre.toLowerCase():s.nivel_riesgo)+']':'') + (s.normativa_frente?' — '+s.normativa_frente:'');
   }).filter(Boolean);
   const actividades = getTextos('actividad');
   const normativas = getTextos('normativa');
@@ -8701,7 +8770,7 @@ function generarHTMLConstancia() {
     ${(CONST_STATE.acciones.verificaciones||CONST_STATE.acciones.indicaciones||CONST_STATE.acciones.charla||CONST_STATE.acciones.documentacion)?`<div class="seccion"><h2>5. Acciones del asesor</h2><table>${CONST_STATE.acciones.verificaciones?`<tr><th>Verificaciones</th><td>${CONST_STATE.acciones.verificaciones}</td></tr>`:''} ${CONST_STATE.acciones.indicaciones?`<tr><th>Indicaciones</th><td>${CONST_STATE.acciones.indicaciones}</td></tr>`:''} ${CONST_STATE.acciones.charla?`<tr><th>Charla / capacitación</th><td>${CONST_STATE.acciones.charla}</td></tr>`:''} ${CONST_STATE.acciones.documentacion?`<tr><th>Documentación revisada</th><td>${CONST_STATE.acciones.documentacion}</td></tr>`:''}</table></div>`:''}
     ${normativas.length?`<div class="seccion"><h2>6. Marco normativo</h2><div>${normativas.map(n=>`<span class="tag">⚖ ${n}</span>`).join('')}</div></div>`:''}
     ${d.observaciones_generales?`<div class="seccion"><h2>7. Observaciones generales</h2><p style="border:1px solid #ddd;border-radius:6px;padding:7px 10px;background:#fafafa;margin:0">${d.observaciones_generales}</p></div>`:''}
-    ${CONST_STATE.desvios.length?`<h2>8. Desvíos detectados</h2>${CONST_STATE.desvios.map((dev,i)=>`<div class="seccion" style="border:1px solid ${dev.severidad==='ALTA'?'#e74c3c':dev.severidad==='MEDIA'?'#f39c12':'#ccc'};border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-weight:700;font-size:12.5px">Desvío N° ${i+1}: ${dev.titulo}</div><div style="font-size:11px;color:#666;margin:3px 0">Severidad: ${dev.severidad} · Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:5px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:3px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:3px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}</div>`).join('')}`:''}
+    ${CONST_STATE.desvios.length?`<h2>8. Desvíos detectados</h2>${CONST_STATE.desvios.map((dev,i)=>`<div class="seccion" style="border:1px solid ${pdfRiesgoDesvio(dev).borde};border-radius:6px;padding:10px 12px;margin-bottom:8px;page-break-inside:avoid"><div style="font-weight:700;font-size:12.5px">Desvío N° ${i+1}: ${dev.titulo}</div>${pdfRiesgoDesvio(dev).html}<div style="font-size:11px;color:#666;margin:3px 0">Estado: ${dev.estado}${dev.normativa_incumplida?' · Normativa: '+dev.normativa_incumplida:''}</div>${dev.descripcion?`<p style="margin:5px 0;font-size:12px">${dev.descripcion}</p>`:''} ${dev.accion_correctiva?`<p style="margin:3px 0;font-size:12px"><strong>Acción correctiva:</strong> ${dev.accion_correctiva}</p>`:''} ${dev.plazo?`<p style="margin:3px 0;font-size:12px"><strong>Plazo:</strong> ${dev.plazo}</p>`:''}${(dev.foto_1||dev.foto_2)?`<div style="display:flex;gap:8px;margin-top:6px">${[dev.foto_1,dev.foto_2].filter(Boolean).map(f=>`<img src="${f}" style="width:48%;max-height:220px;object-fit:contain;border:1px solid #ddd;border-radius:4px">`).join('')}</div>`:''}</div>`).join('')}`:''}
     <div class="seccion"><h2>9. Firmas</h2>
     <div class="firma-row">${firmaBloque(fC,'Responsable del cliente')}${firmaBloque(fT,'Asesor EXIT S.A.')}${firmaBloque(fE,'Responsable del servicio EXIT S.A.')}</div></div>
     <div style="text-align:center;font-size:10px;color:#aaa;margin-top:12px;border-top:1px solid #eee;padding-top:6px">Documento generado por AsistenciaAR — EXIT S.A. — ${fecha}</div>
