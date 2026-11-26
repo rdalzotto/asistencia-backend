@@ -1739,6 +1739,8 @@ async function autoLoginInterno() {
   // constancias con sus firmas, visitas) — antes las constancias solo se
   // subían cuando la señal "volvía", no si la app ya arrancaba conectada.
   if (navigator.onLine) setTimeout(() => sincronizarTodoPendiente(), 1500);
+  // Y se guardan las listas de la constancia, para poder hacerla sin señal.
+  if (navigator.onLine) setTimeout(() => precargarConstanciasSinSenal(), 3000);
   STATE.token = token; STATE.rol = rol;
   try {
     const me = await api('/auth/me');
@@ -5573,9 +5575,24 @@ async function abrirModalNuevaVisitaEmp() {
 
 let _destinosCache=[];
 
+// Copia en el dispositivo de las listas que usa la constancia de visita, para
+// hacerla sin señal en tablets y celulares (26/11/2026). Se llama al abrir la
+// app con señal; si falla, queda la copia anterior.
+async function precargarConstanciasSinSenal() {
+  try { await ARStorage.set('cache_destinos', await api('/config/destinos')); } catch {}
+  try { await ARStorage.set('cache_constancia_items', await api('/constancias/items')); } catch {}
+}
+
 async function cargarDestinosCache() {
   if (_destinosCache.length) return;
-  try { _destinosCache = await api('/config/destinos'); } catch { _destinosCache=[]; }
+  // Con señal se guarda una copia en el dispositivo; sin señal se usa esa
+  // copia (constancias sin conexión, 26/11/2026).
+  try {
+    _destinosCache = await api('/config/destinos');
+    try { await ARStorage.set('cache_destinos', _destinosCache); } catch {}
+  } catch {
+    try { _destinosCache = (await ARStorage.get('cache_destinos')) || []; } catch { _destinosCache = []; }
+  }
 }
 
 async function buscarEmpresaDestino(query) {
@@ -7113,7 +7130,14 @@ async function abrirConstancia(visitaId, visitaDatos) {
     }
   }
 
-  try { CONST_STATE.itemsMenu = await api('/constancias/items'); } catch { CONST_STATE.itemsMenu = {}; }
+  // Listas de la constancia (tipo de visita, frentes, actividades, normativa):
+  // con señal se guarda una copia; sin señal se usa la última (26/11/2026).
+  try {
+    CONST_STATE.itemsMenu = await api('/constancias/items');
+    try { await ARStorage.set('cache_constancia_items', CONST_STATE.itemsMenu); } catch {}
+  } catch {
+    try { CONST_STATE.itemsMenu = (await ARStorage.get('cache_constancia_items')) || {}; } catch { CONST_STATE.itemsMenu = {}; }
+  }
   try {
     // Visita instantánea retomada: se abre la constancia ya empezada en vez de crear otra.
     const data = visitaDatos?.constanciaId
