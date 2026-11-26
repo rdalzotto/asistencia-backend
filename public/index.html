@@ -7085,6 +7085,9 @@ async function confirmarConstanciaEspontanea() {
 }
 
 async function abrirConstancia(visitaId, visitaDatos) {
+  // Mientras sale una constancia programada (se arma su PDF en segundo plano)
+  // no se abre otra, para no mezclar los datos de las dos.
+  if (window._enviandoProgramadas) return toast('Esperá unos segundos: se está enviando una constancia programada', 'info', 4000);
   // Ocultar navegación inferior para que los botones Anterior/Siguiente no queden tapados
   document.getElementById('nav-empleado')?.style.setProperty('display','none','important');
   document.getElementById('nav-admin')?.style.setProperty('display','none','important');
@@ -8191,6 +8194,10 @@ async function generarPDFConstancia() {
 }
 
 async function compartirConstancia() {
+  // Sin número (hecha sin señal, todavía no se subió) o sin señal: el email se
+  // programa y sale solo al volver la señal, ya numerado (26/11/2026).
+  const _idEnvio = CONST_STATE.constanciaId;
+  if (String(_idEnvio).startsWith('offline_') || !navigator.onLine) return abrirEnvioProgramado(String(_idEnvio).startsWith('offline_'));
   // Mostrar menú de opciones de envío
   const existing = document.getElementById('modal-compartir-constancia');
   if (existing) existing.remove();
@@ -8408,6 +8415,112 @@ async function sincronizarPdfsConstancias() {
       if (esErrorDeConexion(e)) return;
       console.warn('[constancia] PDF final no aceptado:', e.message);
     }
+  }
+}
+
+// ── ENVÍO PROGRAMADO (sin señal) — 26/11/2026 ───────────────────────────────
+// Sin señal la constancia no tiene número (lo da el servidor) y el email no
+// puede salir. El técnico carga los emails del cliente y, cuando vuelve la
+// señal, la constancia se sube, recibe su número, se arma el PDF numerado, se
+// manda por email desde la cuenta de EXIT y queda guardada en la carpeta del
+// cliente (guardarPdfFinalConstancia). Si estaba sin número, no se deja
+// compartir ni descargar: el cliente nunca recibe una constancia sin número.
+function abrirEnvioProgramado(sinNumero) {
+  document.getElementById('modal-envio-programado')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'modal-envio-programado';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:800;display:flex;align-items:flex-end;justify-content:center;';
+  const botonWhatsapp = sinNumero ? '' : '<button id="envio-prog-whatsapp" style="margin-top:12px;width:100%;background:none;border:1px solid var(--border);border-radius:10px;color:var(--text2);font-size:13px;padding:10px;cursor:pointer">📲 Compartir ahora por WhatsApp (ya tiene número)</button>';
+  overlay.innerHTML = `
+    <div style="background:var(--bg2);border-radius:16px 16px 0 0;padding:20px 16px 32px;width:100%;max-width:480px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px">📨 Enviar cuando haya señal</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:14px">${sinNumero
+        ? 'La constancia se hizo sin señal y todavía <b>no tiene número</b>. Por eso no se puede compartir ni descargar todavía.'
+        : 'No hay señal para mandar el email ahora.'}
+        Cargá los emails del cliente: cuando la tablet tenga señal, la constancia se manda sola por email, con su número, y queda guardada en la carpeta del cliente.</div>
+      <div class="form-group"><label>Emails del cliente (separados por coma)</label>
+        <textarea id="envio-prog-emails" rows="2" style="width:100%;box-sizing:border-box" placeholder="responsable@empresa.com, otro@empresa.com"></textarea></div>
+      <div class="form-group"><label>Mensaje (opcional)</label>
+        <textarea id="envio-prog-msg" rows="2" style="width:100%;box-sizing:border-box" placeholder="Estimado/a, adjunto la constancia de visita correspondiente."></textarea></div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button class="btn btn-secondary" style="flex:1" id="envio-prog-cancelar">Cancelar</button>
+        <button class="btn btn-primary" style="flex:1" id="envio-prog-ok">Programar envío</button>
+      </div>
+      ${botonWhatsapp}
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('envio-prog-cancelar').onclick = () => overlay.remove();
+  document.getElementById('envio-prog-ok').onclick = () => confirmarEnvioProgramado();
+  const w = document.getElementById('envio-prog-whatsapp');
+  if (w) w.onclick = () => { overlay.remove(); compartirNativoConstancia(); };
+}
+
+async function confirmarEnvioProgramado() {
+  const emails = (document.getElementById('envio-prog-emails')?.value || '').split(/[,;\s]+/).map(e => e.trim()).filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  if (!emails.length) return toast('Cargá al menos un email válido', 'error');
+  const mensaje = document.getElementById('envio-prog-msg')?.value?.trim() || '';
+  const id = CONST_STATE.constanciaId;
+  try {
+    // La constancia completa queda guardada en la tablet antes de programar.
+    guardarDatosPasoActual();
+    await guardarConstanciaActual().catch(() => {});
+    await ARStorage.set('constancia_envio_pendiente_' + id, { constanciaId: id, destinatarios: emails, mensaje, programadoEn: new Date().toISOString(), intentos: 0 });
+    document.getElementById('modal-envio-programado')?.remove();
+    toast('Envío programado ✓ — sale solo a ' + emails.join(', ') + ' cuando haya señal', 'success', 7000);
+  } catch (e) { toast('No se pudo programar el envío: ' + e.message, 'error'); }
+}
+
+async function enviarConstanciasProgramadas() {
+  if (window._enviandoProgramadas || !navigator.onLine) return;
+  // No se arma un PDF en segundo plano mientras hay una constancia abierta: se reintenta después.
+  if (document.getElementById('modal-constancia')?.classList.contains('active')) return;
+  let claves = [];
+  try { claves = await ARStorage.keys('constancia_envio_pendiente_'); } catch { return; }
+  if (!claves.length) return;
+  window._enviandoProgramadas = true;
+  const previo = CONST_STATE;
+  const header = document.getElementById('const-header-numero');
+  const headerPrevio = header ? header.textContent : '';
+  try {
+    for (const clave of claves) {
+      const p = await ARStorage.get(clave).catch(() => null);
+      if (!p) { await ARStorage.del(clave).catch(() => {}); continue; }
+      if (String(p.constanciaId).startsWith('offline_')) continue; // todavía no se subió
+      try {
+        CONST_STATE = {constanciaId:p.constanciaId,visitaId:null,pasoActual:0,datos:{},selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},personal:[],equipos:[],acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},desvios:[],firmas:{},itemsMenu:{},offline:false,pendienteSync:false};
+        const c = await api('/constancias/' + p.constanciaId);
+        if (c.estado === 'enviada') { await ARStorage.del(clave); continue; }
+        if (header) header.textContent = c.numero_informe || '';
+        const { pdf, nombre, numero } = await generarPDFConstancia();
+        const pdfBase64 = pdf.output('datauristring').split(',')[1];
+        const res = await fetch('/api/email/enviar', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + STATE.token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pdfBase64, nombreArchivo: nombre, destinatarios: p.destinatarios,
+            asunto: 'Constancia de visita — ' + numero,
+            cuerpoHtml: '<p>' + escHtml(p.mensaje || 'Estimado/a, adjunto la constancia de visita correspondiente.') + '</p>',
+            tipo: 'constancia', referenciaId: p.constanciaId,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('el servidor respondió ' + res.status));
+        await guardarPdfFinalConstancia(pdfBase64, 'EMAIL', p.destinatarios);
+        await marcarConstanciaEnviada();
+        await ARStorage.del(clave);
+        toast('Constancia ' + numero + ' enviada a ' + p.destinatarios.join(', ') + ' ✓', 'success', 8000);
+      } catch (e) {
+        if (esErrorDeConexion(e)) return;
+        p.intentos = (p.intentos || 0) + 1;
+        await ARStorage.set(clave, p).catch(() => {});
+        console.error('[envío programado]', clave, e);
+        if (p.intentos <= 3) toast('⚠ No se pudo enviar la constancia programada: ' + e.message + '. Se reintenta; si sigue, avisá al administrador.', 'error', 9000);
+      }
+    }
+  } finally {
+    CONST_STATE = previo;
+    if (header) header.textContent = headerPrevio;
+    window._enviandoProgramadas = false;
   }
 }
 
@@ -8631,6 +8744,14 @@ async function sincronizarConstanciasPendientes() {
         await api('/constancias/'+id+'/guardar-completo', {method:'POST', body:payload(st)});
         await enviarFirmasConstancia(id, st.firmas, st._firmaDestinoId);
         await ARStorage.del(key);
+        // Envío programado sin señal: ahora que tiene número, pasa al ID real.
+        try {
+          const envio = await ARStorage.get('constancia_envio_pendiente_' + st.constanciaId);
+          if (envio) {
+            await ARStorage.set('constancia_envio_pendiente_' + id, { ...envio, constanciaId: id });
+            await ARStorage.del('constancia_envio_pendiente_' + st.constanciaId);
+          }
+        } catch {}
         // Si esa misma constancia sigue abierta en pantalla, pasa a usar el ID
         // real — si no, el próximo guardado la volvería a crear duplicada.
         if (typeof CONST_STATE !== 'undefined' && CONST_STATE.constanciaId === st.constanciaId) CONST_STATE.constanciaId = id;
@@ -8666,6 +8787,7 @@ async function sincronizarTodoPendiente() {
   await procesarReservasPendientes();
   await sincronizarConstanciasPendientes();
   await sincronizarPdfsConstancias();
+  await enviarConstanciasProgramadas();
   if (typeof procesarVisitasPendientes === 'function') await procesarVisitasPendientes();
   if (window.Planillas) await Planillas.sincronizarPendientes();
   if (window.Viajes) await Viajes.sincronizarPendientes();
