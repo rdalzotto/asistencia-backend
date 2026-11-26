@@ -1,7 +1,14 @@
 const router = require('express').Router();
 const constanciaPdf = require('../services/constanciaPdf');
+
 const db = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
+
+// El logo del cliente (destino-logo) usa destinos_externos.logo_url, que en la
+// base de producción nunca se creó: todas las consultas que la nombraban
+// fallaban (26/11/2026). Se crea sola si falta, como hace recursos.js.
+db.query('ALTER TABLE public.destinos_externos ADD COLUMN IF NOT EXISTS logo_url TEXT')
+  .catch((e) => console.error('[CONST] no se pudo asegurar destinos_externos.logo_url:', e.message));
 
 router.get('/items', auth, async (req, res) => {
   try {
@@ -204,7 +211,11 @@ router.get('/', auth, async (req, res) => {
       JOIN public.empleados e ON e.id = c.empleado_id
       LEFT JOIN public.visitas v ON v.id = c.visita_id
       LEFT JOIN public.visita_destinos vd ON vd.visita_id = v.id AND vd.orden = 1
-      LEFT JOIN public.destinos_externos d ON d.id = vd.destino_id
+      LEFT JOIN LATERAL (
+        SELECT dx.id, dx.nombre, dx.logo_url FROM public.destinos_externos dx
+         WHERE dx.empleador_id = c.empleador_id AND lower(trim(dx.nombre)) = lower(trim(vd.cliente_nombre))
+         ORDER BY dx.id LIMIT 1
+      ) d ON true
       ${where} ORDER BY c.creado_en DESC
     `, params);
     res.json(rows);
@@ -223,7 +234,11 @@ router.get('/:id', auth, async (req, res) => {
       JOIN public.empleados e ON e.id = c.empleado_id
       LEFT JOIN public.visitas v ON v.id = c.visita_id
       LEFT JOIN public.visita_destinos vd ON vd.visita_id = v.id AND vd.orden = 1
-      LEFT JOIN public.destinos_externos d ON d.id = vd.destino_id
+      LEFT JOIN LATERAL (
+        SELECT dx.id, dx.nombre, dx.logo_url FROM public.destinos_externos dx
+         WHERE dx.empleador_id = c.empleador_id AND lower(trim(dx.nombre)) = lower(trim(vd.cliente_nombre))
+         ORDER BY dx.id LIMIT 1
+      ) d ON true
       WHERE c.id = $1 AND c.empleador_id = $2
     `, [req.params.id, req.user.empleadorId]);
     if (!c) return res.status(404).json({ error: 'No encontrada' });

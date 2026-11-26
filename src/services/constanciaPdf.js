@@ -69,8 +69,9 @@ async function lugarDe(constanciaId, empleadorId) {
     `SELECT c.numero_informe, c.establecimiento_sector,
             to_char(c.creado_en AT TIME ZONE 'America/Argentina/Buenos_Aires', 'YYYY-MM-DD') AS fecha,
             trim(coalesce(e.nombre, '') || ' ' || coalesce(e.apellido, '')) AS tecnico,
-            (SELECT d.crm_establecimiento_id FROM public.visita_destinos vd JOIN public.destinos_externos d ON d.id = vd.destino_id
-              WHERE vd.visita_id = c.visita_id ORDER BY vd.orden LIMIT 1) AS crm_de_visita
+            (SELECT d.crm_establecimiento_id FROM public.visita_destinos vd
+               JOIN public.destinos_externos d ON d.empleador_id = c.empleador_id AND lower(trim(d.nombre)) = lower(trim(vd.cliente_nombre))
+              WHERE vd.visita_id = c.visita_id AND d.crm_establecimiento_id IS NOT NULL ORDER BY vd.orden, d.id LIMIT 1) AS crm_de_visita
        FROM public.constancias c JOIN public.empleados e ON e.id = c.empleado_id
       WHERE c.id = $1 AND c.empleador_id = $2`,
     [constanciaId, empleadorId]

@@ -291,9 +291,11 @@ router.get('/paquete', auth, async (req, res) => {
       filtro = `AND (v.empleado_id = $2 OR EXISTS (SELECT 1 FROM public.visita_acompanantes va WHERE va.visita_id = v.id AND va.empleado_id = $2))`;
     }
     const { rows: dest } = await db.query(`
-      SELECT DISTINCT vd.destino_id FROM public.visitas v
+      SELECT DISTINCT dx.id AS destino_id FROM public.visitas v
       JOIN public.visita_destinos vd ON vd.visita_id = v.id
-      WHERE v.empleador_id = $1 AND vd.destino_id IS NOT NULL
+      -- visita_destinos guarda el nombre del cliente, no el id del destino (26/11/2026)
+      JOIN public.destinos_externos dx ON dx.empleador_id = v.empleador_id AND lower(trim(dx.nombre)) = lower(trim(vd.cliente_nombre))
+      WHERE v.empleador_id = $1
         AND v.fecha BETWEEN (CURRENT_DATE - 1) AND (CURRENT_DATE + 7) ${filtro}`, params);
     const contextos = [];
     for (const d of dest) contextos.push(await contextoDestino(req.user.empleadorId, d.destino_id));
