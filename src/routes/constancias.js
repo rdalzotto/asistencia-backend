@@ -261,8 +261,14 @@ router.post('/', auth, async (req, res) => {
       }
     }
     const anio = new Date().getFullYear();
-    const { rows: [cnt] } = await db.query(`SELECT COUNT(*) FROM public.constancias WHERE empleador_id = $1 AND EXTRACT(YEAR FROM creado_en) = $2`, [req.user.empleadorId, anio]);
-    const nro = String(parseInt(cnt.count) + 1).padStart(4, '0');
+    // El número sigue al más alto usado en el año (no a la cantidad): si se
+    // borran constancias, no se repite un número ya entregado a un cliente
+    // (26/11/2026, borrado de las constancias de prueba).
+    const { rows: [ult] } = await db.query(
+      `SELECT COALESCE(MAX(CAST(substring(numero_informe FROM '^VIS-[0-9]{4}-([0-9]+)$') AS INTEGER)), 0) AS ultimo
+         FROM public.constancias WHERE empleador_id = $1 AND numero_informe LIKE $2`,
+      [req.user.empleadorId, `VIS-${anio}-%`]);
+    const nro = String(parseInt(ult.ultimo) + 1).padStart(4, '0');
     const numero_informe = `VIS-${anio}-${nro}`;
     const { rows: [c] } = await db.query(`INSERT INTO public.constancias (visita_id, empleado_id, empleador_id, numero_informe, estado) VALUES ($1, $2, $3, $4, 'borrador') RETURNING *`, [visita_id || null, empleadoId, req.user.empleadorId, numero_informe]);
     res.json({ ok: true, constancia: c });
