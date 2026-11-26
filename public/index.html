@@ -8490,6 +8490,11 @@ async function enviarConstanciasProgramadas() {
         CONST_STATE = {constanciaId:p.constanciaId,visitaId:null,pasoActual:0,datos:{},selecciones:{tipo_visita:[],frente_trabajo:[],actividad:[],normativa:[]},personal:[],equipos:[],acciones:{verificaciones:'',indicaciones:'',charla:'',documentacion:''},desvios:[],firmas:{},itemsMenu:{},offline:false,pendienteSync:false};
         const c = await api('/constancias/' + p.constanciaId);
         if (c.estado === 'enviada') { await ARStorage.del(clave); continue; }
+        // Los textos de las listas (tipo de visita, frentes, actividades,
+        // normativa) salen de los ítems: sin ellos esas secciones del PDF
+        // quedaban vacías (prueba del 26/11/2026).
+        try { CONST_STATE.itemsMenu = await api('/constancias/items'); }
+        catch { CONST_STATE.itemsMenu = (await ARStorage.get('cache_constancia_items').catch(() => null)) || {}; }
         if (header) header.textContent = c.numero_informe || '';
         const { pdf, nombre, numero } = await generarPDFConstancia();
         const pdfBase64 = pdf.output('datauristring').split(',')[1];
