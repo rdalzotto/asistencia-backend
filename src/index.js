@@ -15,6 +15,9 @@ app.use(cors({
   origin: allowedOrigins.length ? allowedOrigins : '*',
   credentials: true,
 }));
+// El PDF final de una constancia (copia legal, 26/11/2026) puede pesar más:
+// solo esa ruta acepta hasta 40 MB. El resto sigue en 10 MB.
+app.use(/^\/api\/constancias\/\d+\/pdf$/, express.json({ limit: '40mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 

@@ -8377,6 +8377,40 @@ async function editarGrupoEmail(grupoId, nombreActual, emailsActuales) {
   } catch(e) { toast('Error al actualizar', 'error'); }
 }
 
+// Copia legal del PDF final (26/11/2026): el mismo PDF que recibió el cliente va
+// al servidor, que lo guarda con su huella y lo pone en la carpeta del cliente
+// en el Sistema de Gestión. Sin señal queda pendiente y se manda al volver.
+async function guardarPdfFinalConstancia(pdf, medio, destinatarios) {
+  const id = CONST_STATE.constanciaId;
+  if (!id || String(id).startsWith('offline_')) return;
+  try {
+    const pdfBase64 = typeof pdf === 'string' ? pdf : pdf.output('datauristring').split(',')[1];
+    const carga = { pdfBase64, medio, destinatarios: destinatarios || [] };
+    try {
+      await api('/constancias/' + id + '/pdf', { method: 'POST', body: JSON.stringify(carga) });
+    } catch (e) {
+      await ARStorage.set('constancia_pdf_pendiente_' + id + '_' + Date.now(), { id, ...carga });
+      if (!esErrorDeConexion(e)) console.warn('[constancia] PDF final pendiente:', e.message);
+    }
+  } catch (e) { console.warn('[constancia] No se pudo guardar el PDF final:', e.message); }
+}
+
+async function sincronizarPdfsConstancias() {
+  let claves = [];
+  try { claves = await ARStorage.keys('constancia_pdf_pendiente_'); } catch { return; }
+  for (const clave of claves) {
+    const p = await ARStorage.get(clave).catch(() => null);
+    if (!p) { await ARStorage.del(clave).catch(() => {}); continue; }
+    try {
+      await api('/constancias/' + p.id + '/pdf', { method: 'POST', body: JSON.stringify({ pdfBase64: p.pdfBase64, medio: p.medio, destinatarios: p.destinatarios }) });
+      await ARStorage.del(clave);
+    } catch (e) {
+      if (esErrorDeConexion(e)) return;
+      console.warn('[constancia] PDF final no aceptado:', e.message);
+    }
+  }
+}
+
 async function marcarConstanciaEnviada() {
   const id = CONST_STATE.constanciaId;
   if (!id || String(id).startsWith('offline_')) return;
@@ -8413,6 +8447,7 @@ async function confirmarEnvioEmailConstancia() {
     const data = await res.json();
     if (res.ok) {
       toast('Email enviado a ' + _emailDestinatarios.join(', ') + ' ✓', 'success');
+      await guardarPdfFinalConstancia(pdfBase64, 'EMAIL', _emailDestinatarios);
       await marcarConstanciaEnviada();
     } else toast('Error al enviar: ' + (data.error || 'desconocido'), 'error');
   } catch(e) {
@@ -8431,6 +8466,7 @@ async function compartirNativoConstancia() {
     if (navigator.share && navigator.canShare && navigator.canShare({files:[file]})) {
       await navigator.share({title:'Constancia de visita — '+numero, files:[file]});
       // Marcar como enviada solo si el usuario completó el share (no canceló)
+      await guardarPdfFinalConstancia(pdf, 'COMPARTIR');
       await marcarConstanciaEnviada();
     } else {
       // Fallback: descargar
@@ -8441,6 +8477,7 @@ async function compartirNativoConstancia() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       toast('PDF descargado ✓', 'success');
+      await guardarPdfFinalConstancia(pdf, 'DESCARGA');
       await marcarConstanciaEnviada();
     }
   } catch(e) {
@@ -8628,6 +8665,7 @@ async function sincronizarTodoPendiente() {
   await procesarMovimientosPendientes();
   await procesarReservasPendientes();
   await sincronizarConstanciasPendientes();
+  await sincronizarPdfsConstancias();
   if (typeof procesarVisitasPendientes === 'function') await procesarVisitasPendientes();
   if (window.Planillas) await Planillas.sincronizarPendientes();
   if (window.Viajes) await Viajes.sincronizarPendientes();

@@ -65,4 +65,25 @@ async function editarContactoPlanta(contactoId, datos, usuarioExterno) {
   return r;
 }
 
-module.exports = { establecimientos, crearContactoPlanta, editarContactoPlanta, invalidarCache };
+// Guarda un PDF en la carpeta de documentos del cliente en el CRM (constancias
+// de visita, 26/11/2026). Ver services/constanciaPdf.js. Con más tiempo de
+// espera: el PDF puede pesar varios MB.
+async function enviarDocumento(body) {
+  const { url, token } = config();
+  const resp = await fetch(url + '/documentos-cliente', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000),
+  });
+  let datos = null;
+  try { datos = await resp.json(); } catch { /* sin cuerpo */ }
+  if (!resp.ok) {
+    const err = new Error(datos?.error || `CRM respondió ${resp.status}`);
+    err.status = resp.status;
+    throw err;
+  }
+  return datos;
+}
+
+module.exports = { establecimientos, crearContactoPlanta, editarContactoPlanta, invalidarCache, enviarDocumento };

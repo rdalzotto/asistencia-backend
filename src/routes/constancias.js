@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const constanciaPdf = require('../services/constanciaPdf');
 const db = require('../db');
 const { auth, soloAdmin } = require('../middleware/auth');
 
@@ -275,6 +276,38 @@ router.post('/', auth, async (req, res) => {
   } catch (err) {
     console.error('[CONST] create error:', err.message);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ── PDF final de la constancia (copia legal, 26/11/2026) ─────────────────────
+// La app lo manda cuando la constancia queda enviada (email, compartir o
+// descargar): es el mismo PDF que recibió el cliente. Se guarda con su huella
+// y va a la carpeta de documentos del cliente en el CRM (services/constanciaPdf.js).
+// body: { pdfBase64, medio: 'EMAIL'|'COMPARTIR'|'DESCARGA', destinatarios: [] }
+router.post('/:id/pdf', auth, async (req, res) => {
+  try {
+    const { rows: [c] } = await db.query(
+      'SELECT id, empleado_id FROM public.constancias WHERE id = $1 AND empleador_id = $2',
+      [req.params.id, req.user.empleadorId]
+    );
+    if (!c) return res.status(404).json({ error: 'No encontrada' });
+    if (req.user.rol !== 'admin' && c.empleado_id !== req.user.empleadoId) return res.status(403).json({ error: 'No es tu constancia' });
+    const { rows: [e] } = await db.query('SELECT nombre, apellido FROM public.empleados WHERE id = $1', [req.user.empleadoId || 0]);
+    const enviadoPor = e ? `${e.nombre || ''} ${e.apellido || ''}`.trim() : null;
+    const r = await constanciaPdf.guardar({
+      constanciaId: c.id,
+      empleadorId: req.user.empleadorId,
+      pdfBase64: req.body?.pdfBase64,
+      medio: req.body?.medio,
+      destinatarios: req.body?.destinatarios,
+      enviadoPor,
+    });
+    await db.query(`UPDATE public.constancias SET estado = 'enviada', actualizado_en = NOW() WHERE id = $1 AND estado <> 'enviada'`, [c.id]);
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    console.error('[CONST] pdf error:', err.message);
+    res.status(500).json({ error: 'No se pudo guardar el PDF' });
   }
 });
 
